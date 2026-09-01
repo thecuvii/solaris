@@ -1,0 +1,51 @@
+{
+  "albedo": {
+    "asset": "Mars Viking Global Color Mosaic 925m",
+    "credit": "NASA/JPL/USGS",
+    "license": "Public domain; no use constraints",
+    "modifications": [
+      "downsampled the photometrically normalized global color mosaic in sRGB",
+      "preserved the source's -180..180 degree positive-east longitude convention",
+      "progressively removed longitudinal detail at the equirectangular poles",
+      "repaired the periodic longitude color seam over 64 pixels",
+      "did not derive height, normal, or roughness from color"
+    ],
+    "output": "mars-albedo.webp",
+    "outputDimensions": [4096, 2048],
+    "outputSha256": "276d80d96efb1d79d664fd62a885032f1c6266063f9daf94708dd8a929794e1d",
+    "sourceDimensions": [23059, 11530],
+    "sourceNoData": 0,
+    "sourceSha256": "5b3c6bea36cec0ec65b9ce5927db6b1c555c5fae60a227c774f9fcaecdf5bb33",
+    "sourceUrl": "https://planetarymaps.usgs.gov/mosaic/Mars_Viking_ClrMosaic_global_925m.tif"
+  },
+  "mola": {
+    "asset": "MOLA MEGDR 16 pixels per degree topography",
+    "channelContract": {
+      "rg": "upward tangent-space normal, octahedral encoded",
+      "ba": "unsigned 16-bit normalized height, big byte then little byte"
+    },
+    "credit": "NASA/GSFC/MOLA Science Team/PDS Geosciences Node",
+    "doi": "10.17189/1519460",
+    "heightRangeMeters": [-8177.0, 21171.0],
+    "licenseGuidance": "NASA Images and Media Usage Guidelines",
+    "modifications": [
+      "decoded signed big-endian int16 topography in meters",
+      "rotated 0..360 east longitude to -180..180 east for albedo alignment",
+      "resampled height to 4096x2048 before metric spherical derivatives",
+      "converged longitude at both poles before deriving normals",
+      "generated seam-wrapped tangent normals without displacing the silhouette",
+      "packed actual MOLA normal and 16-bit height into linear RGBA8 PNG"
+    ],
+    "output": "mars-normal-height.png",
+    "outputDimensions": [4096, 2048],
+    "outputSha256": "b138186a721a8168c64d39b172f3ea8edc7eefc2e60357e0dcacaf7702fa07a2",
+    "sourceDataType": "SignedMSB2 meters",
+    "sourceDimensions": [5760, 2880],
+    "sourceSha256": "d18d9b9ab8c5516d02e157dd2cde0f1d0d160c21940e953ba22391269a545e7b",
+    "sourceUrl": "https://pds-geosciences.wustl.edu/mgs/urn-nasa-pds-mgs_mola_topography_derived/meg016/megt90n000eb.img",
+    "sourceXmlSha256": "4ba8d77f2c72f80d4c554213ab6e24b44c861fff2e25433db095a19cc0a6f660",
+    "sourceXmlUrl": "https://pds-geosciences.wustl.edu/mgs/urn-nasa-pds-mgs_mola_topography_derived/meg016/megt90n000eb.xml"
+  },
+  "numpyVersion": "2.4.6",
+  "pillowVersion": "12.3.0"
+}

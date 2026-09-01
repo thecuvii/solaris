@@ -1,0 +1,9 @@
+.DS_Store
+.amp/portals/
+.vite-hooks/_/
+dist/
+node_modules/
+website/.output/
+website/node_modules/
+website/.tanstack/
+*.tgz

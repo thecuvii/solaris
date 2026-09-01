@@ -1,0 +1,37 @@
+{
+  "atmosphere": {
+    "asset": "NASA/JPL-Caltech Saturn fictional planetary map",
+    "credit": "NASA/JPL-Caltech",
+    "licenseGuidance": "NASA Images and Media Usage Guidelines",
+    "modifications": [
+      "collapsed the source to a robust latitude profile to remove unsupported longitudinal identity",
+      "gently reduced saturation and balanced the warm color cast",
+      "softened the unsupported source-pole colors into restrained polar caps",
+      "layered deterministic non-observational zonal filaments and storms over the latitude profile",
+      "stored cloud optical structure in alpha for restrained shader normal perturbation",
+      "resampled the result to a 2048x1024 periodic sRGB WebP"
+    ],
+    "output": "saturn-atmosphere.webp",
+    "outputDimensions": [2048, 1024],
+    "outputSha256": "580d4d3661536276b640fc5d876f44d696be8b0fa57dff3c8f0e36587bd7e140",
+    "sourceDimensions": [720, 360],
+    "sourceIsFictional": true,
+    "sourceSha256": "aca2a8ae07c9b506d13b656ba89ecacb383f32f1e5ffe52fae6b8c16c581816f",
+    "sourceUrl": "https://assets.science.nasa.gov/content/dam/science/cds/3d/resources/image/saturn/Saturn.tif"
+  },
+  "numpyVersion": "2.4.6",
+  "pillowVersion": "12.3.0",
+  "rings": {
+    "basis": "PDS Ring-Moon Systems Node Saturn ring boundaries and optical-depth ranges",
+    "channelContract": {
+      "rgb": "linear artistic particle tint",
+      "alpha": "square root of normal optical depth divided by 4.0"
+    },
+    "dataStatus": "deterministic nonperiodic artistic reconstruction, not a measured occultation profile",
+    "output": "saturn-rings.png",
+    "outputDimensions": [4096, 4],
+    "outputSha256": "e3573c71a4ce1eee3d71ce5a5819767a37c6323bfda186479c83e8becdaa3107",
+    "radialRangeKm": [66900.0, 140500.0],
+    "sourceUrl": "https://pds-rings.seti.org/saturn/saturn_rings_table.html"
+  }
+}

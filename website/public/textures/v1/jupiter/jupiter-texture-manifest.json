@@ -1,0 +1,20 @@
+{
+  "asset": "Hubble OPAL Jupiter global map 2019",
+  "credit": "NASA, ESA, A. Simon (GSFC), M.H. Wong (UC Berkeley)",
+  "grsCenterDegrees": [-107, -21],
+  "grsRadiiDegrees": [13, 6],
+  "license": "CC BY 4.0",
+  "modifications": [
+    "filled unobserved polar rows without adding named features",
+    "removed chromatic edge artifacts above approximately 78 degrees north",
+    "repaired the periodic longitude seam over 32 pixels",
+    "converted the sRGB PNG to native-resolution WebP"
+  ],
+  "numpyVersion": "2.4.6",
+  "output": "jupiter-albedo.webp",
+  "outputDimensions": [3600, 1800],
+  "outputSha256": "a5a4cb1a3a3dcf88c0b2a43678ab973465a989d9649b164a8534ce5fede02359",
+  "pillowVersion": "12.3.0",
+  "sourceSha256": "e79f89b68b4f1c73387b9871e82a31fb4f53e3885fb2f53dd074d8ac78cb38e3",
+  "sourceUrl": "https://assets.science.nasa.gov/content/dam/science/missions/hubble/releases/2019/08/STScI-01EVSV9A3VN7VYXN5H6Z1GDG93.tif/jcr:content/renditions/Full%20Res.png"
+}

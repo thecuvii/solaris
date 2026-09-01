@@ -1,0 +1,48 @@
+{
+  "asset": "SDO/AIA 304 Angstrom fixed full-disk coded-color observation",
+  "credit": "NASA/Goddard Space Flight Center Scientific Visualization Studio, the SDO Science Team, and the Virtual Solar Observatory",
+  "displayMode": "False-color AIA 304 Angstrom (30.4 nm)",
+  "license": "NASA Images and Media Usage Guidelines",
+  "modifications": [
+    "preserved the fixed 8-bit sRGB SVS coded-color visualization",
+    "downsampled the 4096-square frame to 1024-square with Lanczos filtering",
+    "fitted an opaque disk independently of on-disk brightness",
+    "subtracted a smooth exterior radial background before retaining attached off-limb emission",
+    "stored background-subtracted off-limb emission as straight color plus coverage alpha",
+    "removed support touching the rectangular frame background",
+    "dilated hidden RGB eight pixels beneath the transparent edge for safe linear filtering"
+  ],
+  "numpyVersion": "2.4.6",
+  "observationRangeUtc": ["2011-09-25T08:00:00Z", "2011-09-26T01:00:00Z"],
+  "observationTimeUtc": "2011-09-25T08:00:00Z",
+  "output": "sun-aia-304.png",
+  "outputDimensions": [1024, 1024],
+  "outputSha256": "beb4d6a488f8170f04a9d937396fbfe4d48fd906964e703edbeb3fa8487d984f",
+  "pillowVersion": "12.3.0",
+  "processing": {
+    "attachmentDistance": 10.0,
+    "componentExpansion": 9,
+    "componentThreshold": 0.12,
+    "diskCenter": [514.25, 512.85],
+    "diskFeather": 1.25,
+    "diskRadius": 403.75,
+    "edgeDilationSteps": 8,
+    "exteriorExtent": 92.0,
+    "greenRange": [6.0, 32.0],
+    "minimumComponentArea": 3,
+    "radialBaselinePercentile": 55,
+    "radialSmoothingWidth": 15,
+    "redExcessRange": [38.0, 75.0],
+    "redExcessWeight": 0.82
+  },
+  "processingMetrics": {
+    "exteriorAlphaPixels": 44909,
+    "maximumAlphaRadius": 487.76129150390625,
+    "opaqueDiskPixels": 508971
+  },
+  "sourceDimensions": [4096, 4096],
+  "sourcePage": "https://svs.gsfc.nasa.gov/3983/",
+  "sourceSha256": "f3dfceec148259ee3980cf20accca505da986a27dc32f507481ce4c4e9d6963c",
+  "sourceUniqueColors": 342,
+  "sourceUrl": "https://svs.gsfc.nasa.gov/vis/a000000/a003900/a003983/frames/4096x4096_1x1_30p/304A-Frames/SDOAIA304A_Jewelbox.00000.tif"
+}

@@ -1,0 +1,22 @@
+{
+  "asset": "Mariner 10 visible artistic cylindrical cloud map of Venus",
+  "credit": "NASA/JPL/Seal",
+  "license": "Public domain under NASA's copyright-free imagery policy",
+  "modifications": [
+    "converted source sRGB color to relative luminance",
+    "softened four visible source-mosaic stitch boundaries over 64 pixels each",
+    "robustly normalized cloud structure between the source's 5th and 95th percentiles",
+    "progressively removed longitudinal identity over the outermost 72 polar rows",
+    "repaired the periodic longitude seam over 24 pixels",
+    "encoded a neutral grayscale morphology map without surface, height, or normal data"
+  ],
+  "numpyVersion": "2.4.6",
+  "output": "venus-cloud-structure.webp",
+  "outputDimensions": [1440, 720],
+  "outputSha256": "8db9c6bcff7df27005ca11a02db64968f899ccc5d6ab330f47a16c7e843f5313",
+  "pillowVersion": "12.3.0",
+  "sourceDimensions": [1440, 720],
+  "sourcePage": "https://solarviews.com/cap/venus/venuscyl4.htm",
+  "sourceSha256": "e68058dedcdc3706b9edbbc3f3bc710b292efb9d943885c562f173cdd3c0b19b",
+  "sourceUrl": "https://solarviews.com/raw/venus/venuscyl4.tif"
+}
