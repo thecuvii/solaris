@@ -86,8 +86,8 @@
     "vite-plus": "0.3.0"
   },
   "peerDependencies": {
-    "react": ">=19.0.0",
-    "react-dom": ">=19.0.0"
+    "react": ">=19.2.0",
+    "react-dom": ">=19.2.0"
   },
   "engines": {
     "node": ">=22.18.0"

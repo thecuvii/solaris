@@ -2,7 +2,9 @@
 
 // Requires: react
 
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
+
+import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
 export type UranianDataPlane = {
   data: Uint8Array
@@ -89,6 +91,35 @@ type UranianResources = {
   program: WebGLProgram
   uniforms: UranianUniforms
   vertexArray: WebGLVertexArrayObject
+}
+
+type UranianFrameSettings = {
+  aerosolDepth: number
+  atmosphereThickness: number
+  bandContrast: number
+  cloudContrast: number
+  epsilonEccentricity: number
+  epsilonPeriapsis: number
+  exposure: number
+  forwardScattering: number
+  hazeOpacity: number
+  hoodLatitude: number
+  hoodPole: -1 | 1
+  hoodSoftness: number
+  limbDarkening: number
+  methaneAbsorption: number
+  oblateness: number
+  phaseFill: number
+  polarHood: number
+  poleAzimuth: number
+  poleElevation: number
+  ringShadow: number
+  ringVisibility: number
+  rotationSpeed: number
+  sunAzimuth: number
+  sunElevation: number
+  surfaceRotation: number
+  windScale: number
 }
 
 const URANUS_RADIUS = 0.38
@@ -709,6 +740,193 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
 }
 
+function createUranianRenderer(
+  canvas: HTMLCanvasElement,
+  source: UranianOrbSource,
+): CanvasRenderer<UranianFrameSettings> | null {
+  const context = canvas.getContext('webgl2', {
+    alpha: true,
+    antialias: false,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: true,
+  })
+  if (!context) return null
+  const gl: WebGL2RenderingContext = context
+
+  let contextLost = false
+  let disposed = false
+  let hasSource = false
+  let resources: UranianResources | null = createResources(gl)
+  let sourceGeneration = 0
+  let startTime = performance.now()
+
+  function uploadSource(generation: number): void {
+    if (disposed || contextLost || generation !== sourceGeneration || !resources) return
+    const frame = source.render()
+    if (!frame) {
+      hasSource = false
+      return
+    }
+    validateAtmosphere(frame.atmosphere)
+    const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
+    try {
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
+      uploadAtmosphere(gl, resources.atmosphereTexture, frame.atmosphere)
+      gl.bindTexture(gl.TEXTURE_2D, null)
+    } finally {
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
+    }
+    hasSource = true
+  }
+
+  function refreshSource(): void {
+    const generation = ++sourceGeneration
+    uploadSource(generation)
+    void source.ready?.().then(
+      () => uploadSource(generation),
+      () => undefined,
+    )
+  }
+
+  function resize(): void {
+    const bounds = canvas!.getBoundingClientRect()
+    const dpr = Math.min(window.devicePixelRatio, 2)
+    const width = Math.max(Math.round(bounds.width * dpr), 1)
+    const height = Math.max(Math.round(bounds.height * dpr), 1)
+    if (canvas!.width !== width || canvas!.height !== height) {
+      canvas!.width = width
+      canvas!.height = height
+    }
+  }
+
+  function render(timestamp: number, current: UranianFrameSettings): void {
+    if (disposed || contextLost || !resources) return
+    resize()
+    const elapsed = (timestamp - startTime) / 1000
+    const sunAzimuthRadians = (current.sunAzimuth * Math.PI) / 180
+    const sunElevationRadians = (current.sunElevation * Math.PI) / 180
+    const sunElevationCosine = Math.cos(sunElevationRadians)
+    const sunDirection = [
+      Math.sin(sunAzimuthRadians) * sunElevationCosine,
+      Math.cos(sunAzimuthRadians) * sunElevationCosine,
+      Math.sin(sunElevationRadians),
+    ] as const
+    const activeResources = resources
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas!.width, canvas!.height)
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.useProgram(activeResources.program)
+    gl.bindVertexArray(activeResources.vertexArray)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, activeResources.atmosphereTexture)
+    gl.uniform1i(activeResources.uniforms.atmosphereTexture, 0)
+    gl.uniform1f(activeResources.uniforms.aerosolDepth, clamp(current.aerosolDepth, 0, 1.5))
+    gl.uniform1f(
+      activeResources.uniforms.atmosphereThickness,
+      clamp(current.atmosphereThickness, 0, 0.08),
+    )
+    gl.uniform1f(activeResources.uniforms.bandContrast, clamp(current.bandContrast, 0, 0.5))
+    gl.uniform1f(activeResources.uniforms.cloudContrast, clamp(current.cloudContrast, 0, 0.5))
+    gl.uniform1f(
+      activeResources.uniforms.epsilonEccentricity,
+      clamp(current.epsilonEccentricity, 0, 0.02),
+    )
+    gl.uniform1f(
+      activeResources.uniforms.epsilonPeriapsis,
+      (current.epsilonPeriapsis * Math.PI) / 180,
+    )
+    gl.uniform1f(activeResources.uniforms.exposure, clamp(current.exposure, 0, 2))
+    gl.uniform1f(activeResources.uniforms.forwardScattering, clamp(current.forwardScattering, 0, 1))
+    gl.uniform1f(activeResources.uniforms.hazeOpacity, clamp(current.hazeOpacity, 0, 1))
+    gl.uniform1f(
+      activeResources.uniforms.hoodLatitude,
+      (clamp(current.hoodLatitude, 25, 75) * Math.PI) / 180,
+    )
+    gl.uniform1f(activeResources.uniforms.hoodPole, current.hoodPole < 0 ? -1 : 1)
+    gl.uniform1f(
+      activeResources.uniforms.hoodSoftness,
+      (clamp(current.hoodSoftness, 2, 25) * Math.PI) / 180,
+    )
+    gl.uniform1f(activeResources.uniforms.limbDarkening, clamp(current.limbDarkening, 0.55, 1.2))
+    gl.uniform1f(
+      activeResources.uniforms.methaneAbsorption,
+      clamp(current.methaneAbsorption, 0, 1.5),
+    )
+    gl.uniform1f(activeResources.uniforms.oblateness, clamp(current.oblateness, 0, 0.08))
+    gl.uniform1f(activeResources.uniforms.phaseFill, clamp(current.phaseFill, 0, 0.35))
+    gl.uniform1f(activeResources.uniforms.polarHood, clamp(current.polarHood, 0, 1))
+    gl.uniform1f(activeResources.uniforms.poleAzimuth, (current.poleAzimuth * Math.PI) / 180)
+    gl.uniform1f(activeResources.uniforms.poleElevation, (current.poleElevation * Math.PI) / 180)
+    gl.uniform1f(activeResources.uniforms.ringShadow, clamp(current.ringShadow, 0, 1))
+    gl.uniform1f(activeResources.uniforms.ringVisibility, clamp(current.ringVisibility, 0, 6))
+    gl.uniform1f(activeResources.uniforms.rotationSpeed, clamp(current.rotationSpeed, -0.05, 0.05))
+    gl.uniform1f(activeResources.uniforms.sourceReady, hasSource ? 1 : 0)
+    gl.uniform1f(
+      activeResources.uniforms.surfaceRotation,
+      (current.surfaceRotation * Math.PI) / 180 +
+        elapsed * clamp(current.rotationSpeed, -0.05, 0.05),
+    )
+    gl.uniform1f(activeResources.uniforms.time, elapsed)
+    gl.uniform1f(activeResources.uniforms.windScale, clamp(current.windScale, 0, 1))
+    gl.uniform2f(activeResources.uniforms.resolution, canvas!.width, canvas!.height)
+    gl.uniform3f(activeResources.uniforms.sunDirectionView, ...sunDirection)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.bindVertexArray(null)
+  }
+
+  function handleContextLost(event: Event): void {
+    event.preventDefault()
+    contextLost = true
+    resources = null
+    hasSource = false
+    sourceGeneration += 1
+  }
+
+  function handleContextRestored(): void {
+    if (disposed) return
+    contextLost = false
+    resources = createResources(gl)
+    startTime = performance.now()
+    refreshSource()
+    resize()
+  }
+
+  const resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(canvas)
+  canvas.addEventListener('webglcontextlost', handleContextLost)
+  canvas.addEventListener('webglcontextrestored', handleContextRestored)
+  try {
+    refreshSource()
+    resize()
+  } catch (error) {
+    disposed = true
+    sourceGeneration += 1
+    resizeObserver.disconnect()
+    canvas.removeEventListener('webglcontextlost', handleContextLost)
+    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+    if (resources) deleteResources(gl, resources)
+    resources = null
+    throw error
+  }
+
+  return {
+    render,
+    dispose(): void {
+      disposed = true
+      sourceGeneration += 1
+      resizeObserver.disconnect()
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+      if (!contextLost && resources) deleteResources(gl, resources)
+      resources = null
+    },
+  }
+}
+
 export function UranianOrbEffect({
   aerosolDepth = 0.72,
   atmosphereThickness = 0.025,
@@ -741,35 +959,7 @@ export function UranianOrbEffect({
   windScale = 0.2,
 }: UranianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const latestRef = useRef({
-    aerosolDepth,
-    atmosphereThickness,
-    bandContrast,
-    cloudContrast,
-    epsilonEccentricity,
-    epsilonPeriapsis,
-    exposure,
-    forwardScattering,
-    hazeOpacity,
-    hoodLatitude,
-    hoodPole,
-    hoodSoftness,
-    limbDarkening,
-    methaneAbsorption,
-    oblateness,
-    phaseFill,
-    polarHood,
-    poleAzimuth,
-    poleElevation,
-    ringShadow,
-    ringVisibility,
-    rotationSpeed,
-    sunAzimuth,
-    sunElevation,
-    surfaceRotation,
-    windScale,
-  })
-  latestRef.current = {
+  const frameSettings: UranianFrameSettings = {
     aerosolDepth,
     atmosphereThickness,
     bandContrast,
@@ -797,207 +987,7 @@ export function UranianOrbEffect({
     surfaceRotation,
     windScale,
   }
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const context = canvas.getContext('webgl2', {
-      alpha: true,
-      antialias: false,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: true,
-    })
-    if (!context) return
-    const gl: WebGL2RenderingContext = context
-
-    let contextLost = false
-    let disposed = false
-    let frameId = 0
-    let hasSource = false
-    let resources: UranianResources | null = createResources(gl)
-    let sourceGeneration = 0
-    let startTime = performance.now()
-
-    function uploadSource(generation: number): void {
-      if (disposed || contextLost || generation !== sourceGeneration || !resources) return
-      const frame = source.render()
-      if (!frame) {
-        hasSource = false
-        return
-      }
-      validateAtmosphere(frame.atmosphere)
-      const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
-      try {
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
-        uploadAtmosphere(gl, resources.atmosphereTexture, frame.atmosphere)
-        gl.bindTexture(gl.TEXTURE_2D, null)
-      } finally {
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
-      }
-      hasSource = true
-    }
-
-    function refreshSource(): void {
-      const generation = ++sourceGeneration
-      uploadSource(generation)
-      void source.ready?.().then(
-        () => uploadSource(generation),
-        () => undefined,
-      )
-    }
-
-    function resize(): void {
-      const bounds = canvas!.getBoundingClientRect()
-      const dpr = Math.min(window.devicePixelRatio, 2)
-      const width = Math.max(Math.round(bounds.width * dpr), 1)
-      const height = Math.max(Math.round(bounds.height * dpr), 1)
-      if (canvas!.width !== width || canvas!.height !== height) {
-        canvas!.width = width
-        canvas!.height = height
-      }
-    }
-
-    function render(timestamp: number): void {
-      if (disposed || contextLost || !resources) {
-        frameId = 0
-        return
-      }
-      frameId = requestAnimationFrame(render)
-      resize()
-      const elapsed = (timestamp - startTime) / 1000
-      const current = latestRef.current
-      const sunAzimuthRadians = (current.sunAzimuth * Math.PI) / 180
-      const sunElevationRadians = (current.sunElevation * Math.PI) / 180
-      const sunElevationCosine = Math.cos(sunElevationRadians)
-      const sunDirection = [
-        Math.sin(sunAzimuthRadians) * sunElevationCosine,
-        Math.cos(sunAzimuthRadians) * sunElevationCosine,
-        Math.sin(sunElevationRadians),
-      ] as const
-      const activeResources = resources
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, canvas!.width, canvas!.height)
-      gl.disable(gl.BLEND)
-      gl.disable(gl.DEPTH_TEST)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(activeResources.program)
-      gl.bindVertexArray(activeResources.vertexArray)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, activeResources.atmosphereTexture)
-      gl.uniform1i(activeResources.uniforms.atmosphereTexture, 0)
-      gl.uniform1f(activeResources.uniforms.aerosolDepth, clamp(current.aerosolDepth, 0, 1.5))
-      gl.uniform1f(
-        activeResources.uniforms.atmosphereThickness,
-        clamp(current.atmosphereThickness, 0, 0.08),
-      )
-      gl.uniform1f(activeResources.uniforms.bandContrast, clamp(current.bandContrast, 0, 0.5))
-      gl.uniform1f(activeResources.uniforms.cloudContrast, clamp(current.cloudContrast, 0, 0.5))
-      gl.uniform1f(
-        activeResources.uniforms.epsilonEccentricity,
-        clamp(current.epsilonEccentricity, 0, 0.02),
-      )
-      gl.uniform1f(
-        activeResources.uniforms.epsilonPeriapsis,
-        (current.epsilonPeriapsis * Math.PI) / 180,
-      )
-      gl.uniform1f(activeResources.uniforms.exposure, clamp(current.exposure, 0, 2))
-      gl.uniform1f(
-        activeResources.uniforms.forwardScattering,
-        clamp(current.forwardScattering, 0, 1),
-      )
-      gl.uniform1f(activeResources.uniforms.hazeOpacity, clamp(current.hazeOpacity, 0, 1))
-      gl.uniform1f(
-        activeResources.uniforms.hoodLatitude,
-        (clamp(current.hoodLatitude, 25, 75) * Math.PI) / 180,
-      )
-      gl.uniform1f(activeResources.uniforms.hoodPole, current.hoodPole < 0 ? -1 : 1)
-      gl.uniform1f(
-        activeResources.uniforms.hoodSoftness,
-        (clamp(current.hoodSoftness, 2, 25) * Math.PI) / 180,
-      )
-      gl.uniform1f(activeResources.uniforms.limbDarkening, clamp(current.limbDarkening, 0.55, 1.2))
-      gl.uniform1f(
-        activeResources.uniforms.methaneAbsorption,
-        clamp(current.methaneAbsorption, 0, 1.5),
-      )
-      gl.uniform1f(activeResources.uniforms.oblateness, clamp(current.oblateness, 0, 0.08))
-      gl.uniform1f(activeResources.uniforms.phaseFill, clamp(current.phaseFill, 0, 0.35))
-      gl.uniform1f(activeResources.uniforms.polarHood, clamp(current.polarHood, 0, 1))
-      gl.uniform1f(activeResources.uniforms.poleAzimuth, (current.poleAzimuth * Math.PI) / 180)
-      gl.uniform1f(activeResources.uniforms.poleElevation, (current.poleElevation * Math.PI) / 180)
-      gl.uniform1f(activeResources.uniforms.ringShadow, clamp(current.ringShadow, 0, 1))
-      gl.uniform1f(activeResources.uniforms.ringVisibility, clamp(current.ringVisibility, 0, 6))
-      gl.uniform1f(
-        activeResources.uniforms.rotationSpeed,
-        clamp(current.rotationSpeed, -0.05, 0.05),
-      )
-      gl.uniform1f(activeResources.uniforms.sourceReady, hasSource ? 1 : 0)
-      gl.uniform1f(
-        activeResources.uniforms.surfaceRotation,
-        (current.surfaceRotation * Math.PI) / 180 +
-          elapsed * clamp(current.rotationSpeed, -0.05, 0.05),
-      )
-      gl.uniform1f(activeResources.uniforms.time, elapsed)
-      gl.uniform1f(activeResources.uniforms.windScale, clamp(current.windScale, 0, 1))
-      gl.uniform2f(activeResources.uniforms.resolution, canvas!.width, canvas!.height)
-      gl.uniform3f(activeResources.uniforms.sunDirectionView, ...sunDirection)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-      gl.bindVertexArray(null)
-    }
-
-    function handleContextLost(event: Event): void {
-      event.preventDefault()
-      contextLost = true
-      cancelAnimationFrame(frameId)
-      frameId = 0
-      resources = null
-      hasSource = false
-      sourceGeneration += 1
-    }
-
-    function handleContextRestored(): void {
-      if (disposed) return
-      contextLost = false
-      resources = createResources(gl)
-      startTime = performance.now()
-      refreshSource()
-      resize()
-      if (frameId === 0) frameId = requestAnimationFrame(render)
-    }
-
-    const resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(canvas)
-    canvas.addEventListener('webglcontextlost', handleContextLost)
-    canvas.addEventListener('webglcontextrestored', handleContextRestored)
-    try {
-      refreshSource()
-      resize()
-      frameId = requestAnimationFrame(render)
-    } catch (error) {
-      disposed = true
-      sourceGeneration += 1
-      resizeObserver.disconnect()
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (resources) deleteResources(gl, resources)
-      resources = null
-      throw error
-    }
-
-    return () => {
-      disposed = true
-      sourceGeneration += 1
-      cancelAnimationFrame(frameId)
-      frameId = 0
-      resizeObserver.disconnect()
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost && resources) deleteResources(gl, resources)
-      resources = null
-    }
-  }, [source])
+  useCanvasRenderer(canvasRef, frameSettings, source, createUranianRenderer)
 
   return (
     <canvas

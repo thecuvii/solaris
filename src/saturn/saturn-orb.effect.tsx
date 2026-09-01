@@ -2,7 +2,9 @@
 
 // Requires: react
 
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
+
+import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
 export type SaturnOrbSource = {
   ready?: () => Promise<void>
@@ -48,6 +50,27 @@ type SaturnResources = {
 type AnisotropyExtension = {
   MAX_TEXTURE_MAX_ANISOTROPY_EXT: number
   TEXTURE_MAX_ANISOTROPY_EXT: number
+}
+
+type SaturnFrameSettings = {
+  axialRoll: number
+  bandContrast: number
+  cloudPhotometricMix: number
+  detailIntensity: number
+  detailSpeed: number
+  exposure: number
+  forwardScatter: number
+  limbHaze: number
+  oblateness: number
+  polarHexagon: number
+  ringOpacity: number
+  ringShadowStrength: number
+  ringTilt: number
+  rotationSpeed: number
+  sunAzimuth: number
+  sunElevation: number
+  surfaceRotation: number
+  unlitRingBrightness: number
 }
 
 const SATURN_RADIUS = 0.42
@@ -852,6 +875,212 @@ function uploadTexture(
   }
 }
 
+function createSaturnRenderer(
+  canvas: HTMLCanvasElement,
+  source: SaturnOrbSource,
+): CanvasRenderer<SaturnFrameSettings> | null {
+  const context = canvas.getContext('webgl2', {
+    alpha: true,
+    antialias: false,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: true,
+  })
+  if (!context) return null
+  const gl: WebGL2RenderingContext = context
+
+  let contextLost = false
+  let disposed = false
+  let hasSource = false
+  let longitudeOffset = 0
+  let resources = createResources(gl)
+  let ringRadiusRange = [66900 / 60268, 140500 / 60268] as [number, number]
+  let startTime = performance.now()
+  let lastTime = startTime
+  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
+
+  function uploadSource(): void {
+    if (disposed || contextLost) return
+    const saturn = source.render()
+    if (!saturn) {
+      hasSource = false
+      return
+    }
+
+    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
+    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
+    uploadTexture(gl, resources.atmosphereTexture, saturn.atmosphere, gl.SRGB8_ALPHA8)
+    uploadTexture(gl, resources.ringTexture, saturn.rings, gl.RGBA8)
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
+    hasSource = true
+    longitudeOffset = ((saturn.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
+    ringRadiusRange = [saturn.ringRadiusRange[0], saturn.ringRadiusRange[1]]
+  }
+
+  function resize(): void {
+    const bounds = canvas.getBoundingClientRect()
+    // Thin tilted rings need supersampling even on 1× displays.
+    const dpr = 2
+    const width = Math.max(Math.round(bounds.width * dpr), 1)
+    const height = Math.max(Math.round(bounds.height * dpr), 1)
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+    }
+  }
+
+  function updatePointer(delta: number): void {
+    const stiffness = 42
+    const damping = 11
+    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
+    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
+    const decay = Math.exp(-damping * delta)
+    pointer.velocityX *= decay
+    pointer.velocityY *= decay
+    pointer.currentX += pointer.velocityX * delta
+    pointer.currentY += pointer.velocityY * delta
+  }
+
+  function render(timestamp: number, current: SaturnFrameSettings): void {
+    if (contextLost) return
+    resize()
+    const elapsed = (timestamp - startTime) / 1000
+    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
+    lastTime = timestamp
+    updatePointer(delta)
+    const azimuth = (current.sunAzimuth * Math.PI) / 180
+    const elevation = (current.sunElevation * Math.PI) / 180
+    const elevationCosine = Math.cos(elevation)
+    const sunDirection = [
+      Math.sin(azimuth) * elevationCosine,
+      Math.sin(elevation),
+      Math.cos(azimuth) * elevationCosine,
+    ] as const
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas.width, canvas.height)
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.useProgram(resources.program)
+    gl.bindVertexArray(resources.vertexArray)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, resources.atmosphereTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAtmosphereTexture'), 0)
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, resources.ringTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.program, 'uRingTexture'), 1)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uAxialRoll'),
+      (current.axialRoll * Math.PI) / 180,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uBandContrast'), current.bandContrast)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uCloudPhotometricMix'),
+      current.cloudPhotometricMix,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uDetailIntensity'),
+      current.detailIntensity,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailSpeed'), current.detailSpeed)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), current.exposure)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uForwardScatter'),
+      current.forwardScatter,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLimbHaze'), current.limbHaze)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uOblateness'), current.oblateness)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uPolarHexagon'), current.polarHexagon)
+    gl.uniform2f(
+      gl.getUniformLocation(resources.program, 'uPointer'),
+      pointer.currentX,
+      pointer.currentY,
+    )
+    gl.uniform2f(
+      gl.getUniformLocation(resources.program, 'uResolution'),
+      canvas.width,
+      canvas.height,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uRingOpacity'), current.ringOpacity)
+    gl.uniform2f(gl.getUniformLocation(resources.program, 'uRingRadiusRange'), ...ringRadiusRange)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uRingShadowStrength'),
+      current.ringShadowStrength,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uRingTilt'),
+      (current.ringTilt * Math.PI) / 180,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
+    gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirectionView'), ...sunDirection)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
+      (current.surfaceRotation * Math.PI) / 180 + elapsed * current.rotationSpeed,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTime'), elapsed)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uUnlitRingBrightness'),
+      current.unlitRingBrightness,
+    )
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.bindVertexArray(null)
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    const bounds = canvas.getBoundingClientRect()
+    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
+  }
+  function handlePointerLeave(): void {
+    pointer.targetX = 0
+    pointer.targetY = 0
+  }
+  function handleContextLost(event: Event): void {
+    event.preventDefault()
+    contextLost = true
+  }
+  function handleContextRestored(): void {
+    contextLost = false
+    resources = createResources(gl)
+    hasSource = false
+    longitudeOffset = 0
+    ringRadiusRange = [66900 / 60268, 140500 / 60268]
+    uploadSource()
+    startTime = performance.now()
+    lastTime = startTime
+    resize()
+  }
+
+  const resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(canvas)
+  canvas.addEventListener('pointermove', handlePointerMove)
+  canvas.addEventListener('pointerleave', handlePointerLeave)
+  canvas.addEventListener('webglcontextlost', handleContextLost)
+  canvas.addEventListener('webglcontextrestored', handleContextRestored)
+  uploadSource()
+  void source.ready?.().then(uploadSource, () => undefined)
+  resize()
+
+  return {
+    render,
+    dispose(): void {
+      disposed = true
+      resizeObserver.disconnect()
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+      if (!contextLost) deleteResources(gl, resources)
+    },
+  }
+}
+
 export function SaturnOrbEffect({
   axialRoll = -8,
   bandContrast = 0.12,
@@ -876,27 +1105,7 @@ export function SaturnOrbEffect({
   unlitRingBrightness = 0.08,
 }: SaturnOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const latestRef = useRef({
-    axialRoll,
-    bandContrast,
-    cloudPhotometricMix,
-    detailIntensity,
-    detailSpeed,
-    exposure,
-    forwardScatter,
-    limbHaze,
-    oblateness,
-    polarHexagon,
-    ringOpacity,
-    ringShadowStrength,
-    ringTilt,
-    rotationSpeed,
-    sunAzimuth,
-    sunElevation,
-    surfaceRotation,
-    unlitRingBrightness,
-  })
-  latestRef.current = {
+  const frameSettings: SaturnFrameSettings = {
     axialRoll,
     bandContrast,
     cloudPhotometricMix,
@@ -916,216 +1125,7 @@ export function SaturnOrbEffect({
     surfaceRotation,
     unlitRingBrightness,
   }
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const context = canvas.getContext('webgl2', {
-      alpha: true,
-      antialias: false,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: true,
-    })
-    if (!context) return
-    const gl: WebGL2RenderingContext = context
-
-    let contextLost = false
-    let disposed = false
-    let frameId = 0
-    let hasSource = false
-    let longitudeOffset = 0
-    let resources = createResources(gl)
-    let ringRadiusRange = [66900 / 60268, 140500 / 60268] as [number, number]
-    let startTime = performance.now()
-    let lastTime = startTime
-    const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-    function uploadSource(): void {
-      if (disposed || contextLost) return
-      const saturn = source.render()
-      if (!saturn) {
-        hasSource = false
-        return
-      }
-
-      const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-      const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-      uploadTexture(gl, resources.atmosphereTexture, saturn.atmosphere, gl.SRGB8_ALPHA8)
-      uploadTexture(gl, resources.ringTexture, saturn.rings, gl.RGBA8)
-      gl.bindTexture(gl.TEXTURE_2D, null)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-      hasSource = true
-      longitudeOffset = ((saturn.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-      ringRadiusRange = [saturn.ringRadiusRange[0], saturn.ringRadiusRange[1]]
-    }
-
-    function resize(): void {
-      const bounds = canvas!.getBoundingClientRect()
-      // Thin tilted rings need supersampling even on 1× displays.
-      const dpr = 2
-      const width = Math.max(Math.round(bounds.width * dpr), 1)
-      const height = Math.max(Math.round(bounds.height * dpr), 1)
-      if (canvas!.width !== width || canvas!.height !== height) {
-        canvas!.width = width
-        canvas!.height = height
-      }
-    }
-
-    function updatePointer(delta: number): void {
-      const stiffness = 42
-      const damping = 11
-      pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-      pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-      const decay = Math.exp(-damping * delta)
-      pointer.velocityX *= decay
-      pointer.velocityY *= decay
-      pointer.currentX += pointer.velocityX * delta
-      pointer.currentY += pointer.velocityY * delta
-    }
-
-    function render(timestamp: number): void {
-      frameId = requestAnimationFrame(render)
-      if (contextLost) return
-      resize()
-      const elapsed = (timestamp - startTime) / 1000
-      const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-      lastTime = timestamp
-      updatePointer(delta)
-      const current = latestRef.current
-      const azimuth = (current.sunAzimuth * Math.PI) / 180
-      const elevation = (current.sunElevation * Math.PI) / 180
-      const elevationCosine = Math.cos(elevation)
-      const sunDirection = [
-        Math.sin(azimuth) * elevationCosine,
-        Math.sin(elevation),
-        Math.cos(azimuth) * elevationCosine,
-      ] as const
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, canvas!.width, canvas!.height)
-      gl.disable(gl.BLEND)
-      gl.disable(gl.DEPTH_TEST)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(resources.program)
-      gl.bindVertexArray(resources.vertexArray)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, resources.atmosphereTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.program, 'uAtmosphereTexture'), 0)
-      gl.activeTexture(gl.TEXTURE1)
-      gl.bindTexture(gl.TEXTURE_2D, resources.ringTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.program, 'uRingTexture'), 1)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uAxialRoll'),
-        (current.axialRoll * Math.PI) / 180,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uBandContrast'), current.bandContrast)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uCloudPhotometricMix'),
-        current.cloudPhotometricMix,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uDetailIntensity'),
-        current.detailIntensity,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailSpeed'), current.detailSpeed)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), current.exposure)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uForwardScatter'),
-        current.forwardScatter,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uLimbHaze'), current.limbHaze)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uOblateness'), current.oblateness)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uPolarHexagon'), current.polarHexagon)
-      gl.uniform2f(
-        gl.getUniformLocation(resources.program, 'uPointer'),
-        pointer.currentX,
-        pointer.currentY,
-      )
-      gl.uniform2f(
-        gl.getUniformLocation(resources.program, 'uResolution'),
-        canvas!.width,
-        canvas!.height,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uRingOpacity'), current.ringOpacity)
-      gl.uniform2f(gl.getUniformLocation(resources.program, 'uRingRadiusRange'), ...ringRadiusRange)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uRingShadowStrength'),
-        current.ringShadowStrength,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uRingTilt'),
-        (current.ringTilt * Math.PI) / 180,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-      gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirectionView'), ...sunDirection)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
-        (current.surfaceRotation * Math.PI) / 180 + elapsed * current.rotationSpeed,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uTime'), elapsed)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uUnlitRingBrightness'),
-        current.unlitRingBrightness,
-      )
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-      gl.bindVertexArray(null)
-    }
-
-    function handlePointerMove(event: PointerEvent): void {
-      const bounds = canvas!.getBoundingClientRect()
-      pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-      pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-    }
-
-    function handlePointerLeave(): void {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-
-    function handleContextLost(event: Event): void {
-      event.preventDefault()
-      contextLost = true
-    }
-
-    function handleContextRestored(): void {
-      contextLost = false
-      resources = createResources(gl)
-      hasSource = false
-      longitudeOffset = 0
-      ringRadiusRange = [66900 / 60268, 140500 / 60268]
-      uploadSource()
-      startTime = performance.now()
-      lastTime = startTime
-      resize()
-    }
-
-    const resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(canvas)
-    canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerleave', handlePointerLeave)
-    canvas.addEventListener('webglcontextlost', handleContextLost)
-    canvas.addEventListener('webglcontextrestored', handleContextRestored)
-    uploadSource()
-    void source.ready?.().then(uploadSource, () => undefined)
-    resize()
-    frameId = requestAnimationFrame(render)
-
-    return () => {
-      disposed = true
-      cancelAnimationFrame(frameId)
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    }
-  }, [source])
+  useCanvasRenderer(canvasRef, frameSettings, source, createSaturnRenderer)
 
   return (
     <canvas

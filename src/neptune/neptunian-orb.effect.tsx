@@ -2,7 +2,9 @@
 
 // Requires: react
 
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
+
+import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
 export type NeptunianDataPlane = {
   data: Uint8Array
@@ -14,6 +16,28 @@ export type NeptunianVortex = {
   angularRadiiDegrees: readonly [longitude: number, latitude: number]
   latitudeDegrees: number
   longitudeDegrees: number
+}
+
+type NeptunianFrameSettings = {
+  cloudRelief: number
+  companionCloud: number
+  deepOpticalDepth: number
+  exposure: number
+  flowDetail: number
+  forwardScattering: number
+  hazeOpticalDepth: number
+  methaneAbsorption: number
+  oblateness: number
+  rotationSpeed: number
+  sunAzimuth: number
+  sunElevation: number
+  surfaceRotation: number
+  upperClouds: number
+  upperHaze: number
+  vortexCirculation: number
+  vortexDarkness: number
+  weatherTilt: number
+  windScale: number
 }
 
 export type NeptunianOrbSource = {
@@ -667,6 +691,223 @@ function uploadDataPlane(
   gl.generateMipmap(gl.TEXTURE_2D)
 }
 
+function createNeptunianRenderer(
+  canvas: HTMLCanvasElement,
+  source: NeptunianOrbSource,
+): CanvasRenderer<NeptunianFrameSettings> | null {
+  const context = canvas.getContext('webgl2', {
+    alpha: true,
+    antialias: false,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: true,
+  })
+  if (!context) return null
+  const gl: WebGL2RenderingContext = context
+
+  let contextLost = false
+  let disposed = false
+  let hasSource = false
+  let vortexCenter = [0, 0] as [number, number]
+  let vortexRadii = [0, 0] as [number, number]
+  let sourceGeneration = 0
+  let resources = createResources(gl)
+  let startTime = performance.now()
+  let lastTime = startTime
+  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
+
+  function uploadSource(): void {
+    if (disposed || contextLost) return
+    const atmosphere = source.render()
+    if (!atmosphere) {
+      hasSource = false
+      return
+    }
+
+    const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
+    uploadDataPlane(gl, resources.opticalDepthTexture, atmosphere.opticalDepth)
+    uploadDataPlane(gl, resources.highCloudTexture, atmosphere.highClouds)
+    uploadDataPlane(gl, resources.zonalWindTexture, atmosphere.zonalWind)
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
+    vortexCenter = atmosphere.vortex
+      ? [
+          (atmosphere.vortex.longitudeDegrees * Math.PI) / 180,
+          (atmosphere.vortex.latitudeDegrees * Math.PI) / 180,
+        ]
+      : [0, 0]
+    vortexRadii = atmosphere.vortex
+      ? [
+          (atmosphere.vortex.angularRadiiDegrees[0] * Math.PI) / 180,
+          (atmosphere.vortex.angularRadiiDegrees[1] * Math.PI) / 180,
+        ]
+      : [0, 0]
+    hasSource = true
+  }
+
+  function refreshSource(): void {
+    const generation = sourceGeneration
+    uploadSource()
+    void source.ready?.().then(
+      () => {
+        if (generation === sourceGeneration) uploadSource()
+      },
+      () => undefined,
+    )
+  }
+
+  function resize(): void {
+    const bounds = canvas.getBoundingClientRect()
+    const dpr = Math.min(window.devicePixelRatio, 2)
+    const width = Math.max(Math.round(bounds.width * dpr), 1)
+    const height = Math.max(Math.round(bounds.height * dpr), 1)
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+    }
+  }
+
+  function updatePointer(delta: number): void {
+    const stiffness = 42
+    const damping = 11
+    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
+    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
+    const decay = Math.exp(-damping * delta)
+    pointer.velocityX *= decay
+    pointer.velocityY *= decay
+    pointer.currentX += pointer.velocityX * delta
+    pointer.currentY += pointer.velocityY * delta
+  }
+
+  function render(timestamp: number, settings: NeptunianFrameSettings): void {
+    if (contextLost) return
+    resize()
+    const elapsed = (timestamp - startTime) / 1000
+    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
+    lastTime = timestamp
+    updatePointer(delta)
+    const azimuth = (settings.sunAzimuth * Math.PI) / 180
+    const elevation = (settings.sunElevation * Math.PI) / 180
+    const elevationCosine = Math.cos(elevation)
+    const sunDirection = [
+      Math.sin(azimuth) * elevationCosine,
+      Math.sin(elevation),
+      Math.cos(azimuth) * elevationCosine,
+    ] as const
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas.width, canvas.height)
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.useProgram(resources.program)
+    gl.bindVertexArray(resources.vertexArray)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, resources.opticalDepthTexture)
+    gl.uniform1i(resources.uniforms.opticalDepthTexture, 0)
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, resources.highCloudTexture)
+    gl.uniform1i(resources.uniforms.highCloudTexture, 1)
+    gl.activeTexture(gl.TEXTURE2)
+    gl.bindTexture(gl.TEXTURE_2D, resources.zonalWindTexture)
+    gl.uniform1i(resources.uniforms.zonalWindTexture, 2)
+    gl.uniform1f(resources.uniforms.weatherTilt, (settings.weatherTilt * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.cloudRelief, settings.cloudRelief)
+    gl.uniform1f(resources.uniforms.companionCloud, settings.companionCloud)
+    gl.uniform1f(resources.uniforms.deepOpticalDepth, settings.deepOpticalDepth)
+    gl.uniform1f(resources.uniforms.exposure, settings.exposure)
+    gl.uniform1f(resources.uniforms.flowDetail, settings.flowDetail)
+    gl.uniform1f(resources.uniforms.forwardScattering, settings.forwardScattering)
+    gl.uniform1f(resources.uniforms.hazeOpticalDepth, settings.hazeOpticalDepth)
+    gl.uniform1f(resources.uniforms.methaneAbsorption, settings.methaneAbsorption)
+    gl.uniform1f(resources.uniforms.oblateness, settings.oblateness)
+    gl.uniform2f(resources.uniforms.pointer, pointer.currentX, pointer.currentY)
+    gl.uniform2f(resources.uniforms.resolution, canvas.width, canvas.height)
+    gl.uniform1f(resources.uniforms.sourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(resources.uniforms.sunDirection, ...sunDirection)
+    gl.uniform1f(
+      resources.uniforms.surfaceRotation,
+      (settings.surfaceRotation * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+    )
+    gl.uniform1f(resources.uniforms.time, elapsed)
+    gl.uniform1f(resources.uniforms.upperClouds, settings.upperClouds)
+    gl.uniform1f(resources.uniforms.upperHaze, settings.upperHaze)
+    gl.uniform2f(resources.uniforms.vortexCenter, ...vortexCenter)
+    gl.uniform1f(resources.uniforms.vortexCirculation, settings.vortexCirculation)
+    gl.uniform1f(resources.uniforms.vortexDarkness, settings.vortexDarkness)
+    gl.uniform2f(resources.uniforms.vortexRadii, ...vortexRadii)
+    gl.uniform1f(resources.uniforms.windScale, settings.windScale)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.bindVertexArray(null)
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    const bounds = canvas.getBoundingClientRect()
+    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
+  }
+
+  function handlePointerLeave(): void {
+    pointer.targetX = 0
+    pointer.targetY = 0
+  }
+
+  function handleContextLost(event: Event): void {
+    event.preventDefault()
+    contextLost = true
+  }
+
+  function handleContextRestored(): void {
+    if (disposed) return
+    contextLost = false
+    sourceGeneration += 1
+    resources = createResources(gl)
+    hasSource = false
+    vortexCenter = [0, 0]
+    vortexRadii = [0, 0]
+    refreshSource()
+    startTime = performance.now()
+    lastTime = startTime
+    resize()
+  }
+
+  const resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(canvas)
+  canvas.addEventListener('pointermove', handlePointerMove)
+  canvas.addEventListener('pointerleave', handlePointerLeave)
+  canvas.addEventListener('webglcontextlost', handleContextLost)
+  canvas.addEventListener('webglcontextrestored', handleContextRestored)
+  try {
+    refreshSource()
+    resize()
+  } catch (error) {
+    disposed = true
+    sourceGeneration += 1
+    resizeObserver.disconnect()
+    canvas.removeEventListener('pointermove', handlePointerMove)
+    canvas.removeEventListener('pointerleave', handlePointerLeave)
+    canvas.removeEventListener('webglcontextlost', handleContextLost)
+    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+    if (!contextLost) deleteResources(gl, resources)
+    throw error
+  }
+
+  return {
+    render,
+    dispose(): void {
+      disposed = true
+      sourceGeneration += 1
+      resizeObserver.disconnect()
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+      if (!contextLost) deleteResources(gl, resources)
+    },
+  }
+}
+
 export function NeptunianOrbEffect({
   className,
   cloudRelief = 1,
@@ -692,28 +933,7 @@ export function NeptunianOrbEffect({
   windScale = 0.62,
 }: NeptunianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const latestRef = useRef({
-    cloudRelief,
-    companionCloud,
-    deepOpticalDepth,
-    exposure,
-    flowDetail,
-    forwardScattering,
-    hazeOpticalDepth,
-    methaneAbsorption,
-    oblateness,
-    rotationSpeed,
-    sunAzimuth,
-    sunElevation,
-    surfaceRotation,
-    upperClouds,
-    upperHaze,
-    vortexCirculation,
-    vortexDarkness,
-    weatherTilt,
-    windScale,
-  })
-  latestRef.current = {
+  const frameSettings: NeptunianFrameSettings = {
     cloudRelief,
     companionCloud,
     deepOpticalDepth,
@@ -735,205 +955,7 @@ export function NeptunianOrbEffect({
     windScale,
   }
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const context = canvas.getContext('webgl2', {
-      alpha: true,
-      antialias: false,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: true,
-    })
-    if (!context) return
-    const gl: WebGL2RenderingContext = context
-
-    let contextLost = false
-    let disposed = false
-    let frameId = 0
-    let hasSource = false
-    let vortexCenter = [0, 0] as [number, number]
-    let vortexRadii = [0, 0] as [number, number]
-    let resources = createResources(gl)
-    let startTime = performance.now()
-    let lastTime = startTime
-    const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-    function uploadSource(): void {
-      if (disposed || contextLost) return
-      const atmosphere = source.render()
-      if (!atmosphere) {
-        hasSource = false
-        return
-      }
-
-      const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
-      uploadDataPlane(gl, resources.opticalDepthTexture, atmosphere.opticalDepth)
-      uploadDataPlane(gl, resources.highCloudTexture, atmosphere.highClouds)
-      uploadDataPlane(gl, resources.zonalWindTexture, atmosphere.zonalWind)
-      gl.bindTexture(gl.TEXTURE_2D, null)
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
-      vortexCenter = atmosphere.vortex
-        ? [
-            (atmosphere.vortex.longitudeDegrees * Math.PI) / 180,
-            (atmosphere.vortex.latitudeDegrees * Math.PI) / 180,
-          ]
-        : [0, 0]
-      vortexRadii = atmosphere.vortex
-        ? [
-            (atmosphere.vortex.angularRadiiDegrees[0] * Math.PI) / 180,
-            (atmosphere.vortex.angularRadiiDegrees[1] * Math.PI) / 180,
-          ]
-        : [0, 0]
-      hasSource = true
-    }
-
-    function resize(): void {
-      const bounds = canvas!.getBoundingClientRect()
-      const dpr = Math.min(window.devicePixelRatio, 2)
-      const width = Math.max(Math.round(bounds.width * dpr), 1)
-      const height = Math.max(Math.round(bounds.height * dpr), 1)
-      if (canvas!.width !== width || canvas!.height !== height) {
-        canvas!.width = width
-        canvas!.height = height
-      }
-    }
-
-    function updatePointer(delta: number): void {
-      const stiffness = 42
-      const damping = 11
-      pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-      pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-      const decay = Math.exp(-damping * delta)
-      pointer.velocityX *= decay
-      pointer.velocityY *= decay
-      pointer.currentX += pointer.velocityX * delta
-      pointer.currentY += pointer.velocityY * delta
-    }
-
-    function render(timestamp: number): void {
-      if (disposed || contextLost) {
-        frameId = 0
-        return
-      }
-      frameId = requestAnimationFrame(render)
-      resize()
-      const elapsed = (timestamp - startTime) / 1000
-      const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-      lastTime = timestamp
-      updatePointer(delta)
-      const current = latestRef.current
-      const azimuth = (current.sunAzimuth * Math.PI) / 180
-      const elevation = (current.sunElevation * Math.PI) / 180
-      const elevationCosine = Math.cos(elevation)
-      const sunDirection = [
-        Math.sin(azimuth) * elevationCosine,
-        Math.sin(elevation),
-        Math.cos(azimuth) * elevationCosine,
-      ] as const
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, canvas!.width, canvas!.height)
-      gl.disable(gl.BLEND)
-      gl.disable(gl.DEPTH_TEST)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(resources.program)
-      gl.bindVertexArray(resources.vertexArray)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, resources.opticalDepthTexture)
-      gl.uniform1i(resources.uniforms.opticalDepthTexture, 0)
-      gl.activeTexture(gl.TEXTURE1)
-      gl.bindTexture(gl.TEXTURE_2D, resources.highCloudTexture)
-      gl.uniform1i(resources.uniforms.highCloudTexture, 1)
-      gl.activeTexture(gl.TEXTURE2)
-      gl.bindTexture(gl.TEXTURE_2D, resources.zonalWindTexture)
-      gl.uniform1i(resources.uniforms.zonalWindTexture, 2)
-      gl.uniform1f(resources.uniforms.weatherTilt, (current.weatherTilt * Math.PI) / 180)
-      gl.uniform1f(resources.uniforms.cloudRelief, current.cloudRelief)
-      gl.uniform1f(resources.uniforms.companionCloud, current.companionCloud)
-      gl.uniform1f(resources.uniforms.deepOpticalDepth, current.deepOpticalDepth)
-      gl.uniform1f(resources.uniforms.exposure, current.exposure)
-      gl.uniform1f(resources.uniforms.flowDetail, current.flowDetail)
-      gl.uniform1f(resources.uniforms.forwardScattering, current.forwardScattering)
-      gl.uniform1f(resources.uniforms.hazeOpticalDepth, current.hazeOpticalDepth)
-      gl.uniform1f(resources.uniforms.methaneAbsorption, current.methaneAbsorption)
-      gl.uniform1f(resources.uniforms.oblateness, current.oblateness)
-      gl.uniform2f(resources.uniforms.pointer, pointer.currentX, pointer.currentY)
-      gl.uniform2f(resources.uniforms.resolution, canvas!.width, canvas!.height)
-      gl.uniform1f(resources.uniforms.sourceReady, hasSource ? 1 : 0)
-      gl.uniform3f(resources.uniforms.sunDirection, ...sunDirection)
-      gl.uniform1f(
-        resources.uniforms.surfaceRotation,
-        (current.surfaceRotation * Math.PI) / 180 + elapsed * current.rotationSpeed,
-      )
-      gl.uniform1f(resources.uniforms.time, elapsed)
-      gl.uniform1f(resources.uniforms.upperClouds, current.upperClouds)
-      gl.uniform1f(resources.uniforms.upperHaze, current.upperHaze)
-      gl.uniform2f(resources.uniforms.vortexCenter, ...vortexCenter)
-      gl.uniform1f(resources.uniforms.vortexCirculation, current.vortexCirculation)
-      gl.uniform1f(resources.uniforms.vortexDarkness, current.vortexDarkness)
-      gl.uniform2f(resources.uniforms.vortexRadii, ...vortexRadii)
-      gl.uniform1f(resources.uniforms.windScale, current.windScale)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-      gl.bindVertexArray(null)
-    }
-
-    function handlePointerMove(event: PointerEvent): void {
-      const bounds = canvas!.getBoundingClientRect()
-      pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-      pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-    }
-
-    function handlePointerLeave(): void {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-
-    function handleContextLost(event: Event): void {
-      event.preventDefault()
-      contextLost = true
-      cancelAnimationFrame(frameId)
-      frameId = 0
-    }
-
-    function handleContextRestored(): void {
-      if (disposed) return
-      contextLost = false
-      resources = createResources(gl)
-      hasSource = false
-      vortexCenter = [0, 0]
-      vortexRadii = [0, 0]
-      uploadSource()
-      void source.ready?.().then(uploadSource, () => undefined)
-      startTime = performance.now()
-      lastTime = startTime
-      resize()
-      if (frameId === 0) frameId = requestAnimationFrame(render)
-    }
-
-    const resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(canvas)
-    canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerleave', handlePointerLeave)
-    canvas.addEventListener('webglcontextlost', handleContextLost)
-    canvas.addEventListener('webglcontextrestored', handleContextRestored)
-    uploadSource()
-    void source.ready?.().then(uploadSource, () => undefined)
-    resize()
-    frameId = requestAnimationFrame(render)
-
-    return () => {
-      disposed = true
-      cancelAnimationFrame(frameId)
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    }
-  }, [source])
+  useCanvasRenderer(canvasRef, frameSettings, source, createNeptunianRenderer)
 
   return (
     <canvas

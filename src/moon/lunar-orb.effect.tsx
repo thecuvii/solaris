@@ -2,7 +2,27 @@
 
 // Requires: react
 
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
+
+import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+
+type LunarFrameSettings = {
+  bloomIntensity: number
+  bloomRadius: number
+  bloomWarmth: number
+  earthshineIntensity: number
+  exposure: number
+  normalStrength: number
+  oppositionStrength: number
+  oppositionWidth: number
+  photometricMix: number
+  reliefShadowStrength: number
+  rotationSpeed: number
+  sunAzimuth: number
+  sunElevation: number
+  surfaceRotation: number
+  veilingGlare: number
+}
 
 export type LunarOrbSource = {
   ready?: () => Promise<void>
@@ -432,6 +452,235 @@ function uploadTexture(
   }
 }
 
+function createLunarRenderer(
+  canvas: HTMLCanvasElement,
+  source: LunarOrbSource,
+): CanvasRenderer<LunarFrameSettings> | null {
+  const context = canvas.getContext('webgl2', {
+    alpha: true,
+    antialias: false,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: true,
+  })
+  if (!context) return null
+  const gl: WebGL2RenderingContext = context
+
+  let contextLost = false
+  let disposed = false
+  let hasSource = false
+  let heightScale = DEFAULT_HEIGHT_SCALE
+  let longitudeOffset = 0
+  let sourceGeneration = 0
+  let resources = createResources(gl)
+  let startTime = performance.now()
+  let lastTime = startTime
+  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
+
+  function uploadSource(): void {
+    if (disposed || contextLost) return
+    const surface = source.render()
+    if (!surface) {
+      hasSource = false
+      return
+    }
+
+    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
+    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
+    uploadTexture(gl, resources.albedoTexture, surface.albedo, gl.SRGB8_ALPHA8)
+    uploadTexture(gl, resources.normalHeightTexture, surface.normalHeight, gl.RGBA8)
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
+    hasSource = true
+    heightScale = surface.heightScale ?? DEFAULT_HEIGHT_SCALE
+    longitudeOffset = ((surface.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
+  }
+
+  function refreshSource(): void {
+    const generation = sourceGeneration
+    uploadSource()
+    void source.ready?.().then(
+      () => {
+        if (generation === sourceGeneration) uploadSource()
+      },
+      () => undefined,
+    )
+  }
+
+  function resize(): void {
+    const bounds = canvas.getBoundingClientRect()
+    const dpr = Math.min(window.devicePixelRatio, 2)
+    const width = Math.max(Math.round(bounds.width * dpr), 1)
+    const height = Math.max(Math.round(bounds.height * dpr), 1)
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+    }
+  }
+
+  function updatePointer(delta: number): void {
+    const stiffness = 42
+    const damping = 11
+    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
+    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
+    const decay = Math.exp(-damping * delta)
+    pointer.velocityX *= decay
+    pointer.velocityY *= decay
+    pointer.currentX += pointer.velocityX * delta
+    pointer.currentY += pointer.velocityY * delta
+  }
+
+  function render(timestamp: number, settings: LunarFrameSettings): void {
+    if (contextLost) return
+    resize()
+    const elapsed = (timestamp - startTime) / 1000
+    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
+    lastTime = timestamp
+    updatePointer(delta)
+    const azimuth = (settings.sunAzimuth * Math.PI) / 180
+    const elevation = (settings.sunElevation * Math.PI) / 180
+    const elevationCosine = Math.cos(elevation)
+    const sunDirection = [
+      Math.sin(azimuth) * elevationCosine,
+      Math.sin(elevation),
+      Math.cos(azimuth) * elevationCosine,
+    ] as const
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas.width, canvas.height)
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.useProgram(resources.program)
+    gl.bindVertexArray(resources.vertexArray)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uBloomIntensity'),
+      settings.bloomIntensity,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uBloomRadius'), settings.bloomRadius)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uBloomWarmth'), settings.bloomWarmth)
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, resources.normalHeightTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.program, 'uNormalHeightTexture'), 1)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uEarthshineIntensity'),
+      settings.earthshineIntensity,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uHeightScale'), heightScale)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uNormalStrength'),
+      settings.normalStrength,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uOppositionStrength'),
+      settings.oppositionStrength,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uOppositionWidth'),
+      settings.oppositionWidth,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uPhotometricMix'),
+      settings.photometricMix,
+    )
+    gl.uniform2f(
+      gl.getUniformLocation(resources.program, 'uPointer'),
+      pointer.currentX,
+      pointer.currentY,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uReliefShadowStrength'),
+      settings.reliefShadowStrength,
+    )
+    gl.uniform2f(
+      gl.getUniformLocation(resources.program, 'uResolution'),
+      canvas.width,
+      canvas.height,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
+    gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
+      (settings.surfaceRotation * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uVeilingGlare'), settings.veilingGlare)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.bindVertexArray(null)
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    const bounds = canvas.getBoundingClientRect()
+    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
+  }
+
+  function handlePointerLeave(): void {
+    pointer.targetX = 0
+    pointer.targetY = 0
+  }
+
+  function handleContextLost(event: Event): void {
+    event.preventDefault()
+    contextLost = true
+  }
+
+  function handleContextRestored(): void {
+    contextLost = false
+    sourceGeneration += 1
+    resources = createResources(gl)
+    hasSource = false
+    heightScale = DEFAULT_HEIGHT_SCALE
+    longitudeOffset = 0
+    uploadSource()
+    startTime = performance.now()
+    lastTime = startTime
+    resize()
+  }
+
+  const resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(canvas)
+  canvas.addEventListener('pointermove', handlePointerMove)
+  canvas.addEventListener('pointerleave', handlePointerLeave)
+  canvas.addEventListener('webglcontextlost', handleContextLost)
+  canvas.addEventListener('webglcontextrestored', handleContextRestored)
+  try {
+    refreshSource()
+    resize()
+  } catch (error) {
+    disposed = true
+    sourceGeneration += 1
+    resizeObserver.disconnect()
+    canvas.removeEventListener('pointermove', handlePointerMove)
+    canvas.removeEventListener('pointerleave', handlePointerLeave)
+    canvas.removeEventListener('webglcontextlost', handleContextLost)
+    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+    if (!contextLost) deleteResources(gl, resources)
+    throw error
+  }
+
+  return {
+    render,
+    dispose(): void {
+      disposed = true
+      sourceGeneration += 1
+      resizeObserver.disconnect()
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+      if (!contextLost) deleteResources(gl, resources)
+    },
+  }
+}
+
 export function LunarOrbEffect({
   bloomIntensity = 0,
   bloomRadius = 0.08,
@@ -453,24 +702,7 @@ export function LunarOrbEffect({
   veilingGlare = 0,
 }: LunarOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const latestRef = useRef({
-    bloomIntensity,
-    bloomRadius,
-    bloomWarmth,
-    earthshineIntensity,
-    exposure,
-    normalStrength,
-    oppositionStrength,
-    oppositionWidth,
-    photometricMix,
-    reliefShadowStrength,
-    rotationSpeed,
-    sunAzimuth,
-    sunElevation,
-    surfaceRotation,
-    veilingGlare,
-  })
-  latestRef.current = {
+  const frameSettings: LunarFrameSettings = {
     bloomIntensity,
     bloomRadius,
     bloomWarmth,
@@ -488,210 +720,7 @@ export function LunarOrbEffect({
     veilingGlare,
   }
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const context = canvas.getContext('webgl2', {
-      alpha: true,
-      antialias: false,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: true,
-    })
-    if (!context) return
-    const gl: WebGL2RenderingContext = context
-
-    let contextLost = false
-    let disposed = false
-    let frameId = 0
-    let hasSource = false
-    let heightScale = DEFAULT_HEIGHT_SCALE
-    let longitudeOffset = 0
-    let resources = createResources(gl)
-    let startTime = performance.now()
-    let lastTime = startTime
-    const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-    function uploadSource(): void {
-      if (disposed || contextLost) return
-      const surface = source.render()
-      if (!surface) {
-        hasSource = false
-        return
-      }
-
-      const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-      const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-      uploadTexture(gl, resources.albedoTexture, surface.albedo, gl.SRGB8_ALPHA8)
-      uploadTexture(gl, resources.normalHeightTexture, surface.normalHeight, gl.RGBA8)
-      gl.bindTexture(gl.TEXTURE_2D, null)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-      hasSource = true
-      heightScale = surface.heightScale ?? DEFAULT_HEIGHT_SCALE
-      longitudeOffset = ((surface.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-    }
-
-    function resize(): void {
-      const bounds = canvas!.getBoundingClientRect()
-      const dpr = Math.min(window.devicePixelRatio, 2)
-      const width = Math.max(Math.round(bounds.width * dpr), 1)
-      const height = Math.max(Math.round(bounds.height * dpr), 1)
-      if (canvas!.width !== width || canvas!.height !== height) {
-        canvas!.width = width
-        canvas!.height = height
-      }
-    }
-
-    function updatePointer(delta: number): void {
-      const stiffness = 42
-      const damping = 11
-      pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-      pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-      const decay = Math.exp(-damping * delta)
-      pointer.velocityX *= decay
-      pointer.velocityY *= decay
-      pointer.currentX += pointer.velocityX * delta
-      pointer.currentY += pointer.velocityY * delta
-    }
-
-    function render(timestamp: number): void {
-      frameId = requestAnimationFrame(render)
-      if (contextLost) return
-      resize()
-      const elapsed = (timestamp - startTime) / 1000
-      const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-      lastTime = timestamp
-      updatePointer(delta)
-      const current = latestRef.current
-      const azimuth = (current.sunAzimuth * Math.PI) / 180
-      const elevation = (current.sunElevation * Math.PI) / 180
-      const elevationCosine = Math.cos(elevation)
-      const sunDirection = [
-        Math.sin(azimuth) * elevationCosine,
-        Math.sin(elevation),
-        Math.cos(azimuth) * elevationCosine,
-      ] as const
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, canvas!.width, canvas!.height)
-      gl.disable(gl.BLEND)
-      gl.disable(gl.DEPTH_TEST)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(resources.program)
-      gl.bindVertexArray(resources.vertexArray)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uBloomIntensity'),
-        current.bloomIntensity,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uBloomRadius'), current.bloomRadius)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uBloomWarmth'), current.bloomWarmth)
-      gl.activeTexture(gl.TEXTURE1)
-      gl.bindTexture(gl.TEXTURE_2D, resources.normalHeightTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.program, 'uNormalHeightTexture'), 1)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uEarthshineIntensity'),
-        current.earthshineIntensity,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), current.exposure)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uHeightScale'), heightScale)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uNormalStrength'),
-        current.normalStrength,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uOppositionStrength'),
-        current.oppositionStrength,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uOppositionWidth'),
-        current.oppositionWidth,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uPhotometricMix'),
-        current.photometricMix,
-      )
-      gl.uniform2f(
-        gl.getUniformLocation(resources.program, 'uPointer'),
-        pointer.currentX,
-        pointer.currentY,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uReliefShadowStrength'),
-        current.reliefShadowStrength,
-      )
-      gl.uniform2f(
-        gl.getUniformLocation(resources.program, 'uResolution'),
-        canvas!.width,
-        canvas!.height,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-      gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
-        (current.surfaceRotation * Math.PI) / 180 + elapsed * current.rotationSpeed,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uVeilingGlare'), current.veilingGlare)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-      gl.bindVertexArray(null)
-    }
-
-    function handlePointerMove(event: PointerEvent): void {
-      const bounds = canvas!.getBoundingClientRect()
-      pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-      pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-    }
-
-    function handlePointerLeave(): void {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-
-    function handleContextLost(event: Event): void {
-      event.preventDefault()
-      contextLost = true
-    }
-
-    function handleContextRestored(): void {
-      contextLost = false
-      resources = createResources(gl)
-      hasSource = false
-      heightScale = DEFAULT_HEIGHT_SCALE
-      longitudeOffset = 0
-      uploadSource()
-      startTime = performance.now()
-      lastTime = startTime
-      resize()
-    }
-
-    const resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(canvas)
-    canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerleave', handlePointerLeave)
-    canvas.addEventListener('webglcontextlost', handleContextLost)
-    canvas.addEventListener('webglcontextrestored', handleContextRestored)
-    uploadSource()
-    void source.ready?.().then(uploadSource, () => undefined)
-    resize()
-    frameId = requestAnimationFrame(render)
-
-    return () => {
-      disposed = true
-      cancelAnimationFrame(frameId)
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    }
-  }, [source])
+  useCanvasRenderer(canvasRef, frameSettings, source, createLunarRenderer)
 
   return (
     <canvas

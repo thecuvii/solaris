@@ -2,7 +2,9 @@
 
 // Requires: react
 
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
+
+import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
 export type SolarDataPlane = {
   /** Straight RGBA8: sRGB coded-color observation in RGB and coverage in alpha. */
@@ -42,6 +44,17 @@ type SolarResources = {
   observationTexture: WebGLTexture
   program: WebGLProgram
   vertexArray: WebGLVertexArrayObject
+}
+
+type SolarOrbSettings = {
+  activeRegionGain: number
+  contrast: number
+  exposure: number
+  filamentDepth: number
+  flowAmount: number
+  flowSpeed: number
+  limbEmission: number
+  saturation: number
 }
 
 const OBSERVATION_SIZE = 1024
@@ -470,6 +483,169 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
 }
 
+function createSolarOrbRenderer(
+  canvas: HTMLCanvasElement,
+  source: SolarOrbSource,
+): CanvasRenderer<SolarOrbSettings> | null {
+  const context = canvas.getContext('webgl2', {
+    alpha: true,
+    antialias: false,
+    depth: false,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: true,
+    stencil: false,
+  })
+  if (!context) return null
+  const gl: WebGL2RenderingContext = context
+
+  let contextLost = false
+  let diskCenter: readonly [number, number] = [0.5, 0.5]
+  let diskRadius = 0.4
+  let disposed = false
+  let hasSource = false
+  let resources: SolarResources | null = createResources(gl)
+  let sourceGeneration = 0
+  let startTime = performance.now()
+
+  function uploadSource(generation: number): void {
+    if (disposed || contextLost || generation !== sourceGeneration || !resources) return
+    const frame = source.render()
+    if (!frame) {
+      hasSource = false
+      return
+    }
+    validateObservation(frame.observation)
+    validateRegistration(frame)
+    const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
+    try {
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
+      uploadObservation(gl, resources.observationTexture, frame.observation)
+      gl.bindTexture(gl.TEXTURE_2D, null)
+    } finally {
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
+    }
+    diskCenter = frame.diskCenter
+    diskRadius = frame.diskRadius
+    hasSource = true
+  }
+
+  function refreshSource(): void {
+    const generation = ++sourceGeneration
+    uploadSource(generation)
+    void source.ready?.().then(
+      () => uploadSource(generation),
+      () => undefined,
+    )
+  }
+
+  function resize(): void {
+    const bounds = canvas.getBoundingClientRect()
+    const dpr = Math.min(window.devicePixelRatio, 2)
+    const width = Math.max(Math.round(bounds.width * dpr), 1)
+    const height = Math.max(Math.round(bounds.height * dpr), 1)
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+    }
+  }
+
+  function render(timestamp: number, current: SolarOrbSettings): void {
+    if (disposed || contextLost || !resources) return
+    const elapsed = (timestamp - startTime) / 1000
+    const activeResources = resources
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas.width, canvas.height)
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.useProgram(activeResources.program)
+    gl.bindVertexArray(activeResources.vertexArray)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, activeResources.observationTexture)
+    gl.uniform1i(gl.getUniformLocation(activeResources.program, 'uObservationTexture'), 0)
+
+    const uniform1f = (name: string, value: number) => {
+      gl.uniform1f(gl.getUniformLocation(activeResources.program, name), value)
+    }
+    uniform1f('uActiveRegionGain', clamp(current.activeRegionGain, 0, 2))
+    uniform1f('uContrast', clamp(current.contrast, 0.5, 1.8))
+    gl.uniform2f(
+      gl.getUniformLocation(activeResources.program, 'uDiskCenter'),
+      diskCenter[0],
+      diskCenter[1],
+    )
+    uniform1f('uDiskRadius', diskRadius)
+    uniform1f('uExposure', clamp(current.exposure, 0, 2))
+    uniform1f('uFilamentDepth', clamp(current.filamentDepth, 0, 1.5))
+    uniform1f('uFlowAmount', clamp(current.flowAmount, 0, 6))
+    uniform1f('uFlowSpeed', clamp(current.flowSpeed, 0, 2))
+    uniform1f('uLimbEmission', clamp(current.limbEmission, 0, 2))
+    uniform1f('uSaturation', clamp(current.saturation, 0, 1.6))
+    uniform1f('uSourceReady', hasSource ? 1 : 0)
+    uniform1f('uTime', elapsed)
+    gl.uniform2f(
+      gl.getUniformLocation(activeResources.program, 'uResolution'),
+      canvas.width,
+      canvas.height,
+    )
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.bindVertexArray(null)
+  }
+
+  function handleContextLost(event: Event): void {
+    event.preventDefault()
+    contextLost = true
+    resources = null
+    hasSource = false
+    sourceGeneration += 1
+  }
+
+  function handleContextRestored(): void {
+    if (disposed) return
+    contextLost = false
+    resources = createResources(gl)
+    startTime = performance.now()
+    refreshSource()
+    resize()
+  }
+
+  const resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(canvas)
+  window.addEventListener('resize', resize)
+  canvas.addEventListener('webglcontextlost', handleContextLost)
+  canvas.addEventListener('webglcontextrestored', handleContextRestored)
+  try {
+    refreshSource()
+    resize()
+  } catch (error) {
+    disposed = true
+    sourceGeneration += 1
+    resizeObserver.disconnect()
+    window.removeEventListener('resize', resize)
+    canvas.removeEventListener('webglcontextlost', handleContextLost)
+    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+    if (resources) deleteResources(gl, resources)
+    resources = null
+    throw error
+  }
+
+  return {
+    render,
+    dispose(): void {
+      disposed = true
+      sourceGeneration += 1
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', resize)
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+      if (!contextLost && resources) deleteResources(gl, resources)
+      resources = null
+    },
+  }
+}
+
 export function SolarOrbEffect({
   activeRegionGain = 0.28,
   className,
@@ -484,17 +660,7 @@ export function SolarOrbEffect({
   style,
 }: SolarOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const latestRef = useRef({
-    activeRegionGain,
-    contrast,
-    exposure,
-    filamentDepth,
-    flowAmount,
-    flowSpeed,
-    limbEmission,
-    saturation,
-  })
-  latestRef.current = {
+  const frameSettings: SolarOrbSettings = {
     activeRegionGain,
     contrast,
     exposure,
@@ -504,178 +670,7 @@ export function SolarOrbEffect({
     limbEmission,
     saturation,
   }
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const activeCanvas = canvas
-    const context = activeCanvas.getContext('webgl2', {
-      alpha: true,
-      antialias: false,
-      depth: false,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: true,
-      stencil: false,
-    })
-    if (!context) return
-    const gl: WebGL2RenderingContext = context
-
-    let contextLost = false
-    let diskCenter: readonly [number, number] = [0.5, 0.5]
-    let diskRadius = 0.4
-    let disposed = false
-    let frameId = 0
-    let hasSource = false
-    let resources: SolarResources | null = createResources(gl)
-    let sourceGeneration = 0
-    let startTime = performance.now()
-
-    function uploadSource(generation: number): void {
-      if (disposed || contextLost || generation !== sourceGeneration || !resources) return
-      const frame = source.render()
-      if (!frame) {
-        hasSource = false
-        return
-      }
-      validateObservation(frame.observation)
-      validateRegistration(frame)
-      const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
-      try {
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
-        uploadObservation(gl, resources.observationTexture, frame.observation)
-        gl.bindTexture(gl.TEXTURE_2D, null)
-      } finally {
-        gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
-      }
-      diskCenter = frame.diskCenter
-      diskRadius = frame.diskRadius
-      hasSource = true
-    }
-
-    function refreshSource(): void {
-      const generation = ++sourceGeneration
-      uploadSource(generation)
-      void source.ready?.().then(
-        () => uploadSource(generation),
-        () => undefined,
-      )
-    }
-
-    function resize(): void {
-      const bounds = activeCanvas.getBoundingClientRect()
-      const dpr = Math.min(window.devicePixelRatio, 2)
-      const width = Math.max(Math.round(bounds.width * dpr), 1)
-      const height = Math.max(Math.round(bounds.height * dpr), 1)
-      if (activeCanvas.width !== width || activeCanvas.height !== height) {
-        activeCanvas.width = width
-        activeCanvas.height = height
-      }
-    }
-
-    function render(timestamp: number): void {
-      if (disposed || contextLost || !resources) {
-        frameId = 0
-        return
-      }
-      frameId = requestAnimationFrame(render)
-      const elapsed = (timestamp - startTime) / 1000
-      const current = latestRef.current
-      const activeResources = resources
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, activeCanvas.width, activeCanvas.height)
-      gl.disable(gl.BLEND)
-      gl.disable(gl.DEPTH_TEST)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(activeResources.program)
-      gl.bindVertexArray(activeResources.vertexArray)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, activeResources.observationTexture)
-      gl.uniform1i(gl.getUniformLocation(activeResources.program, 'uObservationTexture'), 0)
-
-      const uniform1f = (name: string, value: number) => {
-        gl.uniform1f(gl.getUniformLocation(activeResources.program, name), value)
-      }
-      uniform1f('uActiveRegionGain', clamp(current.activeRegionGain, 0, 2))
-      uniform1f('uContrast', clamp(current.contrast, 0.5, 1.8))
-      gl.uniform2f(
-        gl.getUniformLocation(activeResources.program, 'uDiskCenter'),
-        diskCenter[0],
-        diskCenter[1],
-      )
-      uniform1f('uDiskRadius', diskRadius)
-      uniform1f('uExposure', clamp(current.exposure, 0, 2))
-      uniform1f('uFilamentDepth', clamp(current.filamentDepth, 0, 1.5))
-      uniform1f('uFlowAmount', clamp(current.flowAmount, 0, 6))
-      uniform1f('uFlowSpeed', clamp(current.flowSpeed, 0, 2))
-      uniform1f('uLimbEmission', clamp(current.limbEmission, 0, 2))
-      uniform1f('uSaturation', clamp(current.saturation, 0, 1.6))
-      uniform1f('uSourceReady', hasSource ? 1 : 0)
-      uniform1f('uTime', elapsed)
-      gl.uniform2f(
-        gl.getUniformLocation(activeResources.program, 'uResolution'),
-        activeCanvas.width,
-        activeCanvas.height,
-      )
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-      gl.bindVertexArray(null)
-    }
-
-    function handleContextLost(event: Event): void {
-      event.preventDefault()
-      contextLost = true
-      cancelAnimationFrame(frameId)
-      frameId = 0
-      resources = null
-      hasSource = false
-      sourceGeneration += 1
-    }
-
-    function handleContextRestored(): void {
-      if (disposed) return
-      contextLost = false
-      resources = createResources(gl)
-      startTime = performance.now()
-      refreshSource()
-      resize()
-      if (frameId === 0) frameId = requestAnimationFrame(render)
-    }
-
-    const resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(activeCanvas)
-    window.addEventListener('resize', resize)
-    activeCanvas.addEventListener('webglcontextlost', handleContextLost)
-    activeCanvas.addEventListener('webglcontextrestored', handleContextRestored)
-    try {
-      refreshSource()
-      resize()
-      frameId = requestAnimationFrame(render)
-    } catch (error) {
-      disposed = true
-      sourceGeneration += 1
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', resize)
-      activeCanvas.removeEventListener('webglcontextlost', handleContextLost)
-      activeCanvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (resources) deleteResources(gl, resources)
-      resources = null
-      throw error
-    }
-
-    return () => {
-      disposed = true
-      sourceGeneration += 1
-      cancelAnimationFrame(frameId)
-      frameId = 0
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', resize)
-      activeCanvas.removeEventListener('webglcontextlost', handleContextLost)
-      activeCanvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost && resources) deleteResources(gl, resources)
-      resources = null
-    }
-  }, [source])
+  useCanvasRenderer(canvasRef, frameSettings, source, createSolarOrbRenderer)
 
   return (
     <canvas

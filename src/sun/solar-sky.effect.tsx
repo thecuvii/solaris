@@ -2,7 +2,9 @@
 
 // Requires: react
 
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
+
+import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
 /*
  * The atmospheric transport in this Effect is a WebGL2 adaptation of Fernando
@@ -96,6 +98,7 @@ const TRANSMITTANCE_HEIGHT = 64
 const LOW_SKY_SIZE = 128
 const HIGH_SKY_SIZE = 256
 const SETTLE_DELAY_MS = 140
+const SOLAR_SKY_INPUT = null
 
 const VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -801,6 +804,185 @@ function skyKey(settings: SolarSkySettings): string {
   ].join('|')
 }
 
+function createSolarSkyRenderer(
+  canvas: HTMLCanvasElement,
+  _input: null,
+): CanvasRenderer<SolarSkySettings> | null {
+  const context = canvas.getContext('webgl2', {
+    alpha: false,
+    antialias: false,
+    depth: false,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: false,
+    stencil: false,
+  })
+  if (!context) return null
+  const gl: WebGL2RenderingContext = context
+
+  let contextLost = false
+  let displaySky: RenderTarget | null = null
+  let disposed = false
+  let highSkyRows = 0
+  let lastAtmosphereKey = ''
+  let lastSkyKey = ''
+  let lowSkyRows = 0
+  let resources: SolarSkyResources | null = createResources(gl)
+  let settleAt = 0
+  let startTime = performance.now()
+  let transmittanceReady = false
+  let transmittanceRows = 0
+
+  function resize(): void {
+    const bounds = canvas.getBoundingClientRect()
+    const dpr = Math.min(window.devicePixelRatio, 2)
+    const width = Math.max(Math.round(bounds.width * dpr), 1)
+    const height = Math.max(Math.round(bounds.height * dpr), 1)
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+    }
+  }
+
+  function render(timestamp: number, frameSettings: SolarSkySettings): void {
+    if (disposed || contextLost || !resources) return
+    const settings = sanitizedSettings(frameSettings)
+    const activeResources = resources
+    const nextAtmosphereKey = atmosphereKey(settings)
+    const nextSkyKey = skyKey(settings)
+
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    gl.bindVertexArray(activeResources.vertexArray)
+
+    if (nextAtmosphereKey !== lastAtmosphereKey) {
+      lastAtmosphereKey = nextAtmosphereKey
+      transmittanceReady = false
+      transmittanceRows = 0
+    }
+    if (nextSkyKey !== lastSkyKey) {
+      lastSkyKey = nextSkyKey
+      lowSkyRows = 0
+      highSkyRows = 0
+      settleAt = Number.POSITIVE_INFINITY
+    }
+
+    if (!transmittanceReady) {
+      const rowCount = Math.min(8, TRANSMITTANCE_HEIGHT - transmittanceRows)
+      drawTransmittance(gl, activeResources, settings, transmittanceRows, rowCount)
+      transmittanceRows += rowCount
+      transmittanceReady = transmittanceRows === TRANSMITTANCE_HEIGHT
+    } else if (lowSkyRows < LOW_SKY_SIZE) {
+      const rowCount = Math.min(4, LOW_SKY_SIZE - lowSkyRows)
+      drawSky(gl, activeResources, activeResources.lowSky, settings, lowSkyRows, rowCount)
+      lowSkyRows += rowCount
+      if (lowSkyRows === LOW_SKY_SIZE) {
+        displaySky = activeResources.lowSky
+        settleAt = timestamp + SETTLE_DELAY_MS
+      }
+    } else if (timestamp >= settleAt && highSkyRows < HIGH_SKY_SIZE) {
+      const rowCount = Math.min(4, HIGH_SKY_SIZE - highSkyRows)
+      drawSky(gl, activeResources, activeResources.highSky, settings, highSkyRows, rowCount)
+      highSkyRows += rowCount
+      if (highSkyRows === HIGH_SKY_SIZE) displaySky = activeResources.highSky
+    }
+
+    const sky = displaySky
+    if (!sky) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      gl.viewport(0, 0, canvas.width, canvas.height)
+      gl.clearColor(0, 0, 0, 1)
+      gl.clear(gl.COLOR_BUFFER_BIT)
+      gl.bindVertexArray(null)
+      return
+    }
+    const program = activeResources.finalProgram
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas.width, canvas.height)
+    gl.useProgram(program)
+    setAtmosphereUniforms(gl, program, settings)
+    uniform1f(gl, program, 'uAureole', settings.aureole)
+    uniform1f(gl, program, 'uCacheResolution', sky.size)
+    uniform1f(gl, program, 'uExposure', settings.exposure)
+    uniform1f(gl, program, 'uFieldOfView', settings.fieldOfView)
+    uniform1f(gl, program, 'uHorizonElevation', settings.horizonElevation)
+    uniform1f(gl, program, 'uObserverAltitude', settings.observerAltitude)
+    uniform1f(gl, program, 'uRefraction', settings.refraction)
+    const resolutionLocation = gl.getUniformLocation(program, 'uResolution')
+    if (resolutionLocation !== null) {
+      gl.uniform2f(resolutionLocation, canvas.width, canvas.height)
+    }
+    uniform1f(gl, program, 'uSeeingAmount', settings.seeingAmount)
+    uniform1f(gl, program, 'uSeeingSpeed', settings.seeingSpeed)
+    uniform1f(gl, program, 'uSunElevation', settings.sunElevation)
+    uniform1f(gl, program, 'uSunScale', settings.sunScale)
+    uniform1f(gl, program, 'uSunX', settings.sunX)
+    uniform1f(gl, program, 'uTime', (timestamp - startTime) / 1000)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, sky.texture)
+    const skyLocation = gl.getUniformLocation(program, 'uSkyTexture')
+    if (skyLocation !== null) gl.uniform1i(skyLocation, 0)
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, activeResources.transmittance.texture)
+    const transmittanceLocation = gl.getUniformLocation(program, 'uTransmittanceTexture')
+    if (transmittanceLocation !== null) gl.uniform1i(transmittanceLocation, 1)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.bindVertexArray(null)
+  }
+
+  function handleContextLost(event: Event): void {
+    event.preventDefault()
+    contextLost = true
+    resources = null
+  }
+
+  function handleContextRestored(): void {
+    if (disposed) return
+    contextLost = false
+    resources = createResources(gl)
+    displaySky = null
+    highSkyRows = 0
+    lastAtmosphereKey = ''
+    lastSkyKey = ''
+    lowSkyRows = 0
+    settleAt = 0
+    startTime = performance.now()
+    transmittanceReady = false
+    transmittanceRows = 0
+    resize()
+  }
+
+  const resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(canvas)
+  window.addEventListener('resize', resize)
+  canvas.addEventListener('webglcontextlost', handleContextLost)
+  canvas.addEventListener('webglcontextrestored', handleContextRestored)
+  try {
+    resize()
+  } catch (error) {
+    disposed = true
+    resizeObserver.disconnect()
+    window.removeEventListener('resize', resize)
+    canvas.removeEventListener('webglcontextlost', handleContextLost)
+    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+    if (resources) deleteResources(gl, resources)
+    resources = null
+    throw error
+  }
+
+  return {
+    render,
+    dispose(): void {
+      disposed = true
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', resize)
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+      if (!contextLost && resources) deleteResources(gl, resources)
+      resources = null
+    },
+  }
+}
+
 export function SolarSkyEffect({
   airDensity = 1,
   aerosolAbsorption = 1,
@@ -823,26 +1005,7 @@ export function SolarSkyEffect({
   style,
 }: SolarSkyEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const latestRef = useRef<SolarSkySettings>({
-    airDensity,
-    aerosolAbsorption,
-    aerosolAnisotropy,
-    aerosolDensity,
-    aureole,
-    exposure,
-    fieldOfView,
-    groundAlbedo,
-    horizonElevation,
-    observerAltitude,
-    ozoneDensity,
-    refraction,
-    seeingAmount,
-    seeingSpeed,
-    sunElevation,
-    sunScale,
-    sunX,
-  })
-  latestRef.current = {
+  const frameSettings: SolarSkySettings = {
     airDensity,
     aerosolAbsorption,
     aerosolAnisotropy,
@@ -861,193 +1024,7 @@ export function SolarSkyEffect({
     sunScale,
     sunX,
   }
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const activeCanvas = canvas
-    const context = activeCanvas.getContext('webgl2', {
-      alpha: false,
-      antialias: false,
-      depth: false,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: false,
-      stencil: false,
-    })
-    if (!context) return
-    const gl: WebGL2RenderingContext = context
-
-    let contextLost = false
-    let displaySky: RenderTarget | null = null
-    let disposed = false
-    let frameId = 0
-    let highSkyRows = 0
-    let lastAtmosphereKey = ''
-    let lastSkyKey = ''
-    let lowSkyRows = 0
-    let resources: SolarSkyResources | null = createResources(gl)
-    let settleAt = 0
-    let startTime = performance.now()
-    let transmittanceReady = false
-    let transmittanceRows = 0
-
-    function resize(): void {
-      const bounds = activeCanvas.getBoundingClientRect()
-      const dpr = Math.min(window.devicePixelRatio, 2)
-      const width = Math.max(Math.round(bounds.width * dpr), 1)
-      const height = Math.max(Math.round(bounds.height * dpr), 1)
-      if (activeCanvas.width !== width || activeCanvas.height !== height) {
-        activeCanvas.width = width
-        activeCanvas.height = height
-      }
-    }
-
-    function render(timestamp: number): void {
-      if (disposed || contextLost || !resources) {
-        frameId = 0
-        return
-      }
-      frameId = requestAnimationFrame(render)
-      const settings = sanitizedSettings(latestRef.current)
-      const activeResources = resources
-      const nextAtmosphereKey = atmosphereKey(settings)
-      const nextSkyKey = skyKey(settings)
-
-      gl.disable(gl.BLEND)
-      gl.disable(gl.DEPTH_TEST)
-      gl.bindVertexArray(activeResources.vertexArray)
-
-      if (nextAtmosphereKey !== lastAtmosphereKey) {
-        lastAtmosphereKey = nextAtmosphereKey
-        transmittanceReady = false
-        transmittanceRows = 0
-      }
-      if (nextSkyKey !== lastSkyKey) {
-        lastSkyKey = nextSkyKey
-        lowSkyRows = 0
-        highSkyRows = 0
-        settleAt = Number.POSITIVE_INFINITY
-      }
-
-      if (!transmittanceReady) {
-        const rowCount = Math.min(8, TRANSMITTANCE_HEIGHT - transmittanceRows)
-        drawTransmittance(gl, activeResources, settings, transmittanceRows, rowCount)
-        transmittanceRows += rowCount
-        transmittanceReady = transmittanceRows === TRANSMITTANCE_HEIGHT
-      } else if (lowSkyRows < LOW_SKY_SIZE) {
-        const rowCount = Math.min(4, LOW_SKY_SIZE - lowSkyRows)
-        drawSky(gl, activeResources, activeResources.lowSky, settings, lowSkyRows, rowCount)
-        lowSkyRows += rowCount
-        if (lowSkyRows === LOW_SKY_SIZE) {
-          displaySky = activeResources.lowSky
-          settleAt = timestamp + SETTLE_DELAY_MS
-        }
-      } else if (timestamp >= settleAt && highSkyRows < HIGH_SKY_SIZE) {
-        const rowCount = Math.min(4, HIGH_SKY_SIZE - highSkyRows)
-        drawSky(gl, activeResources, activeResources.highSky, settings, highSkyRows, rowCount)
-        highSkyRows += rowCount
-        if (highSkyRows === HIGH_SKY_SIZE) displaySky = activeResources.highSky
-      }
-
-      const sky = displaySky
-      if (!sky) {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-        gl.viewport(0, 0, activeCanvas.width, activeCanvas.height)
-        gl.clearColor(0, 0, 0, 1)
-        gl.clear(gl.COLOR_BUFFER_BIT)
-        gl.bindVertexArray(null)
-        return
-      }
-      const program = activeResources.finalProgram
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, activeCanvas.width, activeCanvas.height)
-      gl.useProgram(program)
-      setAtmosphereUniforms(gl, program, settings)
-      uniform1f(gl, program, 'uAureole', settings.aureole)
-      uniform1f(gl, program, 'uCacheResolution', sky.size)
-      uniform1f(gl, program, 'uExposure', settings.exposure)
-      uniform1f(gl, program, 'uFieldOfView', settings.fieldOfView)
-      uniform1f(gl, program, 'uHorizonElevation', settings.horizonElevation)
-      uniform1f(gl, program, 'uObserverAltitude', settings.observerAltitude)
-      uniform1f(gl, program, 'uRefraction', settings.refraction)
-      const resolutionLocation = gl.getUniformLocation(program, 'uResolution')
-      if (resolutionLocation !== null) {
-        gl.uniform2f(resolutionLocation, activeCanvas.width, activeCanvas.height)
-      }
-      uniform1f(gl, program, 'uSeeingAmount', settings.seeingAmount)
-      uniform1f(gl, program, 'uSeeingSpeed', settings.seeingSpeed)
-      uniform1f(gl, program, 'uSunElevation', settings.sunElevation)
-      uniform1f(gl, program, 'uSunScale', settings.sunScale)
-      uniform1f(gl, program, 'uSunX', settings.sunX)
-      uniform1f(gl, program, 'uTime', (timestamp - startTime) / 1000)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, sky.texture)
-      const skyLocation = gl.getUniformLocation(program, 'uSkyTexture')
-      if (skyLocation !== null) gl.uniform1i(skyLocation, 0)
-      gl.activeTexture(gl.TEXTURE1)
-      gl.bindTexture(gl.TEXTURE_2D, activeResources.transmittance.texture)
-      const transmittanceLocation = gl.getUniformLocation(program, 'uTransmittanceTexture')
-      if (transmittanceLocation !== null) gl.uniform1i(transmittanceLocation, 1)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-      gl.bindVertexArray(null)
-    }
-
-    function handleContextLost(event: Event): void {
-      event.preventDefault()
-      contextLost = true
-      cancelAnimationFrame(frameId)
-      frameId = 0
-      resources = null
-    }
-
-    function handleContextRestored(): void {
-      if (disposed) return
-      contextLost = false
-      resources = createResources(gl)
-      displaySky = null
-      highSkyRows = 0
-      lastAtmosphereKey = ''
-      lastSkyKey = ''
-      lowSkyRows = 0
-      settleAt = 0
-      startTime = performance.now()
-      transmittanceReady = false
-      transmittanceRows = 0
-      resize()
-      if (frameId === 0) frameId = requestAnimationFrame(render)
-    }
-
-    const resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(activeCanvas)
-    window.addEventListener('resize', resize)
-    activeCanvas.addEventListener('webglcontextlost', handleContextLost)
-    activeCanvas.addEventListener('webglcontextrestored', handleContextRestored)
-    try {
-      resize()
-      frameId = requestAnimationFrame(render)
-    } catch (error) {
-      disposed = true
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', resize)
-      activeCanvas.removeEventListener('webglcontextlost', handleContextLost)
-      activeCanvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (resources) deleteResources(gl, resources)
-      resources = null
-      throw error
-    }
-
-    return () => {
-      disposed = true
-      cancelAnimationFrame(frameId)
-      frameId = 0
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', resize)
-      activeCanvas.removeEventListener('webglcontextlost', handleContextLost)
-      activeCanvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost && resources) deleteResources(gl, resources)
-      resources = null
-    }
-  }, [])
+  useCanvasRenderer(canvasRef, frameSettings, SOLAR_SKY_INPUT, createSolarSkyRenderer)
 
   return (
     <canvas

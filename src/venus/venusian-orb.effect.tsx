@@ -2,7 +2,27 @@
 
 // Requires: react
 
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
+
+import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+
+type VenusianFrameSettings = {
+  axialTilt: number
+  cloudContrast: number
+  cloudDetail: number
+  exposure: number
+  flowSpeed: number
+  flowStrength: number
+  forwardScattering: number
+  gloryStrength: number
+  opticalDepth: number
+  rotationSpeed: number
+  sulfurTint: number
+  sunAzimuth: number
+  sunElevation: number
+  surfaceRotation: number
+  upperHaze: number
+}
 
 export type VenusianOrbSource = {
   ready?: () => Promise<void>
@@ -546,6 +566,202 @@ function uploadTexture(
   }
 }
 
+function createVenusianRenderer(
+  canvas: HTMLCanvasElement,
+  source: VenusianOrbSource,
+): CanvasRenderer<VenusianFrameSettings> | null {
+  const context = canvas.getContext('webgl2', {
+    alpha: true,
+    antialias: false,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: true,
+  })
+  if (!context) return null
+  const gl: WebGL2RenderingContext = context
+
+  let contextLost = false
+  let disposed = false
+  let hasSource = false
+  let longitudeOffset = 0
+  let sourceGeneration = 0
+  let resources = createResources(gl)
+  let startTime = performance.now()
+  let lastTime = startTime
+  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
+
+  function uploadSource(): void {
+    if (disposed || contextLost) return
+    const venus = source.render()
+    if (!venus) {
+      hasSource = false
+      return
+    }
+
+    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
+    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
+    uploadTexture(gl, resources.cloudStructureTexture, venus.cloudStructure)
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
+    hasSource = true
+    longitudeOffset = ((venus.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
+  }
+
+  function refreshSource(): void {
+    const generation = sourceGeneration
+    uploadSource()
+    void source.ready?.().then(
+      () => {
+        if (generation === sourceGeneration) uploadSource()
+      },
+      () => undefined,
+    )
+  }
+
+  function resize(): void {
+    const bounds = canvas.getBoundingClientRect()
+    const dpr = Math.min(window.devicePixelRatio, 2)
+    const width = Math.max(Math.round(bounds.width * dpr), 1)
+    const height = Math.max(Math.round(bounds.height * dpr), 1)
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+    }
+  }
+
+  function updatePointer(delta: number): void {
+    const stiffness = 42
+    const damping = 11
+    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
+    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
+    const decay = Math.exp(-damping * delta)
+    pointer.velocityX *= decay
+    pointer.velocityY *= decay
+    pointer.currentX += pointer.velocityX * delta
+    pointer.currentY += pointer.velocityY * delta
+  }
+
+  function render(timestamp: number, settings: VenusianFrameSettings): void {
+    if (contextLost) return
+    const elapsed = (timestamp - startTime) / 1000
+    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
+    lastTime = timestamp
+    updatePointer(delta)
+    const azimuth = (settings.sunAzimuth * Math.PI) / 180
+    const elevation = (settings.sunElevation * Math.PI) / 180
+    const elevationCosine = Math.cos(elevation)
+    const sunDirection = [
+      Math.sin(azimuth) * elevationCosine,
+      Math.sin(elevation),
+      Math.cos(azimuth) * elevationCosine,
+    ] as const
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas.width, canvas.height)
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.useProgram(resources.program)
+    gl.bindVertexArray(resources.vertexArray)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, resources.cloudStructureTexture)
+    const { uniforms } = resources
+    gl.uniform1i(uniforms.cloudStructureTexture, 0)
+    gl.uniform1f(uniforms.axialTilt, (settings.axialTilt * Math.PI) / 180)
+    gl.uniform1f(uniforms.cloudContrast, settings.cloudContrast)
+    gl.uniform1f(uniforms.cloudDetail, settings.cloudDetail)
+    gl.uniform1f(uniforms.exposure, settings.exposure)
+    gl.uniform1f(uniforms.flowSpeed, settings.flowSpeed)
+    gl.uniform1f(uniforms.flowStrength, settings.flowStrength)
+    gl.uniform1f(uniforms.forwardScattering, settings.forwardScattering)
+    gl.uniform1f(uniforms.gloryStrength, settings.gloryStrength)
+    gl.uniform1f(uniforms.longitudeOffset, longitudeOffset)
+    gl.uniform1f(uniforms.opticalDepth, settings.opticalDepth)
+    gl.uniform2f(uniforms.pointer, pointer.currentX, pointer.currentY)
+    gl.uniform2f(uniforms.resolution, canvas.width, canvas.height)
+    gl.uniform1f(uniforms.sourceReady, hasSource ? 1 : 0)
+    gl.uniform1f(uniforms.sulfurTint, settings.sulfurTint)
+    gl.uniform3f(uniforms.sunDirection, ...sunDirection)
+    gl.uniform1f(
+      uniforms.surfaceRotation,
+      (settings.surfaceRotation * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+    )
+    gl.uniform1f(uniforms.time, elapsed)
+    gl.uniform1f(uniforms.upperHaze, settings.upperHaze)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.bindVertexArray(null)
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    const bounds = canvas.getBoundingClientRect()
+    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
+  }
+
+  function handlePointerLeave(): void {
+    pointer.targetX = 0
+    pointer.targetY = 0
+  }
+
+  function handleContextLost(event: Event): void {
+    event.preventDefault()
+    contextLost = true
+  }
+
+  function handleContextRestored(): void {
+    contextLost = false
+    sourceGeneration += 1
+    resources = createResources(gl)
+    hasSource = false
+    longitudeOffset = 0
+    uploadSource()
+    startTime = performance.now()
+    lastTime = startTime
+    resize()
+  }
+
+  const resizeObserver = new ResizeObserver(() => resize())
+  resizeObserver.observe(canvas)
+  window.addEventListener('resize', resize)
+  canvas.addEventListener('pointermove', handlePointerMove)
+  canvas.addEventListener('pointerleave', handlePointerLeave)
+  canvas.addEventListener('webglcontextlost', handleContextLost)
+  canvas.addEventListener('webglcontextrestored', handleContextRestored)
+  try {
+    refreshSource()
+    resize()
+  } catch (error) {
+    disposed = true
+    sourceGeneration += 1
+    resizeObserver.disconnect()
+    window.removeEventListener('resize', resize)
+    canvas.removeEventListener('pointermove', handlePointerMove)
+    canvas.removeEventListener('pointerleave', handlePointerLeave)
+    canvas.removeEventListener('webglcontextlost', handleContextLost)
+    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+    if (!contextLost) deleteResources(gl, resources)
+    throw error
+  }
+
+  return {
+    render,
+    dispose(): void {
+      disposed = true
+      sourceGeneration += 1
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', resize)
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+      if (!contextLost) deleteResources(gl, resources)
+    },
+  }
+}
+
 export function VenusianOrbEffect({
   axialTilt = -3,
   className,
@@ -567,24 +783,7 @@ export function VenusianOrbEffect({
   upperHaze = 0.46,
 }: VenusianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const latestRef = useRef({
-    axialTilt,
-    cloudContrast,
-    cloudDetail,
-    exposure,
-    flowSpeed,
-    flowStrength,
-    forwardScattering,
-    gloryStrength,
-    opticalDepth,
-    rotationSpeed,
-    sulfurTint,
-    sunAzimuth,
-    sunElevation,
-    surfaceRotation,
-    upperHaze,
-  })
-  latestRef.current = {
+  const frameSettings: VenusianFrameSettings = {
     axialTilt,
     cloudContrast,
     cloudDetail,
@@ -602,176 +801,7 @@ export function VenusianOrbEffect({
     upperHaze,
   }
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const context = canvas.getContext('webgl2', {
-      alpha: true,
-      antialias: false,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: true,
-    })
-    if (!context) return
-    const gl: WebGL2RenderingContext = context
-
-    let contextLost = false
-    let disposed = false
-    let frameId = 0
-    let hasSource = false
-    let longitudeOffset = 0
-    let resources = createResources(gl)
-    let startTime = performance.now()
-    let lastTime = startTime
-    const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-    function uploadSource(): void {
-      if (disposed || contextLost) return
-      const venus = source.render()
-      if (!venus) {
-        hasSource = false
-        return
-      }
-
-      const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-      const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-      uploadTexture(gl, resources.cloudStructureTexture, venus.cloudStructure)
-      gl.bindTexture(gl.TEXTURE_2D, null)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-      hasSource = true
-      longitudeOffset = ((venus.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-    }
-
-    function resize(): void {
-      const bounds = canvas!.getBoundingClientRect()
-      const dpr = Math.min(window.devicePixelRatio, 2)
-      const width = Math.max(Math.round(bounds.width * dpr), 1)
-      const height = Math.max(Math.round(bounds.height * dpr), 1)
-      if (canvas!.width !== width || canvas!.height !== height) {
-        canvas!.width = width
-        canvas!.height = height
-      }
-    }
-
-    function updatePointer(delta: number): void {
-      const stiffness = 42
-      const damping = 11
-      pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-      pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-      const decay = Math.exp(-damping * delta)
-      pointer.velocityX *= decay
-      pointer.velocityY *= decay
-      pointer.currentX += pointer.velocityX * delta
-      pointer.currentY += pointer.velocityY * delta
-    }
-
-    function render(timestamp: number): void {
-      frameId = requestAnimationFrame(render)
-      if (contextLost) return
-      const elapsed = (timestamp - startTime) / 1000
-      const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-      lastTime = timestamp
-      updatePointer(delta)
-      const current = latestRef.current
-      const azimuth = (current.sunAzimuth * Math.PI) / 180
-      const elevation = (current.sunElevation * Math.PI) / 180
-      const elevationCosine = Math.cos(elevation)
-      const sunDirection = [
-        Math.sin(azimuth) * elevationCosine,
-        Math.sin(elevation),
-        Math.cos(azimuth) * elevationCosine,
-      ] as const
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, canvas!.width, canvas!.height)
-      gl.disable(gl.BLEND)
-      gl.disable(gl.DEPTH_TEST)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(resources.program)
-      gl.bindVertexArray(resources.vertexArray)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, resources.cloudStructureTexture)
-      const { uniforms } = resources
-      gl.uniform1i(uniforms.cloudStructureTexture, 0)
-      gl.uniform1f(uniforms.axialTilt, (current.axialTilt * Math.PI) / 180)
-      gl.uniform1f(uniforms.cloudContrast, current.cloudContrast)
-      gl.uniform1f(uniforms.cloudDetail, current.cloudDetail)
-      gl.uniform1f(uniforms.exposure, current.exposure)
-      gl.uniform1f(uniforms.flowSpeed, current.flowSpeed)
-      gl.uniform1f(uniforms.flowStrength, current.flowStrength)
-      gl.uniform1f(uniforms.forwardScattering, current.forwardScattering)
-      gl.uniform1f(uniforms.gloryStrength, current.gloryStrength)
-      gl.uniform1f(uniforms.longitudeOffset, longitudeOffset)
-      gl.uniform1f(uniforms.opticalDepth, current.opticalDepth)
-      gl.uniform2f(uniforms.pointer, pointer.currentX, pointer.currentY)
-      gl.uniform2f(uniforms.resolution, canvas!.width, canvas!.height)
-      gl.uniform1f(uniforms.sourceReady, hasSource ? 1 : 0)
-      gl.uniform1f(uniforms.sulfurTint, current.sulfurTint)
-      gl.uniform3f(uniforms.sunDirection, ...sunDirection)
-      gl.uniform1f(
-        uniforms.surfaceRotation,
-        (current.surfaceRotation * Math.PI) / 180 + elapsed * current.rotationSpeed,
-      )
-      gl.uniform1f(uniforms.time, elapsed)
-      gl.uniform1f(uniforms.upperHaze, current.upperHaze)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-      gl.bindVertexArray(null)
-    }
-
-    function handlePointerMove(event: PointerEvent): void {
-      const bounds = canvas!.getBoundingClientRect()
-      pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-      pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-    }
-
-    function handlePointerLeave(): void {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-
-    function handleContextLost(event: Event): void {
-      event.preventDefault()
-      contextLost = true
-    }
-
-    function handleContextRestored(): void {
-      contextLost = false
-      resources = createResources(gl)
-      hasSource = false
-      longitudeOffset = 0
-      uploadSource()
-      startTime = performance.now()
-      lastTime = startTime
-      resize()
-    }
-
-    const resizeObserver = new ResizeObserver(() => resize())
-    resizeObserver.observe(canvas)
-    window.addEventListener('resize', resize)
-    canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerleave', handlePointerLeave)
-    canvas.addEventListener('webglcontextlost', handleContextLost)
-    canvas.addEventListener('webglcontextrestored', handleContextRestored)
-    uploadSource()
-    void source.ready?.().then(uploadSource, () => undefined)
-    resize()
-    frameId = requestAnimationFrame(render)
-
-    return () => {
-      disposed = true
-      cancelAnimationFrame(frameId)
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', resize)
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    }
-  }, [source])
+  useCanvasRenderer(canvasRef, frameSettings, source, createVenusianRenderer)
 
   return (
     <canvas

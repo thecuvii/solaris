@@ -2,7 +2,9 @@
 
 // Requires: react
 
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useRef, type CSSProperties } from 'react'
+
+import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
 export type JovianOrbSource = {
   ready?: () => Promise<void>
@@ -42,6 +44,22 @@ type JovianResources = {
 type AnisotropyExtension = {
   MAX_TEXTURE_MAX_ANISOTROPY_EXT: number
   TEXTURE_MAX_ANISOTROPY_EXT: number
+}
+
+type JovianFrameSettings = {
+  cloudPhotometricMix: number
+  detailIntensity: number
+  detailScale: number
+  detailSpeed: number
+  exposure: number
+  jetStrength: number
+  limbHaze: number
+  oblateness: number
+  rotationSpeed: number
+  sunAzimuth: number
+  sunElevation: number
+  surfaceRotation: number
+  vortexStrength: number
 }
 
 const JUPITER_RADIUS = 0.82
@@ -395,6 +413,202 @@ function uploadTexture(
   }
 }
 
+function createJovianRenderer(
+  canvas: HTMLCanvasElement,
+  source: JovianOrbSource,
+): CanvasRenderer<JovianFrameSettings> | null {
+  const context = canvas.getContext('webgl2', {
+    alpha: true,
+    antialias: false,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: true,
+  })
+  if (!context) return null
+  const gl: WebGL2RenderingContext = context
+
+  let contextLost = false
+  let disposed = false
+  let hasSource = false
+  let longitudeOffset = 0
+  let grsCenter = [0, 0] as [number, number]
+  let grsRadii = [0, 0] as [number, number]
+  let resources = createResources(gl)
+  let startTime = performance.now()
+  let lastTime = startTime
+  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
+
+  function uploadSource(): void {
+    if (disposed || contextLost) return
+    const clouds = source.render()
+    if (!clouds) {
+      hasSource = false
+      return
+    }
+
+    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
+    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
+    uploadTexture(gl, resources.albedoTexture, clouds.albedo)
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
+    hasSource = true
+    longitudeOffset = ((clouds.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
+    grsCenter = clouds.grsCenter
+      ? [(clouds.grsCenter[0] * Math.PI) / 180, (clouds.grsCenter[1] * Math.PI) / 180]
+      : [0, 0]
+    grsRadii =
+      clouds.grsCenter && clouds.grsRadii
+        ? [(clouds.grsRadii[0] * Math.PI) / 180, (clouds.grsRadii[1] * Math.PI) / 180]
+        : [0, 0]
+  }
+
+  function resize(): void {
+    const bounds = canvas.getBoundingClientRect()
+    const dpr = Math.min(window.devicePixelRatio, 2)
+    const width = Math.max(Math.round(bounds.width * dpr), 1)
+    const height = Math.max(Math.round(bounds.height * dpr), 1)
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width
+      canvas.height = height
+    }
+  }
+
+  function updatePointer(delta: number): void {
+    const stiffness = 42
+    const damping = 11
+    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
+    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
+    const decay = Math.exp(-damping * delta)
+    pointer.velocityX *= decay
+    pointer.velocityY *= decay
+    pointer.currentX += pointer.velocityX * delta
+    pointer.currentY += pointer.velocityY * delta
+  }
+
+  function render(timestamp: number, settings: JovianFrameSettings): void {
+    if (contextLost) return
+    resize()
+    const elapsed = (timestamp - startTime) / 1000
+    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
+    lastTime = timestamp
+    updatePointer(delta)
+    const azimuth = (settings.sunAzimuth * Math.PI) / 180
+    const elevation = (settings.sunElevation * Math.PI) / 180
+    const elevationCosine = Math.cos(elevation)
+    const sunDirection = [
+      Math.sin(azimuth) * elevationCosine,
+      Math.sin(elevation),
+      Math.cos(azimuth) * elevationCosine,
+    ] as const
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas.width, canvas.height)
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.useProgram(resources.program)
+    gl.bindVertexArray(resources.vertexArray)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uCloudPhotometricMix'),
+      settings.cloudPhotometricMix,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uDetailIntensity'),
+      settings.detailIntensity,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailScale'), settings.detailScale)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailSpeed'), settings.detailSpeed)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
+    gl.uniform2f(gl.getUniformLocation(resources.program, 'uGrsCenter'), ...grsCenter)
+    gl.uniform2f(gl.getUniformLocation(resources.program, 'uGrsRadii'), ...grsRadii)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uJetStrength'), settings.jetStrength)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLimbHaze'), settings.limbHaze)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uOblateness'), settings.oblateness)
+    gl.uniform2f(
+      gl.getUniformLocation(resources.program, 'uPointer'),
+      pointer.currentX,
+      pointer.currentY,
+    )
+    gl.uniform2f(
+      gl.getUniformLocation(resources.program, 'uResolution'),
+      canvas.width,
+      canvas.height,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
+    gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
+      (settings.surfaceRotation * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTime'), elapsed)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uVortexStrength'),
+      settings.vortexStrength,
+    )
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+    gl.bindVertexArray(null)
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    const bounds = canvas.getBoundingClientRect()
+    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
+  }
+
+  function handlePointerLeave(): void {
+    pointer.targetX = 0
+    pointer.targetY = 0
+  }
+
+  function handleContextLost(event: Event): void {
+    event.preventDefault()
+    contextLost = true
+  }
+
+  function handleContextRestored(): void {
+    contextLost = false
+    resources = createResources(gl)
+    hasSource = false
+    longitudeOffset = 0
+    grsCenter = [0, 0]
+    grsRadii = [0, 0]
+    uploadSource()
+    startTime = performance.now()
+    lastTime = startTime
+    resize()
+  }
+
+  const resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(canvas)
+  canvas.addEventListener('pointermove', handlePointerMove)
+  canvas.addEventListener('pointerleave', handlePointerLeave)
+  canvas.addEventListener('webglcontextlost', handleContextLost)
+  canvas.addEventListener('webglcontextrestored', handleContextRestored)
+  uploadSource()
+  void source.ready?.().then(uploadSource, () => undefined)
+  resize()
+
+  return {
+    render,
+    dispose(): void {
+      disposed = true
+      resizeObserver.disconnect()
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+      if (!contextLost) deleteResources(gl, resources)
+    },
+  }
+}
+
 export function JovianOrbEffect({
   className,
   cloudPhotometricMix = 0.35,
@@ -414,22 +628,7 @@ export function JovianOrbEffect({
   vortexStrength = 0.42,
 }: JovianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const latestRef = useRef({
-    cloudPhotometricMix,
-    detailIntensity,
-    detailScale,
-    detailSpeed,
-    exposure,
-    jetStrength,
-    limbHaze,
-    oblateness,
-    rotationSpeed,
-    sunAzimuth,
-    sunElevation,
-    surfaceRotation,
-    vortexStrength,
-  })
-  latestRef.current = {
+  const frameSettings: JovianFrameSettings = {
     cloudPhotometricMix,
     detailIntensity,
     detailScale,
@@ -444,203 +643,7 @@ export function JovianOrbEffect({
     surfaceRotation,
     vortexStrength,
   }
-
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const context = canvas.getContext('webgl2', {
-      alpha: true,
-      antialias: false,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: true,
-    })
-    if (!context) return
-    const gl: WebGL2RenderingContext = context
-
-    let contextLost = false
-    let disposed = false
-    let frameId = 0
-    let hasSource = false
-    let longitudeOffset = 0
-    let grsCenter = [0, 0] as [number, number]
-    let grsRadii = [0, 0] as [number, number]
-    let resources = createResources(gl)
-    let startTime = performance.now()
-    let lastTime = startTime
-    const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-    function uploadSource(): void {
-      if (disposed || contextLost) return
-      const clouds = source.render()
-      if (!clouds) {
-        hasSource = false
-        return
-      }
-
-      const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-      const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-      uploadTexture(gl, resources.albedoTexture, clouds.albedo)
-      gl.bindTexture(gl.TEXTURE_2D, null)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-      hasSource = true
-      longitudeOffset = ((clouds.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-      grsCenter = clouds.grsCenter
-        ? [(clouds.grsCenter[0] * Math.PI) / 180, (clouds.grsCenter[1] * Math.PI) / 180]
-        : [0, 0]
-      grsRadii =
-        clouds.grsCenter && clouds.grsRadii
-          ? [(clouds.grsRadii[0] * Math.PI) / 180, (clouds.grsRadii[1] * Math.PI) / 180]
-          : [0, 0]
-    }
-
-    function resize(): void {
-      const bounds = canvas!.getBoundingClientRect()
-      const dpr = Math.min(window.devicePixelRatio, 2)
-      const width = Math.max(Math.round(bounds.width * dpr), 1)
-      const height = Math.max(Math.round(bounds.height * dpr), 1)
-      if (canvas!.width !== width || canvas!.height !== height) {
-        canvas!.width = width
-        canvas!.height = height
-      }
-    }
-
-    function updatePointer(delta: number): void {
-      const stiffness = 42
-      const damping = 11
-      pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-      pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-      const decay = Math.exp(-damping * delta)
-      pointer.velocityX *= decay
-      pointer.velocityY *= decay
-      pointer.currentX += pointer.velocityX * delta
-      pointer.currentY += pointer.velocityY * delta
-    }
-
-    function render(timestamp: number): void {
-      frameId = requestAnimationFrame(render)
-      if (contextLost) return
-      resize()
-      const elapsed = (timestamp - startTime) / 1000
-      const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-      lastTime = timestamp
-      updatePointer(delta)
-      const current = latestRef.current
-      const azimuth = (current.sunAzimuth * Math.PI) / 180
-      const elevation = (current.sunElevation * Math.PI) / 180
-      const elevationCosine = Math.cos(elevation)
-      const sunDirection = [
-        Math.sin(azimuth) * elevationCosine,
-        Math.sin(elevation),
-        Math.cos(azimuth) * elevationCosine,
-      ] as const
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, canvas!.width, canvas!.height)
-      gl.disable(gl.BLEND)
-      gl.disable(gl.DEPTH_TEST)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(resources.program)
-      gl.bindVertexArray(resources.vertexArray)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uCloudPhotometricMix'),
-        current.cloudPhotometricMix,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uDetailIntensity'),
-        current.detailIntensity,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailScale'), current.detailScale)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailSpeed'), current.detailSpeed)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), current.exposure)
-      gl.uniform2f(gl.getUniformLocation(resources.program, 'uGrsCenter'), ...grsCenter)
-      gl.uniform2f(gl.getUniformLocation(resources.program, 'uGrsRadii'), ...grsRadii)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uJetStrength'), current.jetStrength)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uLimbHaze'), current.limbHaze)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uOblateness'), current.oblateness)
-      gl.uniform2f(
-        gl.getUniformLocation(resources.program, 'uPointer'),
-        pointer.currentX,
-        pointer.currentY,
-      )
-      gl.uniform2f(
-        gl.getUniformLocation(resources.program, 'uResolution'),
-        canvas!.width,
-        canvas!.height,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-      gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
-        (current.surfaceRotation * Math.PI) / 180 + elapsed * current.rotationSpeed,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.program, 'uTime'), elapsed)
-      gl.uniform1f(
-        gl.getUniformLocation(resources.program, 'uVortexStrength'),
-        current.vortexStrength,
-      )
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-      gl.bindVertexArray(null)
-    }
-
-    function handlePointerMove(event: PointerEvent): void {
-      const bounds = canvas!.getBoundingClientRect()
-      pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-      pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-    }
-
-    function handlePointerLeave(): void {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-
-    function handleContextLost(event: Event): void {
-      event.preventDefault()
-      contextLost = true
-    }
-
-    function handleContextRestored(): void {
-      contextLost = false
-      resources = createResources(gl)
-      hasSource = false
-      longitudeOffset = 0
-      grsCenter = [0, 0]
-      grsRadii = [0, 0]
-      uploadSource()
-      startTime = performance.now()
-      lastTime = startTime
-      resize()
-    }
-
-    const resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(canvas)
-    canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerleave', handlePointerLeave)
-    canvas.addEventListener('webglcontextlost', handleContextLost)
-    canvas.addEventListener('webglcontextrestored', handleContextRestored)
-    uploadSource()
-    void source.ready?.().then(uploadSource, () => undefined)
-    resize()
-    frameId = requestAnimationFrame(render)
-
-    return () => {
-      disposed = true
-      cancelAnimationFrame(frameId)
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    }
-  }, [source])
+  useCanvasRenderer(canvasRef, frameSettings, source, createJovianRenderer)
 
   return (
     <canvas

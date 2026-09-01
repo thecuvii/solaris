@@ -2,8 +2,10 @@
 
 // Requires: react, three
 
-import { useEffect, useRef, type CSSProperties } from 'react'
+import { useMemo, useRef, type CSSProperties } from 'react'
 import * as THREE from 'three'
+
+import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
 export type AtmosphericOrbColor = readonly [red: number, green: number, blue: number]
 
@@ -75,6 +77,35 @@ export type AtmosphericOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
+}
+
+type AtmosphericFrameSettings = {
+  aerosol: number
+  atmosphereDensity: number
+  atmosphereThickness: number
+  cloudDensity: number
+  cloudHeight: number
+  cloudShadowIntensity: number
+  detailIntensity: number
+  detailSpeed: number
+  manualOrbit: boolean
+  model: AtmosphericOrbModel
+  multipleScattering: number
+  nightLightIntensity: number
+  oceanGlint: number
+  oceanWaveStrength: number
+  orbitSpeed: number
+  showAtmosphere: boolean
+  showFlightRoutes: boolean
+  showSatelliteOrbits: boolean
+  sunAzimuth: number
+  sunElevation: number
+}
+
+type AtmosphericRendererInput = {
+  orbits: readonly CelestialOrbit[]
+  routes: readonly CelestialRoute[]
+  source: AtmosphericOrbSource | undefined
 }
 
 const EMPTY_ORBITS: readonly CelestialOrbit[] = []
@@ -234,6 +265,7 @@ precision highp sampler2D;
 in vec2 vUv;
 
 uniform float uAerosol;
+uniform float uAspect;
 uniform float uAtmosphereDensity;
 uniform float uAtmosphereRadius;
 uniform float uCloudDensity;
@@ -469,6 +501,7 @@ vec3 filmic(vec3 color) {
 
 void main() {
   vec2 screen = vUv * 2.0 - 1.0;
+  screen.x *= uAspect;
   vec3 rayOrigin = vec3(0.0, 0.0, 3.0);
   vec3 rayDirection = normalize(vec3(screen * 0.39, -1.0));
   vec2 atmosphereHit = raySphereIntersect(rayOrigin, rayDirection, uAtmosphereRadius);
@@ -1275,6 +1308,454 @@ function setColor(
   gl.uniform3f(gl.getUniformLocation(program, name), ...color)
 }
 
+function createAtmosphericRenderer(
+  canvas: HTMLCanvasElement,
+  { orbits, routes, source }: AtmosphericRendererInput,
+  getSettings: () => AtmosphericFrameSettings,
+): CanvasRenderer<AtmosphericFrameSettings> | null {
+  const context = canvas.getContext('webgl2', {
+    alpha: true,
+    antialias: false,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: true,
+  })
+  if (!context) return null
+  const gl: WebGL2RenderingContext = context
+  const threeRenderer = new THREE.WebGLRenderer({
+    alpha: true,
+    canvas,
+    context: gl,
+    powerPreference: 'high-performance',
+    premultipliedAlpha: true,
+  })
+  threeRenderer.autoClear = false
+  const details = createDetailResources(orbits, routes)
+
+  let contextLost = false
+  let disposed = false
+  let earthResources: EarthResources | null = null
+  let hasCloudSource = false
+  let hasMaterialSource = false
+  let hasSurfaceSource = false
+  let longitudeOffset = 0
+  let resources = createResources(gl)
+  let startTime = performance.now()
+  let lastTime = startTime
+  let transmittanceKey = ''
+  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
+
+  function ensureEarthResources(): EarthResources {
+    earthResources ??= createEarthResources(gl, resources.atmosphere)
+    return earthResources
+  }
+
+  function uploadSurfaceSource(): void {
+    if (disposed || contextLost) return
+    const surface = source?.render()
+    if (!surface) {
+      hasCloudSource = false
+      hasMaterialSource = false
+      hasSurfaceSource = false
+      longitudeOffset = 0
+      return
+    }
+
+    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
+    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
+    for (const [texture, image, internalFormat] of [
+      [resources.dayTexture, surface.day, gl.SRGB8_ALPHA8],
+      [resources.nightTexture, surface.night, gl.SRGB8_ALPHA8],
+      [resources.normalTexture, surface.normal, gl.RGBA8],
+      [resources.roughnessTexture, surface.roughness, gl.RGBA8],
+    ] as const) {
+      gl.bindTexture(gl.TEXTURE_2D, texture)
+      gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, gl.RGBA, gl.UNSIGNED_BYTE, image)
+      gl.generateMipmap(gl.TEXTURE_2D)
+    }
+    if (surface.material) {
+      gl.bindTexture(gl.TEXTURE_2D, resources.materialTexture)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, surface.material)
+      gl.generateMipmap(gl.TEXTURE_2D)
+      hasMaterialSource = true
+    } else {
+      hasMaterialSource = false
+    }
+    if (surface.cloud) {
+      const earth = ensureEarthResources()
+      gl.bindTexture(gl.TEXTURE_2D, earth.cloudTexture)
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, surface.cloud)
+      gl.generateMipmap(gl.TEXTURE_2D)
+      hasCloudSource = true
+    } else {
+      hasCloudSource = false
+    }
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
+    hasSurfaceSource = true
+    longitudeOffset = THREE.MathUtils.degToRad(surface.longitudeOffsetDegrees ?? 0)
+  }
+
+  function resize(): void {
+    const bounds = canvas!.getBoundingClientRect()
+    const dpr = Math.min(window.devicePixelRatio, 2)
+    const width = Math.max(Math.round(bounds.width * dpr), 1)
+    const height = Math.max(Math.round(bounds.height * dpr), 1)
+    if (canvas!.width !== width || canvas!.height !== height) {
+      threeRenderer.setPixelRatio(dpr)
+      threeRenderer.setSize(Math.max(bounds.width, 1), Math.max(bounds.height, 1), false)
+    }
+    details.camera.aspect = Math.max(bounds.width, 1) / Math.max(bounds.height, 1)
+    details.camera.updateProjectionMatrix()
+    resizeRenderTarget(gl, resources.atmosphere, width, height)
+    if (earthResources) {
+      resizeRenderTarget(gl, earthResources.emission, width, height)
+      const bloomWidth = Math.max(Math.ceil(width / 4), 1)
+      const bloomHeight = Math.max(Math.ceil(height / 4), 1)
+      resizeRenderTarget(gl, earthResources.bloomA, bloomWidth, bloomHeight)
+      resizeRenderTarget(gl, earthResources.bloomB, bloomWidth, bloomHeight)
+    }
+  }
+
+  function setPhysicalUniforms(program: WebGLProgram, current: AtmosphericFrameSettings): void {
+    const atmosphereRadius = PLANET_RADIUS + current.atmosphereThickness
+    gl.uniform1f(gl.getUniformLocation(program, 'uAerosol'), current.aerosol)
+    gl.uniform1f(
+      gl.getUniformLocation(program, 'uAtmosphereDensity'),
+      current.showAtmosphere ? current.atmosphereDensity : 0,
+    )
+    gl.uniform1f(gl.getUniformLocation(program, 'uAtmosphereRadius'), atmosphereRadius)
+    gl.uniform1f(gl.getUniformLocation(program, 'uPlanetRadius'), PLANET_RADIUS)
+    setColor(gl, program, 'uMieExtinction', current.model.mieExtinction)
+    setColor(gl, program, 'uOzoneAbsorption', current.model.ozoneAbsorption)
+    setColor(gl, program, 'uRayleighScattering', current.model.rayleighScattering)
+  }
+
+  function renderTransmittance(current: AtmosphericFrameSettings): void {
+    const nextKey = JSON.stringify([
+      current.aerosol,
+      current.atmosphereDensity,
+      current.atmosphereThickness,
+      current.model.mieExtinction,
+      current.model.mieScattering,
+      current.model.ozoneAbsorption,
+      current.model.rayleighScattering,
+      current.showAtmosphere,
+    ])
+    if (nextKey === transmittanceKey) return
+    transmittanceKey = nextKey
+    gl.bindFramebuffer(gl.FRAMEBUFFER, resources.transmittance.framebuffer)
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0])
+    gl.viewport(0, 0, resources.transmittance.width, resources.transmittance.height)
+    gl.useProgram(resources.transmittanceProgram)
+    setPhysicalUniforms(resources.transmittanceProgram, current)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, resources.multipleScattering.framebuffer)
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0])
+    gl.viewport(0, 0, resources.multipleScattering.width, resources.multipleScattering.height)
+    gl.useProgram(resources.multipleScatteringProgram)
+    setPhysicalUniforms(resources.multipleScatteringProgram, current)
+    setColor(gl, resources.multipleScatteringProgram, 'uMieScattering', current.model.mieScattering)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, resources.transmittance.texture)
+    gl.uniform1i(gl.getUniformLocation(resources.multipleScatteringProgram, 'uTransmittance'), 0)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+  }
+
+  function renderBloom(earth: EarthResources): void {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, earth.bloomA.framebuffer)
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0])
+    gl.viewport(0, 0, earth.bloomA.width, earth.bloomA.height)
+    gl.useProgram(earth.downsampleProgram)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, earth.emission.texture)
+    gl.uniform1i(gl.getUniformLocation(earth.downsampleProgram, 'uSource'), 0)
+    gl.uniform2f(
+      gl.getUniformLocation(earth.downsampleProgram, 'uTexelSize'),
+      1 / earth.emission.width,
+      1 / earth.emission.height,
+    )
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+
+    function blur(
+      sourceTarget: RenderTarget,
+      target: RenderTarget,
+      directionX: number,
+      directionY: number,
+    ): void {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer)
+      gl.drawBuffers([gl.COLOR_ATTACHMENT0])
+      gl.viewport(0, 0, target.width, target.height)
+      gl.useProgram(earth.blurProgram)
+      gl.activeTexture(gl.TEXTURE0)
+      gl.bindTexture(gl.TEXTURE_2D, sourceTarget.texture)
+      gl.uniform1i(gl.getUniformLocation(earth.blurProgram, 'uSource'), 0)
+      gl.uniform2f(
+        gl.getUniformLocation(earth.blurProgram, 'uTexelSize'),
+        1 / sourceTarget.width,
+        1 / sourceTarget.height,
+      )
+      gl.uniform2f(gl.getUniformLocation(earth.blurProgram, 'uDirection'), directionX, directionY)
+      gl.drawArrays(gl.TRIANGLES, 0, 3)
+    }
+
+    blur(earth.bloomA, earth.bloomB, 1, 0)
+    blur(earth.bloomB, earth.bloomA, 0, 1)
+    blur(earth.bloomA, earth.bloomB, 1, 0)
+    blur(earth.bloomB, earth.bloomA, 0, 1)
+  }
+
+  function updatePointer(delta: number): void {
+    const stiffness = 42
+    const damping = 11
+    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
+    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
+    const decay = Math.exp(-damping * delta)
+    pointer.velocityX *= decay
+    pointer.velocityY *= decay
+    pointer.currentX += pointer.velocityX * delta
+    pointer.currentY += pointer.velocityY * delta
+  }
+
+  function render(timestamp: number, current: AtmosphericFrameSettings): void {
+    if (disposed || contextLost) return
+    resize()
+    gl.disable(gl.BLEND)
+    gl.disable(gl.DEPTH_TEST)
+    renderTransmittance(current)
+    const elapsed = (timestamp - startTime) / 1000
+    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
+    lastTime = timestamp
+    updatePointer(delta)
+
+    const baseAzimuth = THREE.MathUtils.degToRad(current.sunAzimuth)
+    const orbitAngle = current.manualOrbit
+      ? baseAzimuth + pointer.currentX * Math.PI
+      : elapsed * current.orbitSpeed + baseAzimuth + pointer.currentX * 0.42
+    const elevationOffset = pointer.currentY * (current.manualOrbit ? 55 : 20)
+    const elevation = (current.sunElevation + elevationOffset) * (Math.PI / 180)
+    const elevationCosine = Math.cos(elevation)
+    const sunDirection: AtmosphericOrbColor = [
+      Math.cos(orbitAngle) * elevationCosine,
+      Math.sin(elevation),
+      Math.sin(orbitAngle) * elevationCosine,
+    ]
+    const earth = hasCloudSource ? earthResources : null
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, resources.atmosphere.framebuffer)
+    gl.drawBuffers(earth ? [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1] : [gl.COLOR_ATTACHMENT0])
+    gl.viewport(0, 0, resources.atmosphere.width, resources.atmosphere.height)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    gl.useProgram(resources.atmosphereProgram)
+    setPhysicalUniforms(resources.atmosphereProgram, current)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, resources.transmittance.texture)
+    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uTransmittance'), 0)
+    gl.activeTexture(gl.TEXTURE1)
+    gl.bindTexture(gl.TEXTURE_2D, resources.dayTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uDayTexture'), 1)
+    gl.activeTexture(gl.TEXTURE2)
+    gl.bindTexture(gl.TEXTURE_2D, resources.nightTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uNightTexture'), 2)
+    gl.activeTexture(gl.TEXTURE3)
+    gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uNormalTexture'), 3)
+    gl.activeTexture(gl.TEXTURE4)
+    gl.bindTexture(gl.TEXTURE_2D, resources.roughnessTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uRoughnessTexture'), 4)
+    if (earth) {
+      gl.activeTexture(gl.TEXTURE5)
+      gl.bindTexture(gl.TEXTURE_2D, earth.cloudTexture)
+      gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uCloudTexture'), 5)
+    }
+    gl.activeTexture(gl.TEXTURE6)
+    gl.bindTexture(gl.TEXTURE_2D, resources.materialTexture)
+    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uMaterialTexture'), 6)
+    gl.activeTexture(gl.TEXTURE7)
+    gl.bindTexture(gl.TEXTURE_2D, resources.multipleScattering.texture)
+    gl.uniform1i(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uMultipleScatteringTexture'),
+      7,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uCloudDensity'),
+      current.cloudDensity,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uAspect'),
+      resources.atmosphere.width / resources.atmosphere.height,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uCloudHeight'),
+      current.cloudHeight,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uCloudShadowIntensity'),
+      current.cloudShadowIntensity,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uEarthPipeline'),
+      earth ? 1 : 0,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uHasSurfaceSource'),
+      hasSurfaceSource ? 1 : 0,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uHasMaterialSource'),
+      hasMaterialSource ? 1 : 0,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uLongitudeOffset'),
+      longitudeOffset,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uSunIntensity'),
+      current.model.sunIntensity,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uMultipleScattering'),
+      current.multipleScattering,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uNightLightIntensity'),
+      current.nightLightIntensity,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uOceanGlint'),
+      current.oceanGlint,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uOceanWaveStrength'),
+      current.oceanWaveStrength,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.atmosphereProgram, 'uTime'), elapsed)
+    gl.uniform3f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uSunDirection'),
+      ...sunDirection,
+    )
+    setColor(gl, resources.atmosphereProgram, 'uMieScattering', current.model.mieScattering)
+    setColor(gl, resources.atmosphereProgram, 'uSpaceColor', current.model.space)
+    setColor(gl, resources.atmosphereProgram, 'uSunColor', current.model.sun)
+    setColor(gl, resources.atmosphereProgram, 'uSurfaceDay', current.model.surfaceDay)
+    setColor(gl, resources.atmosphereProgram, 'uSurfaceNight', current.model.surfaceNight)
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+
+    if (earth) renderBloom(earth)
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.viewport(0, 0, canvas!.width, canvas!.height)
+    gl.clearColor(0, 0, 0, 0)
+    gl.clear(gl.COLOR_BUFFER_BIT)
+    const compositeProgram = earth ? earth.compositeProgram : resources.compositeProgram
+    gl.useProgram(compositeProgram)
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, resources.atmosphere.texture)
+    if (earth) {
+      gl.uniform1i(gl.getUniformLocation(compositeProgram, 'uScene'), 0)
+      gl.activeTexture(gl.TEXTURE1)
+      gl.bindTexture(gl.TEXTURE_2D, earth.bloomA.texture)
+      gl.uniform1i(gl.getUniformLocation(compositeProgram, 'uBloom'), 1)
+    } else {
+      gl.uniform1i(gl.getUniformLocation(compositeProgram, 'uAtmosphere'), 0)
+    }
+    gl.drawArrays(gl.TRIANGLES, 0, 3)
+
+    details.orbitRoot.visible = current.showSatelliteOrbits
+    details.routeRoot.visible = current.showFlightRoutes
+    for (const [index, orbit] of details.orbits.entries()) {
+      const satelliteAngle = elapsed * orbit.speed * current.detailSpeed + index * 2.1
+      orbit.satellite.position.set(
+        Math.cos(satelliteAngle) * orbit.radius,
+        0,
+        Math.sin(satelliteAngle) * orbit.radius,
+      )
+    }
+    for (const [index, route] of details.routes.entries()) {
+      const progress = (elapsed * 0.16 * current.detailSpeed + index * 0.31) % 1
+      const pointIndex = Math.min(
+        Math.floor(progress * route.points.length),
+        route.points.length - 1,
+      )
+      route.pulse.position.copy(route.points[pointIndex]!)
+    }
+    for (const { baseOpacity, material } of details.materials) {
+      material.opacity = Math.min(baseOpacity * current.detailIntensity, 1)
+    }
+
+    threeRenderer.resetState()
+    threeRenderer.clearDepth()
+    threeRenderer.render(details.scene, details.camera)
+    threeRenderer.resetState()
+    gl.bindVertexArray(null)
+  }
+
+  function handlePointerMove(event: PointerEvent): void {
+    const bounds = canvas!.getBoundingClientRect()
+    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
+    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
+  }
+
+  function handlePointerLeave(): void {
+    if (!getSettings().manualOrbit) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
+  }
+
+  function handleContextLost(event: Event): void {
+    event.preventDefault()
+    contextLost = true
+  }
+
+  function handleContextRestored(): void {
+    contextLost = false
+    resources = createResources(gl)
+    earthResources = null
+    hasCloudSource = false
+    hasMaterialSource = false
+    hasSurfaceSource = false
+    longitudeOffset = 0
+    uploadSurfaceSource()
+    startTime = performance.now()
+    lastTime = startTime
+    transmittanceKey = ''
+    resize()
+  }
+
+  const resizeObserver = new ResizeObserver(resize)
+  resizeObserver.observe(canvas)
+  canvas.addEventListener('pointermove', handlePointerMove)
+  canvas.addEventListener('pointerleave', handlePointerLeave)
+  canvas.addEventListener('webglcontextlost', handleContextLost)
+  canvas.addEventListener('webglcontextrestored', handleContextRestored)
+  uploadSurfaceSource()
+  void source?.ready?.().then(uploadSurfaceSource, () => undefined)
+  resize()
+
+  return {
+    dispose: () => {
+      disposed = true
+      resizeObserver.disconnect()
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      canvas.removeEventListener('webglcontextlost', handleContextLost)
+      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
+      deleteDetailResources(details)
+      threeRenderer.dispose()
+      if (!contextLost) {
+        if (earthResources) deleteEarthResources(gl, earthResources)
+        deleteResources(gl, resources)
+      }
+    },
+    render,
+  }
+}
+
 export function AtmosphericOrbEffect({
   aerosol = 1,
   atmosphereDensity = 1,
@@ -1303,29 +1784,7 @@ export function AtmosphericOrbEffect({
   sunElevation = 8,
 }: AtmosphericOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const latestRef = useRef({
-    aerosol,
-    atmosphereDensity,
-    atmosphereThickness,
-    cloudDensity,
-    cloudHeight,
-    cloudShadowIntensity,
-    detailIntensity,
-    detailSpeed,
-    manualOrbit,
-    model,
-    multipleScattering,
-    nightLightIntensity,
-    oceanGlint,
-    oceanWaveStrength,
-    orbitSpeed,
-    showAtmosphere,
-    showFlightRoutes,
-    showSatelliteOrbits,
-    sunAzimuth,
-    sunElevation,
-  })
-  latestRef.current = {
+  const frameSettings: AtmosphericFrameSettings = {
     aerosol,
     atmosphereDensity,
     atmosphereThickness,
@@ -1347,457 +1806,12 @@ export function AtmosphericOrbEffect({
     sunAzimuth,
     sunElevation,
   }
+  const rendererInput = useMemo<AtmosphericRendererInput>(
+    () => ({ orbits, routes, source }),
+    [orbits, routes, source],
+  )
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const context = canvas.getContext('webgl2', {
-      alpha: true,
-      antialias: false,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: true,
-    })
-    if (!context) return
-    const gl: WebGL2RenderingContext = context
-    const threeRenderer = new THREE.WebGLRenderer({
-      alpha: true,
-      canvas,
-      context: gl,
-      powerPreference: 'high-performance',
-      premultipliedAlpha: true,
-    })
-    threeRenderer.autoClear = false
-    const details = createDetailResources(orbits, routes)
-
-    let contextLost = false
-    let disposed = false
-    let earthResources: EarthResources | null = null
-    let frameId = 0
-    let hasCloudSource = false
-    let hasMaterialSource = false
-    let hasSurfaceSource = false
-    let longitudeOffset = 0
-    let resources = createResources(gl)
-    let startTime = performance.now()
-    let lastTime = startTime
-    let transmittanceKey = ''
-    const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-    function ensureEarthResources(): EarthResources {
-      earthResources ??= createEarthResources(gl, resources.atmosphere)
-      return earthResources
-    }
-
-    function uploadSurfaceSource(): void {
-      if (disposed || contextLost) return
-      const surface = source?.render()
-      if (!surface) {
-        hasCloudSource = false
-        hasMaterialSource = false
-        hasSurfaceSource = false
-        longitudeOffset = 0
-        return
-      }
-
-      const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-      const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-      for (const [texture, image, internalFormat] of [
-        [resources.dayTexture, surface.day, gl.SRGB8_ALPHA8],
-        [resources.nightTexture, surface.night, gl.SRGB8_ALPHA8],
-        [resources.normalTexture, surface.normal, gl.RGBA8],
-        [resources.roughnessTexture, surface.roughness, gl.RGBA8],
-      ] as const) {
-        gl.bindTexture(gl.TEXTURE_2D, texture)
-        gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, gl.RGBA, gl.UNSIGNED_BYTE, image)
-        gl.generateMipmap(gl.TEXTURE_2D)
-      }
-      if (surface.material) {
-        gl.bindTexture(gl.TEXTURE_2D, resources.materialTexture)
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, surface.material)
-        gl.generateMipmap(gl.TEXTURE_2D)
-        hasMaterialSource = true
-      } else {
-        hasMaterialSource = false
-      }
-      if (surface.cloud) {
-        const earth = ensureEarthResources()
-        gl.bindTexture(gl.TEXTURE_2D, earth.cloudTexture)
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, surface.cloud)
-        gl.generateMipmap(gl.TEXTURE_2D)
-        hasCloudSource = true
-      } else {
-        hasCloudSource = false
-      }
-      gl.bindTexture(gl.TEXTURE_2D, null)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-      hasSurfaceSource = true
-      longitudeOffset = THREE.MathUtils.degToRad(surface.longitudeOffsetDegrees ?? 0)
-    }
-
-    function resize(): void {
-      const bounds = canvas!.getBoundingClientRect()
-      const dpr = Math.min(window.devicePixelRatio, 2)
-      const width = Math.max(Math.round(bounds.width * dpr), 1)
-      const height = Math.max(Math.round(bounds.height * dpr), 1)
-      if (canvas!.width !== width || canvas!.height !== height) {
-        threeRenderer.setPixelRatio(dpr)
-        threeRenderer.setSize(Math.max(bounds.width, 1), Math.max(bounds.height, 1), false)
-      }
-      details.camera.aspect = Math.max(bounds.width, 1) / Math.max(bounds.height, 1)
-      details.camera.updateProjectionMatrix()
-      resizeRenderTarget(gl, resources.atmosphere, width, height)
-      if (earthResources) {
-        resizeRenderTarget(gl, earthResources.emission, width, height)
-        const bloomWidth = Math.max(Math.ceil(width / 4), 1)
-        const bloomHeight = Math.max(Math.ceil(height / 4), 1)
-        resizeRenderTarget(gl, earthResources.bloomA, bloomWidth, bloomHeight)
-        resizeRenderTarget(gl, earthResources.bloomB, bloomWidth, bloomHeight)
-      }
-    }
-
-    function setPhysicalUniforms(program: WebGLProgram): void {
-      const current = latestRef.current
-      const atmosphereRadius = PLANET_RADIUS + current.atmosphereThickness
-      gl.uniform1f(gl.getUniformLocation(program, 'uAerosol'), current.aerosol)
-      gl.uniform1f(
-        gl.getUniformLocation(program, 'uAtmosphereDensity'),
-        current.showAtmosphere ? current.atmosphereDensity : 0,
-      )
-      gl.uniform1f(gl.getUniformLocation(program, 'uAtmosphereRadius'), atmosphereRadius)
-      gl.uniform1f(gl.getUniformLocation(program, 'uPlanetRadius'), PLANET_RADIUS)
-      setColor(gl, program, 'uMieExtinction', current.model.mieExtinction)
-      setColor(gl, program, 'uOzoneAbsorption', current.model.ozoneAbsorption)
-      setColor(gl, program, 'uRayleighScattering', current.model.rayleighScattering)
-    }
-
-    function renderTransmittance(): void {
-      const current = latestRef.current
-      const nextKey = JSON.stringify([
-        current.aerosol,
-        current.atmosphereDensity,
-        current.atmosphereThickness,
-        current.model.mieExtinction,
-        current.model.mieScattering,
-        current.model.ozoneAbsorption,
-        current.model.rayleighScattering,
-        current.showAtmosphere,
-      ])
-      if (nextKey === transmittanceKey) return
-      transmittanceKey = nextKey
-      gl.bindFramebuffer(gl.FRAMEBUFFER, resources.transmittance.framebuffer)
-      gl.drawBuffers([gl.COLOR_ATTACHMENT0])
-      gl.viewport(0, 0, resources.transmittance.width, resources.transmittance.height)
-      gl.useProgram(resources.transmittanceProgram)
-      setPhysicalUniforms(resources.transmittanceProgram)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, resources.multipleScattering.framebuffer)
-      gl.drawBuffers([gl.COLOR_ATTACHMENT0])
-      gl.viewport(0, 0, resources.multipleScattering.width, resources.multipleScattering.height)
-      gl.useProgram(resources.multipleScatteringProgram)
-      setPhysicalUniforms(resources.multipleScatteringProgram)
-      setColor(
-        gl,
-        resources.multipleScatteringProgram,
-        'uMieScattering',
-        current.model.mieScattering,
-      )
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, resources.transmittance.texture)
-      gl.uniform1i(gl.getUniformLocation(resources.multipleScatteringProgram, 'uTransmittance'), 0)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-    }
-
-    function renderBloom(earth: EarthResources): void {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, earth.bloomA.framebuffer)
-      gl.drawBuffers([gl.COLOR_ATTACHMENT0])
-      gl.viewport(0, 0, earth.bloomA.width, earth.bloomA.height)
-      gl.useProgram(earth.downsampleProgram)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, earth.emission.texture)
-      gl.uniform1i(gl.getUniformLocation(earth.downsampleProgram, 'uSource'), 0)
-      gl.uniform2f(
-        gl.getUniformLocation(earth.downsampleProgram, 'uTexelSize'),
-        1 / earth.emission.width,
-        1 / earth.emission.height,
-      )
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-
-      function blur(
-        sourceTarget: RenderTarget,
-        target: RenderTarget,
-        directionX: number,
-        directionY: number,
-      ): void {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer)
-        gl.drawBuffers([gl.COLOR_ATTACHMENT0])
-        gl.viewport(0, 0, target.width, target.height)
-        gl.useProgram(earth.blurProgram)
-        gl.activeTexture(gl.TEXTURE0)
-        gl.bindTexture(gl.TEXTURE_2D, sourceTarget.texture)
-        gl.uniform1i(gl.getUniformLocation(earth.blurProgram, 'uSource'), 0)
-        gl.uniform2f(
-          gl.getUniformLocation(earth.blurProgram, 'uTexelSize'),
-          1 / sourceTarget.width,
-          1 / sourceTarget.height,
-        )
-        gl.uniform2f(gl.getUniformLocation(earth.blurProgram, 'uDirection'), directionX, directionY)
-        gl.drawArrays(gl.TRIANGLES, 0, 3)
-      }
-
-      blur(earth.bloomA, earth.bloomB, 1, 0)
-      blur(earth.bloomB, earth.bloomA, 0, 1)
-      blur(earth.bloomA, earth.bloomB, 1, 0)
-      blur(earth.bloomB, earth.bloomA, 0, 1)
-    }
-
-    function updatePointer(delta: number): void {
-      const stiffness = 42
-      const damping = 11
-      pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-      pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-      const decay = Math.exp(-damping * delta)
-      pointer.velocityX *= decay
-      pointer.velocityY *= decay
-      pointer.currentX += pointer.velocityX * delta
-      pointer.currentY += pointer.velocityY * delta
-    }
-
-    function render(timestamp: number): void {
-      frameId = requestAnimationFrame(render)
-      if (contextLost) return
-      resize()
-      gl.disable(gl.BLEND)
-      gl.disable(gl.DEPTH_TEST)
-      renderTransmittance()
-      const current = latestRef.current
-      const elapsed = (timestamp - startTime) / 1000
-      const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-      lastTime = timestamp
-      updatePointer(delta)
-
-      const baseAzimuth = THREE.MathUtils.degToRad(current.sunAzimuth)
-      const orbitAngle = current.manualOrbit
-        ? baseAzimuth + pointer.currentX * Math.PI
-        : elapsed * current.orbitSpeed + baseAzimuth + pointer.currentX * 0.42
-      const elevationOffset = pointer.currentY * (current.manualOrbit ? 55 : 20)
-      const elevation = (current.sunElevation + elevationOffset) * (Math.PI / 180)
-      const elevationCosine = Math.cos(elevation)
-      const sunDirection: AtmosphericOrbColor = [
-        Math.cos(orbitAngle) * elevationCosine,
-        Math.sin(elevation),
-        Math.sin(orbitAngle) * elevationCosine,
-      ]
-      const earth = hasCloudSource ? earthResources : null
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, resources.atmosphere.framebuffer)
-      gl.drawBuffers(earth ? [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1] : [gl.COLOR_ATTACHMENT0])
-      gl.viewport(0, 0, resources.atmosphere.width, resources.atmosphere.height)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      gl.useProgram(resources.atmosphereProgram)
-      setPhysicalUniforms(resources.atmosphereProgram)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, resources.transmittance.texture)
-      gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uTransmittance'), 0)
-      gl.activeTexture(gl.TEXTURE1)
-      gl.bindTexture(gl.TEXTURE_2D, resources.dayTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uDayTexture'), 1)
-      gl.activeTexture(gl.TEXTURE2)
-      gl.bindTexture(gl.TEXTURE_2D, resources.nightTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uNightTexture'), 2)
-      gl.activeTexture(gl.TEXTURE3)
-      gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uNormalTexture'), 3)
-      gl.activeTexture(gl.TEXTURE4)
-      gl.bindTexture(gl.TEXTURE_2D, resources.roughnessTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uRoughnessTexture'), 4)
-      if (earth) {
-        gl.activeTexture(gl.TEXTURE5)
-        gl.bindTexture(gl.TEXTURE_2D, earth.cloudTexture)
-        gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uCloudTexture'), 5)
-      }
-      gl.activeTexture(gl.TEXTURE6)
-      gl.bindTexture(gl.TEXTURE_2D, resources.materialTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uMaterialTexture'), 6)
-      gl.activeTexture(gl.TEXTURE7)
-      gl.bindTexture(gl.TEXTURE_2D, resources.multipleScattering.texture)
-      gl.uniform1i(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uMultipleScatteringTexture'),
-        7,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uCloudDensity'),
-        current.cloudDensity,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uCloudHeight'),
-        current.cloudHeight,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uCloudShadowIntensity'),
-        current.cloudShadowIntensity,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uEarthPipeline'),
-        earth ? 1 : 0,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uHasSurfaceSource'),
-        hasSurfaceSource ? 1 : 0,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uHasMaterialSource'),
-        hasMaterialSource ? 1 : 0,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uLongitudeOffset'),
-        longitudeOffset,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uSunIntensity'),
-        current.model.sunIntensity,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uMultipleScattering'),
-        current.multipleScattering,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uNightLightIntensity'),
-        current.nightLightIntensity,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uOceanGlint'),
-        current.oceanGlint,
-      )
-      gl.uniform1f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uOceanWaveStrength'),
-        current.oceanWaveStrength,
-      )
-      gl.uniform1f(gl.getUniformLocation(resources.atmosphereProgram, 'uTime'), elapsed)
-      gl.uniform3f(
-        gl.getUniformLocation(resources.atmosphereProgram, 'uSunDirection'),
-        ...sunDirection,
-      )
-      setColor(gl, resources.atmosphereProgram, 'uMieScattering', current.model.mieScattering)
-      setColor(gl, resources.atmosphereProgram, 'uSpaceColor', current.model.space)
-      setColor(gl, resources.atmosphereProgram, 'uSunColor', current.model.sun)
-      setColor(gl, resources.atmosphereProgram, 'uSurfaceDay', current.model.surfaceDay)
-      setColor(gl, resources.atmosphereProgram, 'uSurfaceNight', current.model.surfaceNight)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-
-      if (earth) renderBloom(earth)
-
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-      gl.viewport(0, 0, canvas!.width, canvas!.height)
-      gl.clearColor(0, 0, 0, 0)
-      gl.clear(gl.COLOR_BUFFER_BIT)
-      const compositeProgram = earth ? earth.compositeProgram : resources.compositeProgram
-      gl.useProgram(compositeProgram)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, resources.atmosphere.texture)
-      if (earth) {
-        gl.uniform1i(gl.getUniformLocation(compositeProgram, 'uScene'), 0)
-        gl.activeTexture(gl.TEXTURE1)
-        gl.bindTexture(gl.TEXTURE_2D, earth.bloomA.texture)
-        gl.uniform1i(gl.getUniformLocation(compositeProgram, 'uBloom'), 1)
-      } else {
-        gl.uniform1i(gl.getUniformLocation(compositeProgram, 'uAtmosphere'), 0)
-      }
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-
-      details.orbitRoot.visible = current.showSatelliteOrbits
-      details.routeRoot.visible = current.showFlightRoutes
-      for (const [index, orbit] of details.orbits.entries()) {
-        const satelliteAngle = elapsed * orbit.speed * current.detailSpeed + index * 2.1
-        orbit.satellite.position.set(
-          Math.cos(satelliteAngle) * orbit.radius,
-          0,
-          Math.sin(satelliteAngle) * orbit.radius,
-        )
-      }
-      for (const [index, route] of details.routes.entries()) {
-        const progress = (elapsed * 0.16 * current.detailSpeed + index * 0.31) % 1
-        const pointIndex = Math.min(
-          Math.floor(progress * route.points.length),
-          route.points.length - 1,
-        )
-        route.pulse.position.copy(route.points[pointIndex]!)
-      }
-      for (const { baseOpacity, material } of details.materials) {
-        material.opacity = Math.min(baseOpacity * current.detailIntensity, 1)
-      }
-
-      threeRenderer.resetState()
-      threeRenderer.clearDepth()
-      threeRenderer.render(details.scene, details.camera)
-      threeRenderer.resetState()
-      gl.bindVertexArray(null)
-    }
-
-    function handlePointerMove(event: PointerEvent): void {
-      const bounds = canvas!.getBoundingClientRect()
-      pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-      pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-    }
-
-    function handlePointerLeave(): void {
-      if (!latestRef.current.manualOrbit) {
-        pointer.targetX = 0
-        pointer.targetY = 0
-      }
-    }
-
-    function handleContextLost(event: Event): void {
-      event.preventDefault()
-      contextLost = true
-    }
-
-    function handleContextRestored(): void {
-      contextLost = false
-      resources = createResources(gl)
-      earthResources = null
-      hasCloudSource = false
-      hasMaterialSource = false
-      hasSurfaceSource = false
-      longitudeOffset = 0
-      uploadSurfaceSource()
-      startTime = performance.now()
-      lastTime = startTime
-      transmittanceKey = ''
-      resize()
-    }
-
-    const resizeObserver = new ResizeObserver(resize)
-    resizeObserver.observe(canvas)
-    canvas.addEventListener('pointermove', handlePointerMove)
-    canvas.addEventListener('pointerleave', handlePointerLeave)
-    canvas.addEventListener('webglcontextlost', handleContextLost)
-    canvas.addEventListener('webglcontextrestored', handleContextRestored)
-    uploadSurfaceSource()
-    void source?.ready?.().then(uploadSurfaceSource, () => undefined)
-    resize()
-    frameId = requestAnimationFrame(render)
-
-    return () => {
-      disposed = true
-      cancelAnimationFrame(frameId)
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      deleteDetailResources(details)
-      threeRenderer.dispose()
-      if (!contextLost) {
-        if (earthResources) deleteEarthResources(gl, earthResources)
-        deleteResources(gl, resources)
-      }
-    }
-  }, [orbits, routes, source])
+  useCanvasRenderer(canvasRef, frameSettings, rendererInput, createAtmosphericRenderer)
 
   return (
     <canvas
