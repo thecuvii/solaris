@@ -68,6 +68,7 @@
     "check:fix": "vp check --fix",
     "dev": "vp -C website dev",
     "prepare": "vp config --no-agent",
+    "size": "vp pack && node scripts/check-bundle-size.mjs",
     "test": "vp test --run"
   },
   "dependencies": {
