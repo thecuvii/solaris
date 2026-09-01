@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: voidzero-dev/setup-vp@v1.18.0
+        with:
+          cache: true
+          node-version: 24
+      - run: vp install --frozen-lockfile
+      - run: vp check
+      - run: vp test --run
+      - run: vp pack
+      - run: vp -C website build
+      - run: pnpm pack --dry-run

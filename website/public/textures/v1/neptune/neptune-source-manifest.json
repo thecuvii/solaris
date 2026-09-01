@@ -1,0 +1,29 @@
+{
+  "algorithm": "periodic integer-hash value fields with arithmetic smooth interpolation and analytic polar convergence",
+  "colorReference": "Irwin et al. 2024, DOI 10.1093/mnras/stad3761",
+  "externalImagePixels": false,
+  "generator": "src/modules/effects/gradient-orb/neptunian-atmosphere.source.ts",
+  "generatorRuntime": "Node.js v26.5.1",
+  "highClouds": {
+    "channelContract": "linear R8 sparse upper-cloud coverage seeds",
+    "dimensions": [1024, 512],
+    "sha256": "898549f67f67ee22104a7c02810737d2f4356d150fc0b5fc40ce44e503d9de37"
+  },
+  "opticalDepth": {
+    "channelContract": "linear R8 broad relative deep-aerosol optical-depth structure",
+    "dimensions": [1024, 512],
+    "sha256": "75d485d194276a996e2485940bb66d1e6b41e01a9bae119f2b6f4c13ea68747e"
+  },
+  "representativeVortex": {
+    "angularRadiiDegrees": [13, 6],
+    "latitudeDegrees": -24,
+    "longitudeDegrees": -14,
+    "status": "deterministic artistic weather descriptor, not a current observed storm"
+  },
+  "seed": "0x4e455054",
+  "zonalWind": {
+    "channelContract": "linear R8 signed lookup; 0 maps to -1, 127.5 to 0, and 255 to 1",
+    "dimensions": [128, 1],
+    "sha256": "17cd68d2237fe5a5a085fd9986c80bd778da262f748824ce7cc86d912a910d24"
+  }
+}
