@@ -5,7 +5,10 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 const config = defineConfig({
-  resolve: { tsconfigPaths: true },
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+    tsconfigPaths: true,
+  },
   server: { allowedHosts: true },
   plugins: [
     stylex.vite({

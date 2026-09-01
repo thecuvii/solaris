@@ -1,3 +1,12 @@
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
+    format('woff2-variations');
+}
+
 @layer reset, priority1, priority2, priority3;
 
 @layer reset {
@@ -15,9 +24,10 @@
 
   body {
     margin: 0;
-    background: #101112;
+    background: #07080d;
     color: #f2e8d0;
-    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+    font-family: 'Inter Variable', Inter, sans-serif;
+    font-size: 13px;
     -webkit-font-smoothing: antialiased;
   }
 

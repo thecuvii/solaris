@@ -645,15 +645,16 @@ function Inspector({
           <h2 {...stylex.props(styles.inspectorTitle)}>Parameters</h2>
           <span {...stylex.props(styles.inspectorSubtitle)}>{formatParameterName(planetId)}</span>
         </div>
-        <Button
-          disabled={isDefault}
-          onClick={resetSettings}
-          {...stylex.props(styles.resetButton, isDefault && styles.resetButtonDisabled)}
-        >
-          <ResetIcon />
-          Reset
-        </Button>
       </div>
+
+      <Button
+        disabled={isDefault}
+        onClick={resetSettings}
+        {...stylex.props(styles.resetButton, isDefault && styles.resetButtonDisabled)}
+      >
+        <ResetIcon />
+        Reset
+      </Button>
 
       <div {...stylex.props(styles.inspectorGroups)}>
         {groups.map((group) => (
@@ -1030,7 +1031,7 @@ const styles = stylex.create({
     transform: 'rotate(180deg)',
   },
   code: {
-    backgroundColor: '#0c0e10',
+    backgroundColor: '#090c14',
     borderRadius: 10,
     color: '#b9b9b9',
     fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
@@ -1045,7 +1046,7 @@ const styles = stylex.create({
     alignItems: 'center',
     color: 'rgba(242, 232, 208, 0.5)',
     display: 'flex',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
+    fontFamily: '"Inter Variable", Inter, sans-serif',
     fontSize: 11,
     fontWeight: 550,
     gap: 6,
@@ -1086,7 +1087,7 @@ const styles = stylex.create({
     color: '#f2e8d0',
   },
   codeSection: {
-    backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.032))',
+    backgroundImage: 'linear-gradient(180deg, rgba(132,146,190,0.11), rgba(132,146,190,0.045))',
     borderRadius: 16,
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.075), 0 16px 48px rgba(0,0,0,0.2)',
     marginTop: 18,
@@ -1129,7 +1130,7 @@ const styles = stylex.create({
   },
   groupCount: {
     alignItems: 'center',
-    backgroundColor: 'rgba(242, 232, 208, 0.06)',
+    backgroundColor: 'rgba(132, 146, 190, 0.08)',
     borderRadius: 999,
     color: 'rgba(242, 232, 208, 0.34)',
     display: 'flex',
@@ -1148,14 +1149,14 @@ const styles = stylex.create({
     alignItems: 'center',
     backgroundColor: {
       default: 'transparent',
-      ':hover': 'rgba(255, 255, 255, 0.03)',
+      ':hover': 'rgba(132, 146, 190, 0.06)',
     },
     borderRadius: 8,
     borderWidth: 0,
     color: 'rgba(242, 232, 208, 0.66)',
     cursor: 'pointer',
     display: 'flex',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 600,
     gap: 6,
     height: 36,
@@ -1244,7 +1245,7 @@ const styles = stylex.create({
     justifyContent: 'space-between',
   },
   inspector: {
-    backgroundColor: 'rgba(8, 9, 10, 0.28)',
+    backgroundColor: 'rgba(13, 16, 25, 0.82)',
     height: '100dvh',
     minWidth: 0,
     overflowY: 'auto',
@@ -1269,7 +1270,7 @@ const styles = stylex.create({
   },
   inspectorHeader: {
     alignItems: 'center',
-    backgroundImage: 'linear-gradient(180deg, #101112 78%, rgba(16,17,18,0))',
+    backgroundImage: 'linear-gradient(180deg, #0d1019 78%, rgba(13,16,25,0))',
     display: 'flex',
     justifyContent: 'space-between',
     paddingBlock: 8,
@@ -1342,13 +1343,13 @@ const styles = stylex.create({
     },
   },
   numberFieldRoot: {
-    backgroundColor: 'rgba(255, 255, 255, 0.045)',
+    backgroundColor: 'rgba(132, 146, 190, 0.08)',
     borderRadius: 8,
     height: 42,
     overflow: 'hidden',
     position: 'relative',
     transition: 'background-color 140ms ease-out',
-    ':hover': { backgroundColor: 'rgba(255,255,255,0.065)' },
+    ':hover': { backgroundColor: 'rgba(132,146,190,0.12)' },
   },
   numberFieldSuffix: {
     color: 'rgba(242, 232, 208, 0.35)',
@@ -1365,7 +1366,7 @@ const styles = stylex.create({
     minWidth: 0,
   },
   page: {
-    backgroundColor: '#101112',
+    backgroundColor: '#07080d',
     display: 'grid',
     gridTemplateColumns: '300px minmax(400px, 1fr) 300px',
     minHeight: '100dvh',
@@ -1500,31 +1501,35 @@ const styles = stylex.create({
   },
   resetButton: {
     alignItems: 'center',
-    backgroundColor: {
-      default: 'rgba(255,255,255,0.055)',
-      ':hover': 'rgba(255,255,255,0.09)',
-      ':active': 'rgba(255,255,255,0.04)',
-    },
+    backgroundColor: 'transparent',
+    backgroundImage:
+      'linear-gradient(in oklch 180deg, var(--reset-button-gradient-start, oklch(36% 0 0)) 0%, var(--reset-button-gradient-end, oklch(26.86% 0 0)) 100%)',
     borderRadius: 8,
     borderWidth: 0,
-    color: 'rgba(242,232,208,0.7)',
+    boxShadow: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
+    boxSizing: 'border-box',
+    color: 'oklch(86.4% 0.003 84.6)',
     cursor: 'pointer',
     display: 'flex',
-    fontSize: 10,
-    fontWeight: 550,
-    gap: 5,
-    height: 30,
-    paddingInline: 9,
-    transition: 'background-color 140ms ease-out, color 140ms ease-out, opacity 140ms ease-out',
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 14,
+    fontWeight: 500,
+    fontSynthesis: 'none',
+    gap: 6,
+    justifyContent: 'center',
+    lineHeight: '20px',
+    marginTop: 24,
+    overflowWrap: 'anywhere',
+    paddingBlock: 8,
+    paddingInline: 28,
+    textAlign: 'center',
+    width: '100%',
     ':focus-visible': {
-      boxShadow: 'inset 0 0 0 2px rgba(242,232,208,0.46)',
-      color: '#f2e8d0',
       outline: 'none',
     },
   },
   resetButtonDisabled: {
     cursor: 'default',
-    opacity: 0.28,
   },
   resetIcon: {
     fill: 'none',
@@ -1543,12 +1548,12 @@ const styles = stylex.create({
     width: '100%',
   },
   sliderIndicator: {
-    backgroundColor: 'rgba(242, 232, 208, 0.075)',
+    backgroundColor: 'rgba(132, 146, 190, 0.1)',
     height: '100%',
   },
   sliderLabel: {
     color: 'rgba(242, 232, 208, 0.68)',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 500,
   },
   sliderMeta: {
@@ -1583,8 +1588,8 @@ const styles = stylex.create({
     width: '100%',
   },
   stage: {
-    backgroundColor: '#050607',
-    backgroundImage: 'radial-gradient(circle at 50% 48%, #111315 0, #090a0b 44%, #050607 72%)',
+    backgroundColor: '#090c14',
+    backgroundImage: 'radial-gradient(circle at 50% 48%, #171c30 0, #0d111d 44%, #090c14 72%)',
     borderRadius: 14,
     height: 'clamp(360px, 52vh, 590px)',
     overflow: 'hidden',
@@ -1592,7 +1597,7 @@ const styles = stylex.create({
   },
   stageGrid: {
     backgroundImage:
-      'linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px)',
+      'linear-gradient(rgba(132,146,190,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(132,146,190,0.025) 1px, transparent 1px)',
     backgroundSize: '48px 48px',
     inset: 0,
     maskImage: 'radial-gradient(circle, black, transparent 72%)',
@@ -1600,7 +1605,7 @@ const styles = stylex.create({
   },
   summary: {
     color: 'rgba(242, 232, 208, 0.42)',
-    fontSize: 12,
+    fontSize: 13,
     lineHeight: 1.65,
     marginBottom: 0,
     marginTop: 8,
@@ -1609,16 +1614,16 @@ const styles = stylex.create({
   switchLabel: {
     alignItems: 'center',
     borderRadius: 8,
-    backgroundColor: 'rgba(255, 255, 255, 0.045)',
+    backgroundColor: 'rgba(132, 146, 190, 0.08)',
     color: 'rgba(242, 232, 208, 0.68)',
     display: 'flex',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 500,
     height: 42,
     justifyContent: 'space-between',
     paddingInline: 10,
     transition: 'background-color 140ms ease-out',
-    ':hover': { backgroundColor: 'rgba(255,255,255,0.065)' },
+    ':hover': { backgroundColor: 'rgba(132,146,190,0.12)' },
   },
   switchOption: {
     alignItems: 'center',
@@ -1637,7 +1642,7 @@ const styles = stylex.create({
     color: '#f2e8d0',
   },
   switchRoot: {
-    backgroundColor: 'rgba(242, 232, 208, 0.055)',
+    backgroundColor: 'rgba(132, 146, 190, 0.08)',
     borderRadius: 8,
     borderWidth: 0,
     cursor: 'pointer',
@@ -1654,10 +1659,10 @@ const styles = stylex.create({
     },
   },
   switchRootChecked: {
-    backgroundColor: 'rgba(242, 232, 208, 0.055)',
+    backgroundColor: 'rgba(132, 146, 190, 0.08)',
   },
   switchThumb: {
-    backgroundColor: 'rgba(242, 232, 208, 0.11)',
+    backgroundColor: 'rgba(132, 146, 190, 0.16)',
     borderRadius: 6,
     display: 'block',
     height: 24,
@@ -1669,14 +1674,14 @@ const styles = stylex.create({
     width: 32,
   },
   switchThumbChecked: {
-    backgroundColor: 'rgba(242, 232, 208, 0.11)',
+    backgroundColor: 'rgba(132, 146, 190, 0.16)',
     transform: 'translateX(32px)',
   },
   title: {
     backgroundClip: 'text',
     backgroundImage: 'linear-gradient(180deg, #ffffff 8%, rgba(242,232,208,0.82) 100%)',
     color: 'transparent',
-    fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontFamily: '"Inter Variable", Inter, sans-serif',
     fontSize: 'clamp(36px, 4vw, 52px)',
     fontWeight: 590,
     letterSpacing: '-0.045em',
