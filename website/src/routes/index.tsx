@@ -1,3 +1,6 @@
+import { Button } from '@base-ui/react/button'
+import { Collapsible } from '@base-ui/react/collapsible'
+import { NumberField } from '@base-ui/react/number-field'
 import { Slider } from '@base-ui/react/slider'
 import { Switch } from '@base-ui/react/switch'
 import { createHighlighterCoreSync } from '@shikijs/core'
@@ -67,6 +70,8 @@ type ParameterDefinition =
       step: number
       suffix?: string
     }
+
+type ParameterGroupId = 'atmosphere' | 'features' | 'lighting' | 'orientation' | 'rings' | 'surface'
 
 type Planet = {
   id: PlanetId
@@ -260,13 +265,13 @@ const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition[]> = {
     unit('iceResponse', 0.6),
     unit('phaseFill', 0.035),
     amount('reliefStrength', 0.85),
-    speed('rotationSpeed', 0.006),
+    speed('rotationSpeed', 0),
     unit('roughness', 0.78),
     angle('sunAzimuth', -38),
     number('sunElevation', 16, -90, 90, 1, '°'),
     angle('surfaceRotation', 0),
     amount('tholinStrength', 1),
-    angle('viewTilt', 10),
+    angle('viewTilt', 25),
   ],
   saturn: [
     angle('axialRoll', -8),
@@ -366,6 +371,15 @@ const initialSettings = Object.fromEntries(
   ]),
 ) as Record<PlanetId, PlanetSettings>
 
+const parameterGroups: readonly { id: ParameterGroupId; label: string }[] = [
+  { id: 'surface', label: 'Surface & material' },
+  { id: 'atmosphere', label: 'Atmosphere' },
+  { id: 'lighting', label: 'Lighting' },
+  { id: 'orientation', label: 'Orientation & motion' },
+  { id: 'rings', label: 'Rings' },
+  { id: 'features', label: 'Features' },
+]
+
 const textures = {
   earth: {
     cloud: '/textures/v1/earth/earth-cloud.webp',
@@ -401,18 +415,33 @@ const textures = {
 } as const satisfies Record<TexturedPlanetId, Record<string, string>>
 
 const planetPositions: Record<PlanetId, { left: number; top: number }> = {
-  sun: { left: 94, top: 2 },
-  mercury: { left: 177, top: 55 },
-  venus: { left: 225, top: 108 },
-  earth: { left: 256, top: 161 },
-  moon: { left: 275, top: 214 },
-  mars: { left: 285, top: 267 },
-  jupiter: { left: 285, top: 320 },
-  saturn: { left: 277, top: 373 },
-  titan: { left: 258, top: 426 },
-  uranus: { left: 228, top: 479 },
-  neptune: { left: 182, top: 532 },
-  pluto: { left: 102, top: 585 },
+  sun: { left: 51, top: 15 },
+  mercury: { left: 101, top: 40 },
+  venus: { left: 144, top: 75 },
+  earth: { left: 178, top: 118 },
+  moon: { left: 202, top: 168 },
+  mars: { left: 214, top: 222 },
+  jupiter: { left: 214, top: 278 },
+  saturn: { left: 202, top: 332 },
+  titan: { left: 178, top: 386 },
+  uranus: { left: 144, top: 435 },
+  neptune: { left: 101, top: 490 },
+  pluto: { left: 51, top: 515 },
+}
+
+const planetThumbnailScales: Record<PlanetId, number> = {
+  sun: 1.1,
+  mercury: 1,
+  venus: 1.15,
+  earth: 1.15,
+  moon: 1.1,
+  mars: 1.1,
+  jupiter: 1,
+  saturn: 1,
+  titan: 1.05,
+  uranus: 2,
+  neptune: 1.05,
+  pluto: 1.05,
 }
 
 const earthModel = {
@@ -451,6 +480,13 @@ function HomePage() {
     }))
   }
 
+  function resetSettings(): void {
+    setSettingsByPlanet((current) => ({
+      ...current,
+      [selectedPlanet]: { ...initialSettings[selectedPlanet] },
+    }))
+  }
+
   return (
     <Tabs.Root value={selectedPlanet} onValueChange={selectPlanet} {...stylex.props(styles.page)}>
       <PlanetPicker selectedPlanet={selectedPlanet} />
@@ -463,7 +499,9 @@ function HomePage() {
           </Link>
           <a href="https://github.com/thecuvii/solaris" {...stylex.props(styles.githubLink)}>
             GitHub
-            <span aria-hidden="true">↗</span>
+            <span aria-hidden="true" {...stylex.props(styles.githubArrow)}>
+              ↗
+            </span>
           </a>
         </header>
 
@@ -485,7 +523,12 @@ function HomePage() {
         </Tabs.Panel>
       </main>
 
-      <Inspector planetId={selectedPlanet} settings={settings} updateSetting={updateSetting} />
+      <Inspector
+        planetId={selectedPlanet}
+        resetSettings={resetSettings}
+        settings={settings}
+        updateSetting={updateSetting}
+      />
     </Tabs.Root>
   )
 }
@@ -515,14 +558,20 @@ function PlanetPicker({ selectedPlanet }: { selectedPlanet: PlanetId }) {
                 selectedPlanet === planet.id && styles.planetTabSelected,
               )}
             >
-              <span
-                {...stylex.props(
-                  styles.planetThumbnail,
-                  selectedPlanet === planet.id && styles.planetThumbnailSelected,
-                )}
-                aria-hidden="true"
-              >
-                <PlanetPreview id={planet.id} settings={initialSettings[planet.id]} />
+              <span {...stylex.props(styles.planetThumbnail)} aria-hidden="true">
+                <span
+                  style={
+                    {
+                      '--planet-thumbnail-scale': planetThumbnailScales[planet.id],
+                    } as CSSProperties
+                  }
+                  {...stylex.props(
+                    styles.planetThumbnailCanvas,
+                    selectedPlanet === planet.id && styles.planetThumbnailSelected,
+                  )}
+                >
+                  <PlanetPreview id={planet.id} settings={initialSettings[planet.id]} />
+                </span>
               </span>
               <span>{planet.name}</span>
             </Tabs.Tab>
@@ -569,43 +618,53 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
 
 function Inspector({
   planetId,
+  resetSettings,
   settings,
   updateSetting,
 }: {
   planetId: PlanetId
+  resetSettings: () => void
   settings: PlanetSettings
   updateSetting: (name: string, value: boolean | number) => void
 }) {
   const definitions = parameterDefinitions[planetId]
+  const groups = parameterGroups
+    .map((group) => ({
+      ...group,
+      definitions: definitions.filter((definition) => getParameterGroup(definition) === group.id),
+    }))
+    .filter((group) => group.definitions.length > 0)
+  const isDefault = definitions.every(
+    (definition) => settings[definition.name] === definition.initial,
+  )
 
   return (
     <aside {...stylex.props(styles.inspector)}>
       <div {...stylex.props(styles.inspectorHeader)}>
-        <h2 {...stylex.props(styles.inspectorTitle)}>Parameters</h2>
+        <div>
+          <h2 {...stylex.props(styles.inspectorTitle)}>Parameters</h2>
+          <span {...stylex.props(styles.inspectorSubtitle)}>{formatParameterName(planetId)}</span>
+        </div>
+        <Button
+          disabled={isDefault}
+          onClick={resetSettings}
+          {...stylex.props(styles.resetButton, isDefault && styles.resetButtonDisabled)}
+        >
+          <ResetIcon />
+          Reset
+        </Button>
       </div>
 
-      <div {...stylex.props(styles.controlGroup)}>
-        {definitions.map((definition) =>
-          definition.kind === 'number' ? (
-            <ParameterSlider
-              key={definition.name}
-              label={formatParameterName(definition.name)}
-              max={definition.max}
-              min={definition.min}
-              onValueChange={(value) => updateSetting(definition.name, value)}
-              step={definition.step}
-              suffix={definition.suffix}
-              value={Number(settings[definition.name])}
-            />
-          ) : (
-            <ParameterSwitch
-              key={definition.name}
-              checked={Boolean(settings[definition.name])}
-              label={formatParameterName(definition.name)}
-              onCheckedChange={(checked) => updateSetting(definition.name, checked)}
-            />
-          ),
-        )}
+      <div {...stylex.props(styles.inspectorGroups)}>
+        {groups.map((group) => (
+          <ParameterGroup
+            key={group.id}
+            definitions={group.definitions}
+            label={group.label}
+            settings={settings}
+            updateSetting={updateSetting}
+          />
+        ))}
       </div>
 
       <div {...stylex.props(styles.inspectorNote)}>
@@ -617,6 +676,55 @@ function Inspector({
         </p>
       </div>
     </aside>
+  )
+}
+
+function ParameterGroup({
+  definitions,
+  label,
+  settings,
+  updateSetting,
+}: {
+  definitions: readonly ParameterDefinition[]
+  label: string
+  settings: PlanetSettings
+  updateSetting: (name: string, value: boolean | number) => void
+}) {
+  const [open, setOpen] = useState(true)
+
+  return (
+    <Collapsible.Root open={open} onOpenChange={setOpen} {...stylex.props(styles.parameterGroup)}>
+      <Collapsible.Trigger {...stylex.props(styles.groupTrigger)}>
+        <span>{label}</span>
+        <span {...stylex.props(styles.groupCount)}>{definitions.length}</span>
+        <ChevronIcon open={open} />
+      </Collapsible.Trigger>
+      <Collapsible.Panel {...stylex.props(styles.groupPanel)}>
+        <div {...stylex.props(styles.controlGroup)}>
+          {definitions.map((definition) =>
+            definition.kind === 'number' ? (
+              <ParameterSlider
+                key={definition.name}
+                label={formatParameterName(definition.name)}
+                max={definition.max}
+                min={definition.min}
+                onValueChange={(value) => updateSetting(definition.name, value)}
+                step={definition.step}
+                suffix={definition.suffix}
+                value={Number(settings[definition.name])}
+              />
+            ) : (
+              <ParameterSwitch
+                key={definition.name}
+                checked={Boolean(settings[definition.name])}
+                label={formatParameterName(definition.name)}
+                onCheckedChange={(checked) => updateSetting(definition.name, checked)}
+              />
+            ),
+          )}
+        </div>
+      </Collapsible.Panel>
+    </Collapsible.Root>
   )
 }
 
@@ -638,6 +746,10 @@ function ParameterSwitch({
         {...stylex.props(styles.switchRoot, checked && styles.switchRootChecked)}
       >
         <Switch.Thumb {...stylex.props(styles.switchThumb, checked && styles.switchThumbChecked)} />
+        <span {...stylex.props(styles.switchOption, !checked && styles.switchOptionActive)}>
+          Off
+        </span>
+        <span {...stylex.props(styles.switchOption, checked && styles.switchOptionActive)}>On</span>
       </Switch.Root>
     </label>
   )
@@ -663,28 +775,62 @@ function ParameterSlider({
   const precision = getPrecision(step)
 
   return (
-    <Slider.Root
+    <NumberField.Root
+      format={{ maximumFractionDigits: precision, minimumFractionDigits: precision }}
       max={max}
       min={min}
-      onValueChange={onValueChange}
+      onValueChange={(nextValue) => {
+        if (nextValue !== null) onValueChange(nextValue)
+      }}
+      snapOnStep
       step={step}
       value={value}
-      {...stylex.props(styles.sliderRoot)}
+      {...stylex.props(styles.numberFieldRoot)}
     >
       <div {...stylex.props(styles.sliderMeta)}>
-        <Slider.Label {...stylex.props(styles.sliderLabel)}>{label}</Slider.Label>
-        <span {...stylex.props(styles.sliderValue)}>
-          {value.toFixed(precision)}
-          {suffix}
+        <span {...stylex.props(styles.sliderLabel)}>{label}</span>
+        <span {...stylex.props(styles.numberFieldValue)}>
+          <NumberField.Input aria-label={label} {...stylex.props(styles.numberFieldInput)} />
+          {suffix && <span {...stylex.props(styles.numberFieldSuffix)}>{suffix}</span>}
         </span>
       </div>
-      <Slider.Control {...stylex.props(styles.sliderControl)}>
-        <Slider.Track {...stylex.props(styles.sliderTrack)}>
-          <Slider.Indicator {...stylex.props(styles.sliderIndicator)} />
-          <Slider.Thumb aria-label={label} {...stylex.props(styles.sliderThumb)} />
-        </Slider.Track>
-      </Slider.Control>
-    </Slider.Root>
+      <Slider.Root
+        aria-label={label}
+        max={max}
+        min={min}
+        onValueChange={onValueChange}
+        step={step}
+        value={value}
+        {...stylex.props(styles.sliderRoot)}
+      >
+        <Slider.Control {...stylex.props(styles.sliderControl)}>
+          <Slider.Track {...stylex.props(styles.sliderTrack)}>
+            <Slider.Indicator {...stylex.props(styles.sliderIndicator)} />
+            <Slider.Thumb aria-label={label} {...stylex.props(styles.sliderThumb)} />
+          </Slider.Track>
+        </Slider.Control>
+      </Slider.Root>
+    </NumberField.Root>
+  )
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      {...stylex.props(styles.chevronIcon, open && styles.chevronIconOpen)}
+    >
+      <path d="m4 6 4 4 4-4" />
+    </svg>
+  )
+}
+
+function ResetIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" {...stylex.props(styles.resetIcon)}>
+      <path d="M3.5 5.5A5 5 0 1 1 3 9M3.5 5.5V2.75M3.5 5.5h2.75" />
+    </svg>
   )
 }
 
@@ -739,21 +885,19 @@ ${propLines.join('\n')}
   return (
     <section {...stylex.props(styles.codeSection)}>
       <div {...stylex.props(styles.codeHeader)}>
-        <div {...stylex.props(styles.codeDots)} aria-hidden="true">
-          <span {...stylex.props(styles.codeDot)} />
-          <span {...stylex.props(styles.codeDot)} />
-          <span {...stylex.props(styles.codeDot)} />
+        <div {...stylex.props(styles.codeFile)}>
+          <CodeFileIcon />
+          <span>example.tsx</span>
         </div>
-        <span>example.tsx</span>
-        <button
+        <Button
           aria-label={copied ? 'Code copied' : 'Copy code'}
           onClick={() => void copy(code)}
           type="button"
-          {...stylex.props(styles.codeCopy)}
+          {...stylex.props(styles.codeFile, styles.codeCopy, copied && styles.codeCopyCopied)}
         >
           <CopyIcon copied={copied} />
           {copied ? 'Copied' : 'Copy'}
-        </button>
+        </Button>
       </div>
       <pre {...stylex.props(styles.code)}>
         <code>
@@ -770,6 +914,14 @@ ${propLines.join('\n')}
         </code>
       </pre>
     </section>
+  )
+}
+
+function CodeFileIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" {...stylex.props(styles.codeFileIcon)}>
+      <path d="m5.5 5-3 3 3 3M10.5 5l3 3-3 3M9 3.5l-2 9" />
+    </svg>
   )
 }
 
@@ -827,6 +979,31 @@ function toggle(name: string, initial: boolean): ParameterDefinition {
   return { initial, kind: 'boolean', name }
 }
 
+function getParameterGroup(definition: ParameterDefinition): ParameterGroupId {
+  if (definition.kind === 'boolean') return 'features'
+
+  const name = definition.name.toLowerCase()
+  if (definition.name.startsWith('ring') || definition.name.includes('Ring')) return 'rings'
+  if (
+    /aerosol|atmosphere|aureole|cloud|haze|methane|optical|scattering|vortex|wind|jet|hood/.test(
+      name,
+    )
+  ) {
+    return 'atmosphere'
+  }
+  if (/sun|exposure|night|bloom|earthshine|opposition|phase|glare|glint|emission/.test(name)) {
+    return 'lighting'
+  }
+  if (
+    /speed|rotation|tilt|roll|view|pole|longitude|azimuth|elevation|oblateness|epsilon|orbit/.test(
+      name,
+    )
+  ) {
+    return 'orientation'
+  }
+  return 'surface'
+}
+
 function getPrecision(step: number): number {
   return step < 0.01 ? 3 : step < 1 ? 2 : 0
 }
@@ -837,63 +1014,90 @@ function formatParameterName(name: string): string {
 }
 
 const styles = stylex.create({
+  chevronIcon: {
+    fill: 'none',
+    height: 14,
+    marginLeft: 2,
+    stroke: 'currentColor',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    strokeWidth: 1.4,
+    transform: 'rotate(0deg)',
+    transition: 'transform 180ms cubic-bezier(0.25, 1, 0.5, 1)',
+    width: 14,
+  },
+  chevronIconOpen: {
+    transform: 'rotate(180deg)',
+  },
   code: {
+    backgroundColor: '#0c0e10',
+    borderRadius: 10,
     color: '#b9b9b9',
     fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
     fontSize: 12,
     lineHeight: 1.7,
     margin: 0,
     overflowX: 'auto',
-    paddingBlock: 20,
-    paddingInline: 22,
+    paddingBlock: 22,
+    paddingInline: 18,
   },
-  codeDots: {
+  codeFile: {
+    alignItems: 'center',
+    color: 'rgba(242, 232, 208, 0.5)',
     display: 'flex',
-    gap: 5,
-    marginRight: 4,
+    fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif',
+    fontSize: 11,
+    fontWeight: 550,
+    gap: 6,
+    height: 32,
   },
-  codeDot: {
-    backgroundColor: '#414141',
-    borderRadius: '50%',
-    height: 6,
-    width: 6,
+  codeFileIcon: {
+    fill: 'none',
+    height: 13,
+    stroke: 'currentColor',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    strokeWidth: 1.25,
+    width: 13,
   },
   codeHeader: {
     alignItems: 'center',
-    color: '#777777',
     display: 'flex',
-    fontFamily: '"SFMono-Regular", Consolas, monospace',
-    fontSize: 10,
-    gap: 8,
-    height: 38,
-    paddingInline: 14,
+    height: 46,
+    paddingInline: 10,
   },
   codeCopy: {
-    alignItems: 'center',
     backgroundColor: 'transparent',
     borderWidth: 0,
-    color: '#777777',
+    color: {
+      default: 'rgba(242, 232, 208, 0.5)',
+      ':hover': '#f2e8d0',
+      ':focus-visible': '#f2e8d0',
+    },
     cursor: 'pointer',
-    display: 'flex',
-    fontFamily: 'inherit',
-    fontSize: 'inherit',
-    gap: 5,
     marginLeft: 'auto',
-    padding: 4,
-    ':hover': { color: '#cfcfcf' },
-    ':focus-visible': { color: '#ffffff', outline: 'none' },
+    padding: 0,
+    textDecoration: { ':focus-visible': 'underline' },
+    textUnderlineOffset: 3,
+    transition: 'color 140ms ease-out',
+    ':focus-visible': { outline: 'none' },
+  },
+  codeCopyCopied: {
+    color: '#f2e8d0',
   },
   codeSection: {
-    backgroundColor: '#0d0d0d',
-    borderRadius: 12,
+    backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.032))',
+    borderRadius: 16,
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.075), 0 16px 48px rgba(0,0,0,0.2)',
     marginTop: 18,
     minWidth: 0,
     overflow: 'hidden',
+    padding: 6,
   },
   componentName: {
-    backgroundColor: '#171717',
+    backgroundColor: 'rgba(242, 232, 208, 0.065)',
     borderRadius: 999,
-    color: '#8d8d8d',
+    color: 'rgba(242, 232, 208, 0.5)',
     fontFamily: '"SFMono-Regular", Consolas, monospace',
     fontSize: 10,
     paddingBlock: 6,
@@ -910,31 +1114,71 @@ const styles = stylex.create({
   },
   copyIcon: {
     fill: 'none',
-    height: 12,
+    height: 13,
     stroke: 'currentColor',
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
     strokeWidth: 1.25,
-    width: 12,
+    width: 13,
   },
   controlGroup: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 22,
-    paddingBlock: 26,
+    gap: 6,
+    paddingBottom: 8,
+  },
+  groupCount: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(242, 232, 208, 0.06)',
+    borderRadius: 999,
+    color: 'rgba(242, 232, 208, 0.34)',
+    display: 'flex',
+    fontFamily: '"SFMono-Regular", Consolas, monospace',
+    fontSize: 9,
+    height: 18,
+    justifyContent: 'center',
+    marginLeft: 'auto',
+    minWidth: 18,
+    paddingInline: 5,
+  },
+  groupPanel: {
+    overflow: 'hidden',
+  },
+  groupTrigger: {
+    alignItems: 'center',
+    backgroundColor: {
+      default: 'transparent',
+      ':hover': 'rgba(255, 255, 255, 0.03)',
+    },
+    borderRadius: 8,
+    borderWidth: 0,
+    color: 'rgba(242, 232, 208, 0.66)',
+    cursor: 'pointer',
+    display: 'flex',
+    fontSize: 12,
+    fontWeight: 600,
+    gap: 6,
+    height: 36,
+    paddingInline: 8,
+    textAlign: 'left',
+    width: '100%',
+    ':focus-visible': {
+      boxShadow: 'inset 0 0 0 2px rgba(242,232,208,0.46)',
+      outline: 'none',
+    },
   },
   disc: {
-    backgroundColor: '#0b0b0b',
+    backgroundColor: 'transparent',
     backgroundImage:
-      'radial-gradient(circle at 58% 44%, rgba(255,255,255,0.06), transparent 42%), repeating-radial-gradient(circle, transparent 0 51px, rgba(255,255,255,0.035) 52px 53px)',
+      'repeating-radial-gradient(circle, transparent 0 42px, rgba(242,232,208,0.032) 43px 44px)',
     borderRadius: '50%',
-    height: 640,
-    left: -320,
+    height: 520,
+    left: -260,
     position: 'absolute',
     top: '50%',
     transform: 'translateY(-50%)',
     transformOrigin: 'center',
-    width: 640,
+    width: 520,
     '@media (min-width: 921px) and (max-height: 850px)': {
       transform: 'translateY(-50%) scale(0.82)',
     },
@@ -947,24 +1191,51 @@ const styles = stylex.create({
     },
   },
   discAxis: {
-    backgroundColor: '#343434',
+    backgroundColor: 'rgba(242, 232, 208, 0.24)',
     borderRadius: '50%',
     boxShadow: '0 0 0 7px rgba(255,255,255,0.025)',
     height: 8,
     position: 'absolute',
-    right: 42,
+    right: 34,
     top: 'calc(50% - 4px)',
     width: 8,
   },
   githubLink: {
     alignItems: 'center',
-    color: '#7f7f7f',
+    backdropFilter: 'blur(6px)',
+    backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.1))',
+    borderRadius: 12,
+    boxShadow: {
+      default:
+        'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.28), 0 1px 2px rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.22)',
+      ':hover':
+        'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.28), 0 1px 2px rgba(0,0,0,0.35), 0 12px 30px rgba(0,0,0,0.3)',
+      ':active':
+        'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.28), 0 1px 2px rgba(0,0,0,0.3)',
+      ':focus-visible':
+        '0 0 0 2px #101112, 0 0 0 4px rgba(242,232,208,0.62), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.28), 0 8px 24px rgba(0,0,0,0.22)',
+    },
+    color: '#f2e8d0',
     display: 'flex',
-    fontSize: 12,
-    gap: 6,
+    fontSize: 13,
+    fontWeight: 600,
+    gap: 8,
+    height: 44,
+    paddingInline: 16,
     textDecoration: 'none',
-    ':hover': { color: '#ffffff' },
-    ':focus-visible': { color: '#ffffff', outline: 'none' },
+    transform: {
+      default: 'translateY(0)',
+      ':hover': 'translateY(-1px)',
+      ':active': 'translateY(0)',
+    },
+    transition:
+      'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1)',
+    ':focus-visible': { outline: 'none' },
+  },
+  githubArrow: {
+    display: 'inline-block',
+    transform: { default: 'translateX(0)', ':hover': 'translateX(2px)' },
+    transition: 'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)',
   },
   header: {
     alignItems: 'center',
@@ -973,11 +1244,11 @@ const styles = stylex.create({
     justifyContent: 'space-between',
   },
   inspector: {
+    backgroundColor: 'rgba(8, 9, 10, 0.28)',
     height: '100dvh',
     minWidth: 0,
     overflowY: 'auto',
-    paddingBlock: 24,
-    paddingInline: 24,
+    padding: 12,
     position: 'fixed',
     right: 0,
     top: 0,
@@ -989,6 +1260,7 @@ const styles = stylex.create({
       height: 'auto',
       overflowY: 'visible',
       paddingBlock: 28,
+      paddingInline: 24,
       position: 'relative',
       right: 'auto',
       top: 'auto',
@@ -996,14 +1268,25 @@ const styles = stylex.create({
     },
   },
   inspectorHeader: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    backgroundImage: 'linear-gradient(180deg, #101112 78%, rgba(16,17,18,0))',
     display: 'flex',
     justifyContent: 'space-between',
-    paddingBottom: 22,
+    paddingBlock: 8,
+    paddingInline: 4,
+    position: 'sticky',
+    top: 0,
+    zIndex: 4,
+  },
+  inspectorGroups: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    paddingTop: 8,
   },
   inspectorNote: {
     alignItems: 'flex-start',
-    color: '#606060',
+    color: 'rgba(242, 232, 208, 0.32)',
     display: 'flex',
     fontSize: 10,
     gap: 9,
@@ -1011,10 +1294,17 @@ const styles = stylex.create({
     paddingTop: 22,
   },
   inspectorTitle: {
-    color: '#cfcfcf',
-    fontSize: 13,
-    fontWeight: 550,
-    marginBlock: 6,
+    color: '#f2e8d0',
+    fontSize: 14,
+    fontWeight: 600,
+    letterSpacing: '-0.015em',
+    margin: 0,
+  },
+  inspectorSubtitle: {
+    color: 'rgba(242, 232, 208, 0.34)',
+    display: 'block',
+    fontSize: 10,
+    marginTop: 2,
   },
   introduction: {
     paddingBottom: 20,
@@ -1032,14 +1322,56 @@ const styles = stylex.create({
   noteCopy: {
     margin: 0,
   },
+  numberFieldInput: {
+    appearance: 'none',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    color: 'rgba(242, 232, 208, 0.72)',
+    fontFamily: '"SFMono-Regular", Consolas, monospace',
+    fontSize: 10,
+    height: 26,
+    padding: 0,
+    textAlign: 'right',
+    width: 54,
+    ':focus-visible': {
+      backgroundColor: 'rgba(242, 232, 208, 0.08)',
+      borderRadius: 6,
+      boxShadow: 'inset 0 0 0 2px rgba(242,232,208,0.38)',
+      color: '#f2e8d0',
+      outline: 'none',
+    },
+  },
+  numberFieldRoot: {
+    backgroundColor: 'rgba(255, 255, 255, 0.045)',
+    borderRadius: 8,
+    height: 42,
+    overflow: 'hidden',
+    position: 'relative',
+    transition: 'background-color 140ms ease-out',
+    ':hover': { backgroundColor: 'rgba(255,255,255,0.065)' },
+  },
+  numberFieldSuffix: {
+    color: 'rgba(242, 232, 208, 0.35)',
+    fontFamily: '"SFMono-Regular", Consolas, monospace',
+    fontSize: 10,
+  },
+  numberFieldValue: {
+    alignItems: 'center',
+    display: 'flex',
+    gap: 2,
+    pointerEvents: 'auto',
+  },
+  parameterGroup: {
+    minWidth: 0,
+  },
   page: {
-    backgroundColor: '#080808',
+    backgroundColor: '#101112',
     display: 'grid',
-    gridTemplateColumns: '350px minmax(400px, 1fr) 300px',
+    gridTemplateColumns: '300px minmax(400px, 1fr) 300px',
     minHeight: '100dvh',
     overflow: 'clip',
     '@media (max-width: 1080px)': {
-      gridTemplateColumns: '300px minmax(360px, 1fr) 260px',
+      gridTemplateColumns: '260px minmax(360px, 1fr) 260px',
     },
     '@media (max-width: 920px)': {
       display: 'block',
@@ -1060,9 +1392,9 @@ const styles = stylex.create({
     overflow: 'visible',
     position: 'fixed',
     top: 0,
-    width: 350,
+    width: 300,
     '@media (max-width: 1080px)': {
-      width: 300,
+      width: 260,
     },
     '@media (max-width: 920px)': {
       height: 'auto',
@@ -1076,30 +1408,34 @@ const styles = stylex.create({
     },
   },
   planetThumbnail: {
-    backgroundColor: '#050505',
-    borderRadius: 10,
     flex: '0 0 auto',
-    height: 38,
-    overflow: 'hidden',
+    height: 40,
+    overflow: 'visible',
     pointerEvents: 'none',
-    transition: 'box-shadow 150ms ease',
-    width: 38,
+    position: 'relative',
+    width: 40,
     '@media (max-width: 920px)': {
-      height: 30,
-      width: 30,
+      height: 34,
+      width: 34,
     },
   },
+  planetThumbnailCanvas: {
+    inset: 0,
+    position: 'absolute',
+    transform: 'scale(var(--planet-thumbnail-scale))',
+    transition: 'filter 150ms ease-out',
+  },
   planetThumbnailSelected: {
-    boxShadow: '0 0 22px rgba(255,255,255,0.2)',
+    filter: 'drop-shadow(0 0 6px rgba(242,232,208,0.22))',
   },
   planetList: {
-    height: 640,
+    height: 560,
     left: 0,
     position: 'absolute',
     top: '50%',
     transform: 'translateY(-50%)',
     transformOrigin: 'center',
-    width: 353,
+    width: 300,
     '@media (min-width: 921px) and (max-height: 850px)': {
       transform: 'translateY(-50%) scale(0.82)',
     },
@@ -1122,9 +1458,12 @@ const styles = stylex.create({
   planetTab: {
     alignItems: 'center',
     backgroundColor: 'transparent',
-    borderRadius: 14,
     borderWidth: 0,
-    color: '#686868',
+    color: {
+      default: 'rgba(242, 232, 208, 0.42)',
+      ':hover': 'rgba(242, 232, 208, 0.76)',
+      ':focus-visible': '#f2e8d0',
+    },
     cursor: 'pointer',
     display: 'flex',
     flexDirection: 'column',
@@ -1132,22 +1471,22 @@ const styles = stylex.create({
     gap: 3,
     left: 'var(--planet-left)',
     lineHeight: 1.1,
-    paddingBlock: 2,
-    paddingInline: 2,
+    minHeight: 60,
+    padding: 4,
     position: 'absolute',
     scrollSnapAlign: 'center',
     textAlign: 'center',
-    transition: 'background-color 150ms ease, color 150ms ease',
+    textDecoration: { ':focus-visible': 'underline' },
+    textUnderlineOffset: 3,
+    transition: 'color 140ms ease-out',
     whiteSpace: 'nowrap',
     top: 'var(--planet-top)',
     width: 68,
-    ':hover': { color: '#d7d7d7' },
-    ':focus-visible': { backgroundColor: '#1b1b1b', color: '#ffffff', outline: 'none' },
+    ':focus-visible': { outline: 'none' },
     '@media (max-width: 1080px)': {
-      left: 'calc(var(--planet-left) - 20px)',
+      left: 'calc(var(--planet-left) - 12px)',
     },
     '@media (max-width: 920px)': {
-      backgroundColor: '#111111',
       flex: '0 0 auto',
       fontSize: 9,
       left: 'auto',
@@ -1156,59 +1495,96 @@ const styles = stylex.create({
     },
   },
   planetTabSelected: {
-    backgroundColor: '#151515',
-    color: '#f0f0f0',
+    color: '#f2e8d0',
+    fontWeight: 600,
   },
-  sliderControl: {
+  resetButton: {
     alignItems: 'center',
+    backgroundColor: {
+      default: 'rgba(255,255,255,0.055)',
+      ':hover': 'rgba(255,255,255,0.09)',
+      ':active': 'rgba(255,255,255,0.04)',
+    },
+    borderRadius: 8,
+    borderWidth: 0,
+    color: 'rgba(242,232,208,0.7)',
     cursor: 'pointer',
     display: 'flex',
-    height: 24,
+    fontSize: 10,
+    fontWeight: 550,
+    gap: 5,
+    height: 30,
+    paddingInline: 9,
+    transition: 'background-color 140ms ease-out, color 140ms ease-out, opacity 140ms ease-out',
+    ':focus-visible': {
+      boxShadow: 'inset 0 0 0 2px rgba(242,232,208,0.46)',
+      color: '#f2e8d0',
+      outline: 'none',
+    },
+  },
+  resetButtonDisabled: {
+    cursor: 'default',
+    opacity: 0.28,
+  },
+  resetIcon: {
+    fill: 'none',
+    height: 12,
+    stroke: 'currentColor',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    strokeWidth: 1.25,
+    width: 12,
+  },
+  sliderControl: {
+    cursor: 'pointer',
+    height: '100%',
     touchAction: 'none',
     userSelect: 'none',
     width: '100%',
   },
   sliderIndicator: {
-    backgroundColor: '#a6a6a6',
-    borderRadius: 999,
+    backgroundColor: 'rgba(242, 232, 208, 0.075)',
+    height: '100%',
   },
   sliderLabel: {
-    color: '#9a9a9a',
-    fontSize: 11,
+    color: 'rgba(242, 232, 208, 0.68)',
+    fontSize: 12,
+    fontWeight: 500,
   },
   sliderMeta: {
     alignItems: 'center',
     display: 'flex',
+    inset: 0,
     justifyContent: 'space-between',
+    paddingInline: 10,
+    pointerEvents: 'none',
+    position: 'absolute',
+    zIndex: 2,
   },
   sliderRoot: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 5,
+    inset: 0,
+    position: 'absolute',
   },
   sliderThumb: {
-    backgroundColor: '#e8e8e8',
+    backgroundColor: 'rgba(242, 232, 208, 0.56)',
     borderRadius: '50%',
-    boxShadow: '0 0 8px rgba(255,255,255,0.24)',
-    height: 12,
-    width: 12,
-    ':focus-visible': { backgroundColor: '#ffffff', outline: 'none' },
+    height: 20,
+    opacity: 0.55,
+    transition: 'box-shadow 140ms ease-out, opacity 140ms ease-out',
+    width: 3,
+    ':has(input:focus-visible)': {
+      boxShadow: '0 0 0 4px rgba(242,232,208,0.16), 0 0 12px rgba(242,232,208,0.3)',
+      opacity: 1,
+    },
   },
   sliderTrack: {
-    backgroundColor: '#2b2b2b',
-    borderRadius: 999,
-    height: 2,
+    height: '100%',
     position: 'relative',
     width: '100%',
   },
-  sliderValue: {
-    color: '#707070',
-    fontFamily: '"SFMono-Regular", Consolas, monospace',
-    fontSize: 10,
-  },
   stage: {
-    backgroundColor: '#050505',
-    backgroundImage: 'radial-gradient(circle at 50% 48%, #151515 0, #090909 42%, #050505 70%)',
+    backgroundColor: '#050607',
+    backgroundImage: 'radial-gradient(circle at 50% 48%, #111315 0, #090a0b 44%, #050607 72%)',
     borderRadius: 14,
     height: 'clamp(360px, 52vh, 590px)',
     overflow: 'hidden',
@@ -1223,7 +1599,7 @@ const styles = stylex.create({
     position: 'absolute',
   },
   summary: {
-    color: '#777777',
+    color: 'rgba(242, 232, 208, 0.42)',
     fontSize: 12,
     lineHeight: 1.65,
     marginBottom: 0,
@@ -1232,45 +1608,79 @@ const styles = stylex.create({
   },
   switchLabel: {
     alignItems: 'center',
-    color: '#9a9a9a',
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.045)',
+    color: 'rgba(242, 232, 208, 0.68)',
     display: 'flex',
-    fontSize: 11,
+    fontSize: 12,
+    fontWeight: 500,
+    height: 42,
     justifyContent: 'space-between',
+    paddingInline: 10,
+    transition: 'background-color 140ms ease-out',
+    ':hover': { backgroundColor: 'rgba(255,255,255,0.065)' },
+  },
+  switchOption: {
+    alignItems: 'center',
+    color: 'rgba(242, 232, 208, 0.34)',
+    display: 'flex',
+    fontSize: 9,
+    fontWeight: 550,
+    height: 24,
+    justifyContent: 'center',
+    position: 'relative',
+    transition: 'color 160ms ease-out',
+    width: 32,
+    zIndex: 1,
+  },
+  switchOptionActive: {
+    color: '#f2e8d0',
   },
   switchRoot: {
-    backgroundColor: '#2b2b2b',
-    borderRadius: 999,
+    backgroundColor: 'rgba(242, 232, 208, 0.055)',
+    borderRadius: 8,
     borderWidth: 0,
     cursor: 'pointer',
-    height: 16,
-    padding: 0,
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    height: 28,
+    padding: 2,
     position: 'relative',
-    transition: 'background-color 150ms ease',
-    width: 30,
-    ':focus-visible': { backgroundColor: '#3b3b3b', outline: 'none' },
+    transition: 'box-shadow 160ms ease-out',
+    width: 68,
+    ':focus-visible': {
+      boxShadow: '0 0 0 3px rgba(242,232,208,0.18), inset 0 0 0 2px rgba(242,232,208,0.5)',
+      outline: 'none',
+    },
   },
   switchRootChecked: {
-    backgroundColor: '#a6a6a6',
+    backgroundColor: 'rgba(242, 232, 208, 0.055)',
   },
   switchThumb: {
-    backgroundColor: '#8a8a8a',
-    borderRadius: '50%',
+    backgroundColor: 'rgba(242, 232, 208, 0.11)',
+    borderRadius: 6,
     display: 'block',
-    height: 12,
-    transform: 'translateX(2px)',
-    transition: 'background-color 150ms ease, transform 150ms ease',
-    width: 12,
+    height: 24,
+    left: 2,
+    position: 'absolute',
+    top: 2,
+    transform: 'translateX(0)',
+    transition: 'transform 180ms cubic-bezier(0.25, 1, 0.5, 1)',
+    width: 32,
   },
   switchThumbChecked: {
-    backgroundColor: '#101010',
-    transform: 'translateX(16px)',
+    backgroundColor: 'rgba(242, 232, 208, 0.11)',
+    transform: 'translateX(32px)',
   },
   title: {
-    color: '#ededed',
-    fontSize: 'clamp(32px, 4vw, 48px)',
-    fontWeight: 500,
+    backgroundClip: 'text',
+    backgroundImage: 'linear-gradient(180deg, #ffffff 8%, rgba(242,232,208,0.82) 100%)',
+    color: 'transparent',
+    fontFamily: '"SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontSize: 'clamp(36px, 4vw, 52px)',
+    fontWeight: 590,
     letterSpacing: '-0.045em',
-    lineHeight: 1,
+    lineHeight: 0.98,
     margin: 0,
   },
   titleRow: {
@@ -1281,19 +1691,23 @@ const styles = stylex.create({
   },
   wordmark: {
     alignItems: 'center',
-    color: '#dedede',
+    color: '#f2e8d0',
     display: 'flex',
     fontSize: 13,
     fontWeight: 620,
     gap: 9,
     letterSpacing: '-0.02em',
     textDecoration: 'none',
-    ':focus-visible': { color: '#ffffff', outline: 'none' },
+    ':focus-visible': {
+      boxShadow: '0 2px 0 rgba(242,232,208,0.62)',
+      color: '#ffffff',
+      outline: 'none',
+    },
   },
   wordmarkMark: {
-    backgroundColor: '#e6e6e6',
+    backgroundColor: '#f2e8d0',
     borderRadius: '50%',
-    boxShadow: 'inset -3px -2px 0 #777777',
+    boxShadow: 'inset -3px -2px 0 rgba(16,17,18,0.52)',
     height: 11,
     width: 11,
   },

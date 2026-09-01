@@ -15,9 +15,9 @@
 
   body {
     margin: 0;
-    background: #050505;
-    color: #f5f5f5;
-    font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    background: #101112;
+    color: #f2e8d0;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -26,5 +26,9 @@
   textarea,
   select {
     font: inherit;
+  }
+
+  input[type='range']:focus-visible {
+    outline: none;
   }
 }

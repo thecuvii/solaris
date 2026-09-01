@@ -864,7 +864,7 @@ export function PlutonianOrbEffect({
   iceResponse = 0.6,
   phaseFill = 0.035,
   reliefStrength = 0.85,
-  rotationSpeed = 0.006,
+  rotationSpeed = 0,
   roughness = 0.78,
   source,
   style,
@@ -872,7 +872,7 @@ export function PlutonianOrbEffect({
   sunElevation = 16,
   surfaceRotation = 0,
   tholinStrength = 1,
-  viewTilt = 10,
+  viewTilt = 25,
 }: PlutonianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: PlutonianFrameSettings = {
