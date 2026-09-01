@@ -23,4 +23,4 @@ jobs:
       - run: vp test --run
       - run: vp pack
       - run: vp -C website build
-      - run: pnpm pack --dry-run
+      - run: npm pack --dry-run
