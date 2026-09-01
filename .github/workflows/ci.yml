@@ -50,13 +50,28 @@ jobs:
 
   bundle-size:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
       - uses: voidzero-dev/setup-vp@v1.18.0
         with:
           cache: true
           node-version: 26
           run-install: false
+      - run: corepack enable
       - run: vp install --frozen-lockfile
       - run: vp pack
       - run: node scripts/check-bundle-size.mjs
+      - if: github.event_name == 'pull_request'
+        uses: preactjs/compressed-size-action@2.10.0
+        with:
+          build-script: build
+          install-script: vp install --frozen-lockfile
+          pattern: dist/**/*.mjs
+          repo-token: ${{ github.token }}
+          sort-by: Size:desc
