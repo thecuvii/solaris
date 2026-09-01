@@ -647,15 +647,6 @@ function Inspector({
         </div>
       </div>
 
-      <Button
-        disabled={isDefault}
-        onClick={resetSettings}
-        {...stylex.props(styles.resetButton, isDefault && styles.resetButtonDisabled)}
-      >
-        <ResetIcon />
-        Reset
-      </Button>
-
       <div {...stylex.props(styles.inspectorGroups)}>
         {groups.map((group) => (
           <ParameterGroup
@@ -667,6 +658,15 @@ function Inspector({
           />
         ))}
       </div>
+
+      <Button
+        disabled={isDefault}
+        onClick={resetSettings}
+        {...stylex.props(styles.resetButton, isDefault && styles.resetButtonDisabled)}
+      >
+        <ResetIcon />
+        Reset
+      </Button>
 
       <div {...stylex.props(styles.inspectorNote)}>
         <span {...stylex.props(styles.noteIcon)} aria-hidden="true">
@@ -747,10 +747,6 @@ function ParameterSwitch({
         {...stylex.props(styles.switchRoot, checked && styles.switchRootChecked)}
       >
         <Switch.Thumb {...stylex.props(styles.switchThumb, checked && styles.switchThumbChecked)} />
-        <span {...stylex.props(styles.switchOption, !checked && styles.switchOptionActive)}>
-          Off
-        </span>
-        <span {...stylex.props(styles.switchOption, checked && styles.switchOptionActive)}>On</span>
       </Switch.Root>
     </label>
   )
@@ -789,7 +785,9 @@ function ParameterSlider({
       {...stylex.props(styles.numberFieldRoot)}
     >
       <div {...stylex.props(styles.sliderMeta)}>
-        <span {...stylex.props(styles.sliderLabel)}>{label}</span>
+        <span title={label} {...stylex.props(styles.sliderLabel)}>
+          {label}
+        </span>
         <span {...stylex.props(styles.numberFieldValue)}>
           <NumberField.Input aria-label={label} {...stylex.props(styles.numberFieldInput)} />
           {suffix && <span {...stylex.props(styles.numberFieldSuffix)}>{suffix}</span>}
@@ -1125,17 +1123,21 @@ const styles = stylex.create({
   controlGroup: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 6,
-    paddingBottom: 8,
+    gap: 4,
+    paddingBlock: 4,
+    paddingInline: 4,
   },
   groupCount: {
     alignItems: 'center',
-    backgroundColor: 'rgba(132, 146, 190, 0.08)',
+    backgroundColor: 'oklch(100% 0 0 / 0.06)',
     borderRadius: 999,
-    color: 'rgba(242, 232, 208, 0.34)',
+    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.06)',
+    color: 'oklch(86.4% 0.003 84.6 / 0.42)',
     display: 'flex',
-    fontFamily: '"SFMono-Regular", Consolas, monospace',
-    fontSize: 9,
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 10,
+    fontVariantNumeric: 'tabular-nums',
+    fontWeight: 500,
     height: 18,
     justifyContent: 'center',
     marginLeft: 'auto',
@@ -1149,7 +1151,7 @@ const styles = stylex.create({
     alignItems: 'center',
     backgroundColor: {
       default: 'transparent',
-      ':hover': 'rgba(132, 146, 190, 0.06)',
+      ':hover': 'oklch(100% 0 0 / 0.04)',
     },
     borderRadius: 8,
     borderWidth: 0,
@@ -1164,7 +1166,8 @@ const styles = stylex.create({
     textAlign: 'left',
     width: '100%',
     ':focus-visible': {
-      boxShadow: 'inset 0 0 0 2px rgba(242,232,208,0.46)',
+      boxShadow:
+        'inset 0 1px 0 oklch(86.4% 0.003 84.6 / 0.12), 0 0 0 3px oklch(86.4% 0.003 84.6 / 0.08)',
       outline: 'none',
     },
   },
@@ -1245,7 +1248,8 @@ const styles = stylex.create({
     justifyContent: 'space-between',
   },
   inspector: {
-    backgroundColor: 'rgba(13, 16, 25, 0.82)',
+    backdropFilter: 'blur(18px)',
+    backgroundColor: 'oklch(8.52% 0.0384 274.56 / 0.9)',
     height: '100dvh',
     minWidth: 0,
     overflowY: 'auto',
@@ -1270,20 +1274,16 @@ const styles = stylex.create({
   },
   inspectorHeader: {
     alignItems: 'center',
-    backgroundImage: 'linear-gradient(180deg, #0d1019 78%, rgba(13,16,25,0))',
     display: 'flex',
     justifyContent: 'space-between',
     paddingBlock: 8,
     paddingInline: 4,
-    position: 'sticky',
-    top: 0,
-    zIndex: 4,
   },
   inspectorGroups: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 8,
-    paddingTop: 8,
+    gap: 10,
+    paddingTop: 12,
   },
   inspectorNote: {
     alignItems: 'flex-start',
@@ -1296,7 +1296,7 @@ const styles = stylex.create({
   },
   inspectorTitle: {
     color: '#f2e8d0',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: 600,
     letterSpacing: '-0.015em',
     margin: 0,
@@ -1304,8 +1304,8 @@ const styles = stylex.create({
   inspectorSubtitle: {
     color: 'rgba(242, 232, 208, 0.34)',
     display: 'block',
-    fontSize: 10,
-    marginTop: 2,
+    fontSize: 11,
+    marginTop: 3,
   },
   introduction: {
     paddingBottom: 20,
@@ -1327,40 +1327,57 @@ const styles = stylex.create({
     appearance: 'none',
     backgroundColor: 'transparent',
     borderWidth: 0,
-    color: 'rgba(242, 232, 208, 0.72)',
-    fontFamily: '"SFMono-Regular", Consolas, monospace',
-    fontSize: 10,
-    height: 26,
+    color: 'oklch(86.4% 0.003 84.6 / 0.84)',
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 11,
+    fontVariantNumeric: 'tabular-nums',
+    fontWeight: 500,
+    height: 24,
     padding: 0,
     textAlign: 'right',
-    width: 54,
+    width: 44,
     ':focus-visible': {
-      backgroundColor: 'rgba(242, 232, 208, 0.08)',
-      borderRadius: 6,
-      boxShadow: 'inset 0 0 0 2px rgba(242,232,208,0.38)',
-      color: '#f2e8d0',
+      color: 'oklch(96% 0.003 84.6)',
       outline: 'none',
     },
   },
   numberFieldRoot: {
-    backgroundColor: 'rgba(132, 146, 190, 0.08)',
+    backgroundColor: {
+      default: 'transparent',
+      ':hover': 'oklch(100% 0 0 / 0.035)',
+      ':has(input:focus-visible)': 'oklch(100% 0 0 / 0.05)',
+    },
     borderRadius: 8,
-    height: 42,
-    overflow: 'hidden',
-    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    height: 52,
+    paddingInline: 7,
     transition: 'background-color 140ms ease-out',
-    ':hover': { backgroundColor: 'rgba(132,146,190,0.12)' },
   },
   numberFieldSuffix: {
-    color: 'rgba(242, 232, 208, 0.35)',
-    fontFamily: '"SFMono-Regular", Consolas, monospace',
-    fontSize: 10,
+    color: 'oklch(86.4% 0.003 84.6 / 0.42)',
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 11,
   },
   numberFieldValue: {
     alignItems: 'center',
+    backgroundColor: 'oklch(100% 0 0 / 0.065)',
+    borderRadius: 6,
+    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.055), 0 1px 2px oklch(0% 0 0 / 0.22)',
     display: 'flex',
     gap: 2,
+    height: 24,
+    justifyContent: 'center',
+    minWidth: 56,
+    paddingInline: 6,
     pointerEvents: 'auto',
+    transition: 'background-color 140ms ease-out, box-shadow 140ms ease-out',
+    ':has(input:focus-visible)': {
+      backgroundColor: 'oklch(100% 0 0 / 0.1)',
+      boxShadow:
+        'inset 0 1px 0 oklch(100% 0 0 / 0.08), 0 0 0 3px oklch(63.66% 0.1939 265.97 / 0.14)',
+    },
   },
   parameterGroup: {
     minWidth: 0,
@@ -1506,7 +1523,11 @@ const styles = stylex.create({
       'linear-gradient(in oklch 180deg, var(--reset-button-gradient-start, oklch(36% 0 0)) 0%, var(--reset-button-gradient-end, oklch(26.86% 0 0)) 100%)',
     borderRadius: 8,
     borderWidth: 0,
-    boxShadow: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
+    boxShadow: {
+      default: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
+      ':focus-visible':
+        'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset, 0 0 0 3px oklch(86.4% 0.003 84.6 / 0.16)',
+    },
     boxSizing: 'border-box',
     color: 'oklch(86.4% 0.003 84.6)',
     cursor: 'pointer',
@@ -1518,7 +1539,7 @@ const styles = stylex.create({
     gap: 6,
     justifyContent: 'center',
     lineHeight: '20px',
-    marginTop: 24,
+    marginTop: 16,
     overflowWrap: 'anywhere',
     paddingBlock: 8,
     paddingInline: 28,
@@ -1530,6 +1551,7 @@ const styles = stylex.create({
   },
   resetButtonDisabled: {
     cursor: 'default',
+    opacity: 0.45,
   },
   resetIcon: {
     fill: 'none',
@@ -1541,49 +1563,59 @@ const styles = stylex.create({
     width: 12,
   },
   sliderControl: {
+    alignItems: 'center',
     cursor: 'pointer',
-    height: '100%',
+    display: 'flex',
+    height: 24,
     touchAction: 'none',
     userSelect: 'none',
     width: '100%',
   },
   sliderIndicator: {
-    backgroundColor: 'rgba(132, 146, 190, 0.1)',
+    backgroundImage:
+      'linear-gradient(90deg, oklch(62.22% 0.2063 277.65), oklch(51.92% 0.2726 277.19))',
+    borderRadius: 999,
+    boxShadow: '0 0 10px oklch(62.22% 0.2063 277.65 / 0.22)',
     height: '100%',
   },
   sliderLabel: {
-    color: 'rgba(242, 232, 208, 0.68)',
+    color: 'oklch(86.4% 0.003 84.6 / 0.72)',
     fontSize: 13,
     fontWeight: 500,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   sliderMeta: {
     alignItems: 'center',
     display: 'flex',
-    inset: 0,
+    gap: 6,
+    height: 24,
     justifyContent: 'space-between',
-    paddingInline: 10,
     pointerEvents: 'none',
-    position: 'absolute',
-    zIndex: 2,
   },
   sliderRoot: {
-    inset: 0,
-    position: 'absolute',
+    height: 24,
+    position: 'relative',
   },
   sliderThumb: {
-    backgroundColor: 'rgba(242, 232, 208, 0.56)',
-    borderRadius: '50%',
-    height: 20,
-    opacity: 0.55,
-    transition: 'box-shadow 140ms ease-out, opacity 140ms ease-out',
-    width: 3,
+    backgroundColor: 'oklch(96% 0.004 84.6)',
+    borderRadius: 999,
+    boxShadow: '0 1px 3px oklch(0% 0 0 / 0.36), 0 0 0 2px oklch(62.22% 0.2063 277.65 / 0.1)',
+    height: 12,
+    transition: 'box-shadow 140ms ease-out, transform 140ms ease-out',
+    width: 12,
     ':has(input:focus-visible)': {
-      boxShadow: '0 0 0 4px rgba(242,232,208,0.16), 0 0 12px rgba(242,232,208,0.3)',
-      opacity: 1,
+      boxShadow:
+        '0 1px 3px oklch(0% 0 0 / 0.36), 0 0 0 4px oklch(63.66% 0.1939 265.97 / 0.24), 0 0 14px oklch(62.22% 0.2063 277.65 / 0.52)',
     },
   },
   sliderTrack: {
-    height: '100%',
+    backgroundColor: 'oklch(100% 0 0 / 0.09)',
+    borderRadius: 999,
+    boxShadow: 'inset 0 1px 1px oklch(0% 0 0 / 0.32)',
+    height: 6,
     position: 'relative',
     width: '100%',
   },
@@ -1613,69 +1645,58 @@ const styles = stylex.create({
   },
   switchLabel: {
     alignItems: 'center',
+    backgroundColor: {
+      default: 'transparent',
+      ':hover': 'oklch(100% 0 0 / 0.035)',
+    },
     borderRadius: 8,
-    backgroundColor: 'rgba(132, 146, 190, 0.08)',
-    color: 'rgba(242, 232, 208, 0.68)',
+    color: 'oklch(86.4% 0.003 84.6 / 0.72)',
+    cursor: 'pointer',
     display: 'flex',
     fontSize: 13,
     fontWeight: 500,
-    height: 42,
+    height: 40,
     justifyContent: 'space-between',
-    paddingInline: 10,
+    paddingInline: 8,
     transition: 'background-color 140ms ease-out',
-    ':hover': { backgroundColor: 'rgba(132,146,190,0.12)' },
-  },
-  switchOption: {
-    alignItems: 'center',
-    color: 'rgba(242, 232, 208, 0.34)',
-    display: 'flex',
-    fontSize: 9,
-    fontWeight: 550,
-    height: 24,
-    justifyContent: 'center',
-    position: 'relative',
-    transition: 'color 160ms ease-out',
-    width: 32,
-    zIndex: 1,
-  },
-  switchOptionActive: {
-    color: '#f2e8d0',
   },
   switchRoot: {
-    backgroundColor: 'rgba(132, 146, 190, 0.08)',
-    borderRadius: 8,
+    backgroundColor: 'oklch(75.04% 0.0128 286.09 / 0.32)',
+    borderRadius: 999,
     borderWidth: 0,
+    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.12), 0 1px 2px oklch(0% 0 0 / 0.28)',
     cursor: 'pointer',
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    height: 28,
-    padding: 2,
+    display: 'block',
+    flex: '0 0 auto',
+    height: 24,
     position: 'relative',
-    transition: 'box-shadow 160ms ease-out',
-    width: 68,
+    transition: 'background-color 300ms ease, box-shadow 300ms ease',
+    width: 44,
     ':focus-visible': {
-      boxShadow: '0 0 0 3px rgba(242,232,208,0.18), inset 0 0 0 2px rgba(242,232,208,0.5)',
+      boxShadow:
+        'inset 0 1px 0 oklch(100% 0 0 / 0.12), 0 0 0 3px oklch(63.66% 0.1939 265.97 / 0.22)',
       outline: 'none',
     },
   },
   switchRootChecked: {
-    backgroundColor: 'rgba(132, 146, 190, 0.08)',
+    backgroundColor: 'oklch(51.92% 0.2726 277.19)',
+    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.18), 0 0 12px oklch(62.22% 0.2063 277.65 / 0.3)',
   },
   switchThumb: {
-    backgroundColor: 'rgba(132, 146, 190, 0.16)',
-    borderRadius: 6,
+    backgroundColor: 'oklch(96% 0.004 84.6)',
+    borderRadius: '50%',
+    boxShadow: '0 2px 4px oklch(0% 0 0 / 0.28)',
     display: 'block',
-    height: 24,
+    height: 20,
     left: 2,
     position: 'absolute',
     top: 2,
     transform: 'translateX(0)',
-    transition: 'transform 180ms cubic-bezier(0.25, 1, 0.5, 1)',
-    width: 32,
+    transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1)',
+    width: 20,
   },
   switchThumbChecked: {
-    backgroundColor: 'rgba(132, 146, 190, 0.16)',
-    transform: 'translateX(32px)',
+    transform: 'translateX(20px)',
   },
   title: {
     backgroundClip: 'text',
