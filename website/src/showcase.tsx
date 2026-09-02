@@ -64,6 +64,16 @@ type ParameterGroupId = 'atmosphere' | 'features' | 'lighting' | 'orientation' |
 type PlanetTransitionContext = {
   direction: -1 | 1
   reducedMotion: boolean
+  travel: PlanetTravel
+}
+
+type PlanetTravel = {
+  depth: number
+  duration: number
+  gap: number
+  x: number
+  y: number
+  yaw: number
 }
 
 type EclipseTextLightingProperties = CSSProperties & {
@@ -319,6 +329,51 @@ const earthModel = {
   sunIntensity: 18,
 } as const
 
+const orbitalAnchorAu: Record<PlanetId, number> = {
+  earth: 1,
+  jupiter: 5.203,
+  'lunar-eclipse': 1,
+  mars: 1.524,
+  mercury: 0.387,
+  moon: 1,
+  neptune: 30.07,
+  pluto: 39.482,
+  saturn: 9.537,
+  sun: 0,
+  titan: 9.537,
+  uranus: 19.191,
+  venus: 0.723,
+}
+
+const easeInOut = [0.77, 0, 0.175, 1] as const
+const easeOut = [0.23, 1, 0.32, 1] as const
+const linear = 'linear' as const
+
+function getPlanetTravel(from: PlanetId, to: PlanetId): PlanetTravel {
+  if ((from === 'moon' && to === 'lunar-eclipse') || (from === 'lunar-eclipse' && to === 'moon')) {
+    return { depth: -133, duration: 0.55, gap: 0, x: 2, y: 0.5, yaw: 0.5 }
+  }
+
+  const distance = Math.abs(orbitalAnchorAu[to] - orbitalAnchorAu[from])
+  const distanceFactor = Math.min(Math.log1p(distance) / Math.log1p(orbitalAnchorAu.pluto), 1)
+  return {
+    depth: -(216 + 456 * distanceFactor),
+    duration: 0.55 + 0.5 * distanceFactor,
+    gap: 0.012 + 0.038 * distanceFactor,
+    x: 4 + 8 * distanceFactor,
+    y: 1 + 2 * distanceFactor,
+    yaw: 1.5 + 2.5 * distanceFactor,
+  }
+}
+
+function travelTransform(
+  { depth, x, y, yaw }: PlanetTravel,
+  direction: -1 | 1,
+  progress: number,
+): string {
+  return `translate3d(${direction * x * progress}%, ${-y * progress}%, ${depth * progress}px) rotateY(${direction * yaw * progress}deg)`
+}
+
 const highlighter = createHighlighterCoreSync({
   engine: createJavaScriptRegexEngine(),
   langs: [tsx],
@@ -326,39 +381,76 @@ const highlighter = createHighlighterCoreSync({
 })
 
 const planetPreviewVariants: Variants = {
-  center: ({ reducedMotion }: PlanetTransitionContext) => ({
-    opacity: 1,
-    transform: 'translate3d(0, 0, 0) scale(1)',
-    transition: {
-      duration: reducedMotion ? 0.14 : 0.3,
-      ease: reducedMotion ? 'linear' : [0.4, 0, 0.2, 1],
-    },
-  }),
-  enter: ({ direction, reducedMotion }: PlanetTransitionContext) => ({
+  center: ({ direction, reducedMotion, travel }: PlanetTransitionContext) => {
+    if (reducedMotion) {
+      return {
+        opacity: 1,
+        transform: 'translate3d(0, 0, 0) rotateY(0deg)',
+        transition: { duration: 0.14, ease: linear },
+      }
+    }
+
+    const revealStart = 0.5 + travel.gap / (2 * travel.duration)
+    return {
+      opacity: [0, 0, 0.45, 1, 1],
+      transform: [
+        travelTransform(travel, direction, 1),
+        travelTransform(travel, direction, 1),
+        travelTransform(travel, direction, 0.42),
+        travelTransform(travel, direction, 0.08),
+        'translate3d(0, 0, 0) rotateY(0deg)',
+      ],
+      transition: {
+        duration: travel.duration,
+        ease: [linear, easeOut, easeOut, easeOut],
+        times: [0, revealStart, 0.72, 0.88, 1],
+      },
+    }
+  },
+  enter: ({ direction, reducedMotion, travel }: PlanetTransitionContext) => ({
     opacity: 0,
     transform: reducedMotion
-      ? 'translate3d(0, 0, 0) scale(1)'
-      : `translate3d(${direction * 12}%, 0, 0) scale(0.96)`,
+      ? 'translate3d(0, 0, 0) rotateY(0deg)'
+      : travelTransform(travel, direction, 1),
   }),
-  exit: ({ direction, reducedMotion }: PlanetTransitionContext) => ({
-    opacity: 0,
-    transform: reducedMotion
-      ? 'translate3d(0, 0, 0) scale(1)'
-      : `translate3d(${direction * -12}%, 0, 0) scale(0.96)`,
-    transition: {
-      duration: reducedMotion ? 0.14 : 0.3,
-      ease: reducedMotion ? 'linear' : [0.4, 0, 0.2, 1],
-    },
-  }),
+  exit: ({ direction, reducedMotion, travel }: PlanetTransitionContext) => {
+    if (reducedMotion) {
+      return {
+        opacity: 0,
+        transform: 'translate3d(0, 0, 0) rotateY(0deg)',
+        transition: { duration: 0.14, ease: linear },
+      }
+    }
+
+    const hideAt = 0.5 - travel.gap / (2 * travel.duration)
+    const oppositeDirection = direction === 1 ? -1 : 1
+    return {
+      opacity: [1, 1, 0.65, 0, 0],
+      transform: [
+        'translate3d(0, 0, 0) rotateY(0deg)',
+        travelTransform(travel, oppositeDirection, 0.18),
+        travelTransform(travel, oppositeDirection, 0.55),
+        travelTransform(travel, oppositeDirection, 1),
+        travelTransform(travel, oppositeDirection, 1),
+      ],
+      transition: {
+        duration: travel.duration,
+        ease: [easeInOut, easeInOut, easeInOut, linear],
+        times: [0, 0.3, 0.43, hideAt, 1],
+      },
+    }
+  },
 }
 
 type ShowcaseContextValue = {
   completePlanetTransition: () => void
   planet: Planet
+  previewSettings: PlanetSettings
   resetSettings: () => void
   selectedPlanet: PlanetId
   settings: PlanetSettings
   transitionDirection: -1 | 1
+  travel: PlanetTravel
   updateSetting: (name: string, value: boolean | number) => void
 }
 
@@ -370,13 +462,17 @@ export function ShowcaseLayout() {
   const navigate = useNavigate()
   const [showGrid, setShowGrid] = useState(false)
   const [transitionDirection, setTransitionDirection] = useState<-1 | 1>(1)
+  const [travel, setTravel] = useState(() => getPlanetTravel('earth', 'earth'))
   const [settingsByPlanet, setSettingsByPlanet] = useState(initialSettings)
+  const [presentedPlanet, setPresentedPlanet] = useState<PlanetId>(selectedPlanet)
   const selectedPlanetRef = useRef<PlanetId>(selectedPlanet)
+  const presentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const transitionInFlightRef = useRef(false)
   const queuedPlanetRef = useRef<PlanetId | null>(null)
   const reduceMotion = useReducedMotion()
-  const planet = planets.find(({ id }) => id === selectedPlanet) ?? planets[0]
-  const settings = settingsByPlanet[selectedPlanet]
+  const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
+  const previewSettings = settingsByPlanet[selectedPlanet]
+  const settings = settingsByPlanet[presentedPlanet]
   const eclipseSettings = settingsByPlanet['lunar-eclipse']
   const haloIntensity = Number(eclipseSettings.haloIntensity)
   const haloWidth = Number(eclipseSettings.haloWidth)
@@ -417,15 +513,32 @@ export function ShowcaseLayout() {
         : `${(navigationShadowX * navigationShadowScale).toFixed(2)}px ${(navigationShadowY * navigationShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-navigationShadowX * rimScale * navigationShadowScale).toFixed(2)}px ${(-navigationShadowY * rimScale * navigationShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${navigationRimAlpha.toFixed(3)})`,
   }
 
+  const presentAtHandoff = useCallback(
+    (nextPlanet: PlanetId, nextTravel: PlanetTravel): void => {
+      if (presentationTimerRef.current) clearTimeout(presentationTimerRef.current)
+      presentationTimerRef.current = setTimeout(
+        () => {
+          setPresentedPlanet(nextPlanet)
+          presentationTimerRef.current = null
+        },
+        (reduceMotion ? 0.07 : nextTravel.duration * 0.5) * 1000,
+      )
+    },
+    [reduceMotion],
+  )
+
   function startPlanetTransition(nextPlanet: PlanetId): void {
     const currentPlanet = selectedPlanetRef.current
     if (nextPlanet === currentPlanet) return
 
     const currentIndex = planets.findIndex(({ id }) => id === currentPlanet)
     const nextIndex = planets.findIndex(({ id }) => id === nextPlanet)
+    const nextTravel = getPlanetTravel(currentPlanet, nextPlanet)
     transitionInFlightRef.current = true
     selectedPlanetRef.current = nextPlanet
     setTransitionDirection(nextIndex > currentIndex ? 1 : -1)
+    setTravel(nextTravel)
+    presentAtHandoff(nextPlanet, nextTravel)
     void navigate({ params: { planet: nextPlanet }, resetScroll: false, to: '/$planet' })
   }
 
@@ -444,6 +557,9 @@ export function ShowcaseLayout() {
   }
 
   function completePlanetTransition(): void {
+    if (presentationTimerRef.current) clearTimeout(presentationTimerRef.current)
+    presentationTimerRef.current = null
+    setPresentedPlanet(selectedPlanetRef.current)
     transitionInFlightRef.current = false
     const queuedPlanet = queuedPlanetRef.current
     queuedPlanetRef.current = null
@@ -453,14 +569,14 @@ export function ShowcaseLayout() {
   function updateSetting(name: string, value: boolean | number): void {
     setSettingsByPlanet((current) => ({
       ...current,
-      [selectedPlanet]: { ...current[selectedPlanet], [name]: value },
+      [presentedPlanet]: { ...current[presentedPlanet], [name]: value },
     }))
   }
 
   function resetSettings(): void {
     setSettingsByPlanet((current) => ({
       ...current,
-      [selectedPlanet]: { ...initialSettings[selectedPlanet] },
+      [presentedPlanet]: { ...initialSettings[presentedPlanet] },
     }))
   }
 
@@ -470,19 +586,31 @@ export function ShowcaseLayout() {
 
     const previousIndex = planets.findIndex(({ id }) => id === previousPlanet)
     const selectedIndex = planets.findIndex(({ id }) => id === selectedPlanet)
+    const nextTravel = getPlanetTravel(previousPlanet, selectedPlanet)
     selectedPlanetRef.current = selectedPlanet
     setTransitionDirection(selectedIndex > previousIndex ? 1 : -1)
-  }, [selectedPlanet])
+    setTravel(nextTravel)
+    presentAtHandoff(selectedPlanet, nextTravel)
+  }, [presentAtHandoff, selectedPlanet])
+
+  useEffect(
+    () => () => {
+      if (presentationTimerRef.current) clearTimeout(presentationTimerRef.current)
+    },
+    [],
+  )
 
   return (
     <ShowcaseContext.Provider
       value={{
         completePlanetTransition,
         planet,
+        previewSettings,
         resetSettings,
         selectedPlanet,
         settings,
         transitionDirection,
+        travel,
         updateSetting,
       }}
     >
@@ -500,7 +628,7 @@ export function ShowcaseLayout() {
         </main>
 
         <Inspector
-          planetId={selectedPlanet}
+          planetId={presentedPlanet}
           resetSettings={resetSettings}
           settings={settings}
           updateSetting={updateSetting}
@@ -517,8 +645,15 @@ export function ShowcasePlanetPage() {
   const reduceMotion = useReducedMotion()
   if (!context) throw new Error('ShowcasePlanetPage must be rendered inside ShowcaseLayout')
 
-  const { completePlanetTransition, planet, selectedPlanet, settings, transitionDirection } =
-    context
+  const {
+    completePlanetTransition,
+    planet,
+    previewSettings,
+    selectedPlanet,
+    settings,
+    transitionDirection,
+    travel,
+  } = context
   const componentName = planet.componentName ?? planet.name
 
   return (
@@ -547,23 +682,35 @@ export function ShowcasePlanetPage() {
           aria-label={`${planet.name} shader preview`}
         >
           <AnimatePresence
-            custom={{ direction: transitionDirection, reducedMotion: Boolean(reduceMotion) }}
+            custom={{
+              direction: transitionDirection,
+              reducedMotion: Boolean(reduceMotion),
+              travel,
+            }}
             initial={false}
             onExitComplete={completePlanetTransition}
           >
             <motion.div
               key={selectedPlanet}
               animate="center"
-              custom={{ direction: transitionDirection, reducedMotion: Boolean(reduceMotion) }}
+              custom={{
+                direction: transitionDirection,
+                reducedMotion: Boolean(reduceMotion),
+                travel,
+              }}
               exit="exit"
               initial="enter"
               variants={planetPreviewVariants}
-              {...stylex.props(
-                styles.planetPreviewTransition,
-                selectedPlanet === 'lunar-eclipse' && styles.planetPreviewTransitionLunarEclipse,
-              )}
+              {...stylex.props(styles.planetTravelLayer)}
             >
-              <PlanetPreview id={selectedPlanet} settings={settings} />
+              <div
+                {...stylex.props(
+                  styles.planetPreviewTransition,
+                  selectedPlanet === 'lunar-eclipse' && styles.planetPreviewTransitionLunarEclipse,
+                )}
+              >
+                <PlanetPreview id={selectedPlanet} settings={previewSettings} />
+              </div>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -689,6 +836,7 @@ function PlanetPicker({
                   src={`/thumbnails/v1/${planet.id}.avif`}
                   width={160}
                   {...stylex.props(styles.planetThumbnailImage)}
+                  style={planet.id === 'saturn' ? { transform: 'scale(1.2)' } : undefined}
                 />
               </span>
             </Link>
@@ -1823,6 +1971,7 @@ const styles = stylex.create({
     position: 'fixed',
     top: 0,
     width: 300,
+    zIndex: 2,
     '@media (max-width: 1080px)': {
       width: 260,
     },
@@ -1834,6 +1983,7 @@ const styles = stylex.create({
       position: 'relative',
       top: 'auto',
       width: 'auto',
+      zIndex: 'auto',
     },
   },
   pickerGridToggle: {
@@ -1931,6 +2081,13 @@ const styles = stylex.create({
     left: 0,
     right: 0,
     top: 0,
+  },
+  planetTravelLayer: {
+    inset: 0,
+    position: 'absolute',
+    transformOrigin: 'center',
+    transformStyle: 'preserve-3d',
+    willChange: 'opacity, transform',
   },
   planetThumbnail: {
     flex: '0 0 auto',
@@ -2170,6 +2327,8 @@ const styles = stylex.create({
     borderRadius: 14,
     inset: 0,
     overflow: 'hidden',
+    perspective: 1200,
+    perspectiveOrigin: '50% 50%',
     position: 'absolute',
   },
   stageLunarEclipse: {
