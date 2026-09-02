@@ -13,7 +13,7 @@ import { Earth } from '@thecuvii/solaris/earth'
 import { Jupiter } from '@thecuvii/solaris/jupiter'
 import { Mars } from '@thecuvii/solaris/mars'
 import { Mercury } from '@thecuvii/solaris/mercury'
-import { Moon } from '@thecuvii/solaris/moon'
+import { LunarEclipse, Moon } from '@thecuvii/solaris/moon'
 import { Neptune } from '@thecuvii/solaris/neptune'
 import { Pluto } from '@thecuvii/solaris/pluto'
 import { Saturn } from '@thecuvii/solaris/saturn'
@@ -23,8 +23,16 @@ import { Uranus } from '@thecuvii/solaris/uranus'
 import { Venus } from '@thecuvii/solaris/venus'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useClipboard } from 'foxact/use-clipboard'
-import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
+import {
+  AnimatePresence,
+  animate,
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+} from 'motion/react'
+import type { Variants } from 'motion/react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 export const Route = createFileRoute('/')({ component: HomePage })
@@ -32,6 +40,7 @@ export const Route = createFileRoute('/')({ component: HomePage })
 type PlanetId =
   | 'earth'
   | 'jupiter'
+  | 'lunar-eclipse'
   | 'mars'
   | 'mercury'
   | 'moon'
@@ -46,6 +55,7 @@ type PlanetId =
 type TexturedPlanetId =
   | 'earth'
   | 'jupiter'
+  | 'lunar-eclipse'
   | 'mars'
   | 'mercury'
   | 'moon'
@@ -75,10 +85,16 @@ type ParameterDefinition =
 type ParameterGroupId = 'atmosphere' | 'features' | 'lighting' | 'orientation' | 'rings' | 'surface'
 
 type Planet = {
+  componentName?: string
   id: PlanetId
   name: string
   packageName: string
   summary: string
+}
+
+type PlanetTransitionContext = {
+  direction: -1 | 1
+  reducedMotion: boolean
 }
 
 const planets: readonly Planet[] = [
@@ -111,6 +127,13 @@ const planets: readonly Planet[] = [
     name: 'Moon',
     packageName: 'moon',
     summary: 'High-relief lunar shading with opposition surge, earthshine, and grazing shadows.',
+  },
+  {
+    componentName: 'LunarEclipse',
+    id: 'lunar-eclipse',
+    name: 'Lunar Eclipse',
+    packageName: 'moon',
+    summary: 'A lunar eclipse with refracted atmospheric light, soft penumbra, and relief shadows.',
   },
   {
     id: 'mars',
@@ -236,6 +259,20 @@ const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition[]> = {
     number('sunElevation', 16, -90, 90, 1, '°'),
     angle('surfaceRotation', 0),
     amount('veilingGlare', 0),
+  ],
+  'lunar-eclipse': [
+    number('atmosphericOpticalDepth', 1.18, 0, 3, 0.01),
+    exposure(1.18),
+    number('haloIntensity', 1.15, 0, 3, 0.01),
+    number('haloWidth', 0.23, 0, 1, 0.01),
+    number('normalStrength', 0.82, 0, 3, 0.01),
+    number('penumbraWidth', 0.72, 0, 2, 0.01),
+    number('refractedLightIntensity', 1.7, 0, 4, 0.01),
+    unit('reliefShadowStrength', 0.36),
+    number('shadowOffsetX', 0.55, -3, 3, 0.01),
+    number('shadowOffsetY', -1.55, -3, 3, 0.01),
+    angle('surfaceRotation', 0),
+    number('umbraRadius', 2.2, 0.5, 4, 0.01),
   ],
   neptune: [
     amount('cloudRelief', 1),
@@ -399,6 +436,10 @@ const textures = {
     albedo: '/textures/v1/moon/moon-albedo.webp',
     normalHeight: '/textures/v1/moon/moon-normal-height.webp',
   },
+  'lunar-eclipse': {
+    albedo: '/textures/v1/moon/moon-albedo.webp',
+    normalHeight: '/textures/v1/moon/moon-normal-height.webp',
+  },
   mercury: {
     albedo: '/textures/v1/mercury/mercury-albedo.webp',
     normalHeight: '/textures/v1/mercury/mercury-normal-height.png',
@@ -414,21 +455,6 @@ const textures = {
   sun: { observation: '/textures/v1/sun/sun-aia-304.png' },
   venus: { cloudStructure: '/textures/v1/venus/venus-cloud-structure.webp' },
 } as const satisfies Record<TexturedPlanetId, Record<string, string>>
-
-const planetThumbnailScales: Record<PlanetId, number> = {
-  sun: 1.1,
-  mercury: 1,
-  venus: 1.15,
-  earth: 1.15,
-  moon: 1.1,
-  mars: 1.1,
-  jupiter: 1,
-  saturn: 1,
-  titan: 1.05,
-  uranus: 2,
-  neptune: 1.05,
-  pluto: 1.05,
-}
 
 const earthModel = {
   mieExtinction: [8, 8, 8],
@@ -448,15 +474,79 @@ const highlighter = createHighlighterCoreSync({
   themes: [githubDarkDefault],
 })
 
+const planetPreviewVariants: Variants = {
+  center: ({ reducedMotion }: PlanetTransitionContext) => ({
+    opacity: 1,
+    transform: 'translate3d(0, 0, 0) scale(1)',
+    transition: {
+      duration: reducedMotion ? 0.14 : 0.3,
+      ease: reducedMotion ? 'linear' : [0.4, 0, 0.2, 1],
+    },
+  }),
+  enter: ({ direction, reducedMotion }: PlanetTransitionContext) => ({
+    opacity: 0,
+    transform: reducedMotion
+      ? 'translate3d(0, 0, 0) scale(1)'
+      : `translate3d(${direction * 12}%, 0, 0) scale(0.96)`,
+  }),
+  exit: ({ direction, reducedMotion }: PlanetTransitionContext) => ({
+    opacity: 0,
+    transform: reducedMotion
+      ? 'translate3d(0, 0, 0) scale(1)'
+      : `translate3d(${direction * -12}%, 0, 0) scale(0.96)`,
+    transition: {
+      duration: reducedMotion ? 0.14 : 0.3,
+      ease: reducedMotion ? 'linear' : [0.4, 0, 0.2, 1],
+    },
+  }),
+}
+
 function HomePage() {
   const [selectedPlanet, setSelectedPlanet] = useState<PlanetId>('earth')
+  const [transitionDirection, setTransitionDirection] = useState<-1 | 1>(1)
   const [settingsByPlanet, setSettingsByPlanet] = useState(initialSettings)
+  const selectedPlanetRef = useRef<PlanetId>('earth')
+  const transitionInFlightRef = useRef(false)
+  const queuedPlanetRef = useRef<PlanetId | null>(null)
+  const reduceMotion = useReducedMotion()
   const planet = planets.find(({ id }) => id === selectedPlanet) ?? planets[0]
+  const componentName = planet.componentName ?? planet.name
   const settings = settingsByPlanet[selectedPlanet]
+
+  function startPlanetTransition(nextPlanet: PlanetId): void {
+    const currentPlanet = selectedPlanetRef.current
+    if (nextPlanet === currentPlanet) return
+
+    const currentIndex = planets.findIndex(({ id }) => id === currentPlanet)
+    const nextIndex = planets.findIndex(({ id }) => id === nextPlanet)
+    transitionInFlightRef.current = true
+    selectedPlanetRef.current = nextPlanet
+    setTransitionDirection(nextIndex > currentIndex ? 1 : -1)
+    setSelectedPlanet(nextPlanet)
+  }
 
   function selectPlanet(value: Tabs.Tab.Value): void {
     const nextPlanet = planets.find(({ id }) => id === value)
-    if (nextPlanet) setSelectedPlanet(nextPlanet.id)
+    if (!nextPlanet) return
+
+    if (nextPlanet.id === selectedPlanetRef.current) {
+      queuedPlanetRef.current = null
+      return
+    }
+
+    if (transitionInFlightRef.current) {
+      queuedPlanetRef.current = nextPlanet.id
+      return
+    }
+
+    startPlanetTransition(nextPlanet.id)
+  }
+
+  function completePlanetTransition(): void {
+    transitionInFlightRef.current = false
+    const queuedPlanet = queuedPlanetRef.current
+    queuedPlanetRef.current = null
+    if (queuedPlanet) startPlanetTransition(queuedPlanet)
   }
 
   function updateSetting(name: string, value: boolean | number): void {
@@ -495,13 +585,29 @@ function HomePage() {
           <div {...stylex.props(styles.introduction)}>
             <div {...stylex.props(styles.titleRow)}>
               <h1 {...stylex.props(styles.title)}>{planet.name}</h1>
-              <span {...stylex.props(styles.componentName)}>&lt;{planet.name} /&gt;</span>
+              <span {...stylex.props(styles.componentName)}>&lt;{componentName} /&gt;</span>
             </div>
             <p {...stylex.props(styles.summary)}>{planet.summary}</p>
           </div>
 
           <div {...stylex.props(styles.stage)} aria-label={`${planet.name} shader preview`}>
-            <PlanetPreview id={selectedPlanet} settings={settings} />
+            <AnimatePresence
+              custom={{ direction: transitionDirection, reducedMotion: Boolean(reduceMotion) }}
+              initial={false}
+              onExitComplete={completePlanetTransition}
+            >
+              <motion.div
+                key={selectedPlanet}
+                animate="center"
+                custom={{ direction: transitionDirection, reducedMotion: Boolean(reduceMotion) }}
+                exit="exit"
+                initial="enter"
+                variants={planetPreviewVariants}
+                {...stylex.props(styles.planetPreviewTransition)}
+              >
+                <PlanetPreview id={selectedPlanet} settings={settings} />
+              </motion.div>
+            </AnimatePresence>
           </div>
 
           <CodeBlock planet={planet} settings={settings} />
@@ -533,19 +639,17 @@ function PlanetPicker({ selectedPlanet }: { selectedPlanet: PlanetId }) {
           >
             <span>{planet.name}</span>
             <span {...stylex.props(styles.planetThumbnail)} aria-hidden="true">
-              <span
-                style={
-                  {
-                    '--planet-thumbnail-scale': planetThumbnailScales[planet.id],
-                  } as CSSProperties
-                }
+              <img
+                alt=""
+                draggable={false}
+                height={160}
+                src={`/thumbnails/v1/${planet.id}.avif`}
+                width={160}
                 {...stylex.props(
-                  styles.planetThumbnailCanvas,
+                  styles.planetThumbnailImage,
                   selectedPlanet === planet.id && styles.planetThumbnailSelected,
                 )}
-              >
-                <PlanetPreview id={planet.id} settings={initialSettings[planet.id]} />
-              </span>
+              />
             </span>
           </Tabs.Tab>
         ))}
@@ -565,6 +669,8 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
       return <Earth {...shared} model={earthModel} textures={textures.earth} />
     case 'jupiter':
       return <Jupiter {...shared} textures={textures.jupiter} />
+    case 'lunar-eclipse':
+      return <LunarEclipse {...shared} textures={textures['lunar-eclipse']} />
     case 'mars':
       return <Mars {...shared} textures={textures.mars} />
     case 'mercury':
@@ -1105,6 +1211,7 @@ function ResetIcon() {
 
 function CodeBlock({ planet, settings }: { planet: Planet; settings: PlanetSettings }) {
   const { copied, copy } = useClipboard({ timeout: 1500 })
+  const componentName = planet.componentName ?? planet.name
   const planetTextures = hasTextures(planet.id) ? textures[planet.id] : undefined
   const textureDeclaration = planetTextures
     ? `const textures = {
@@ -1141,9 +1248,9 @@ ${Object.entries(planetTextures)
         : `  ${definition.name}={${Number(value).toFixed(getPrecision(definition.step))}}`
     }),
   ].filter(Boolean)
-  const code = `import { ${planet.name} } from '@thecuvii/solaris/${planet.packageName}'
+  const code = `import { ${componentName} } from '@thecuvii/solaris/${planet.packageName}'
 
-${textureDeclaration}${modelDeclaration}<${planet.name}
+${textureDeclaration}${modelDeclaration}<${componentName}
 ${propLines.join('\n')}
 />`
   const lines = highlighter.codeToTokensBase(code, {
@@ -1254,13 +1361,17 @@ function getParameterGroup(definition: ParameterDefinition): ParameterGroupId {
   const name = definition.name.toLowerCase()
   if (definition.name.startsWith('ring') || definition.name.includes('Ring')) return 'rings'
   if (
-    /aerosol|atmosphere|aureole|cloud|haze|methane|optical|scattering|vortex|wind|jet|hood/.test(
+    /aerosol|atmosphere|aureole|cloud|halo|haze|methane|optical|scattering|vortex|wind|jet|hood/.test(
       name,
     )
   ) {
     return 'atmosphere'
   }
-  if (/sun|exposure|night|bloom|earthshine|opposition|phase|glare|glint|emission/.test(name)) {
+  if (
+    /sun|exposure|night|bloom|earthshine|opposition|phase|glare|glint|emission|shadow|umbra|penumbra|refracted/.test(
+      name,
+    )
+  ) {
     return 'lighting'
   }
   if (
@@ -1594,6 +1705,11 @@ const styles = stylex.create({
       width: 'auto',
     },
   },
+  planetPreviewTransition: {
+    inset: 0,
+    position: 'absolute',
+    transformOrigin: 'center',
+  },
   planetThumbnail: {
     flex: '0 0 auto',
     height: 40,
@@ -1606,11 +1722,14 @@ const styles = stylex.create({
       width: 34,
     },
   },
-  planetThumbnailCanvas: {
+  planetThumbnailImage: {
+    display: 'block',
+    height: '100%',
     inset: 0,
+    objectFit: 'contain',
     position: 'absolute',
-    transform: 'scale(var(--planet-thumbnail-scale))',
     transition: 'filter 150ms ease-out',
+    width: '100%',
   },
   planetThumbnailSelected: {
     filter: 'drop-shadow(0 0 6px rgba(242,232,208,0.22))',
