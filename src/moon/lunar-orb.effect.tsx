@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -34,11 +34,18 @@ export type LunarOrbSource = {
   } | null
 }
 
+export type LunarOrbComposition = {
+  bottom?: CSSProperties['bottom']
+  height: CSSProperties['height']
+  width: CSSProperties['width']
+}
+
 export type LunarOrbEffectProps = {
   bloomIntensity?: number
   bloomRadius?: number
   bloomWarmth?: number
   className?: string
+  composition?: LunarOrbComposition
   earthshineIntensity?: number
   exposure?: number
   normalStrength?: number
@@ -53,6 +60,7 @@ export type LunarOrbEffectProps = {
   sunElevation?: number
   surfaceRotation?: number
   veilingGlare?: number
+  viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
 
 type LunarResources = {
@@ -92,6 +100,8 @@ uniform sampler2D uAlbedoTexture;
 uniform float uBloomIntensity;
 uniform float uBloomRadius;
 uniform float uBloomWarmth;
+uniform vec2 uCompositionCenter;
+uniform float uCompositionScale;
 uniform float uEarthshineIntensity;
 uniform float uExposure;
 uniform float uHeightScale;
@@ -229,8 +239,7 @@ void main() {
     return;
   }
 
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
+  vec2 position = (vUv * uResolution - uCompositionCenter) * 2.0 / uCompositionScale;
   float radialDistance = length(position);
   float edgeWidth = max(fwidth(radialDistance), 0.0005);
   float coverage = 1.0 - smoothstep(MOON_RADIUS - edgeWidth, MOON_RADIUS + edgeWidth, radialDistance);
@@ -454,8 +463,13 @@ function uploadTexture(
 
 function createLunarRenderer(
   canvas: HTMLCanvasElement,
-  source: LunarOrbSource,
+  input: {
+    compositionRef: RefObject<HTMLDivElement | null>
+    hasComposition: boolean
+    source: LunarOrbSource
+  },
 ): CanvasRenderer<LunarFrameSettings> | null {
+  const { compositionRef, hasComposition, source } = input
   const context = canvas.getContext('webgl2', {
     alpha: true,
     antialias: false,
@@ -474,6 +488,9 @@ function createLunarRenderer(
   let resources = createResources(gl)
   let startTime = performance.now()
   let lastTime = startTime
+  let compositionCenterX = 0
+  let compositionCenterY = 0
+  let compositionScale = 1
   const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
 
   function uploadSource(): void {
@@ -518,6 +535,18 @@ function createLunarRenderer(
       canvas.width = width
       canvas.height = height
     }
+
+    const compositionBounds = compositionRef.current?.getBoundingClientRect() ?? bounds
+    const scaleX = width / Math.max(bounds.width, 1)
+    const scaleY = height / Math.max(bounds.height, 1)
+    compositionCenterX =
+      (compositionBounds.left - bounds.left + compositionBounds.width / 2) * scaleX
+    compositionCenterY =
+      height - (compositionBounds.top - bounds.top + compositionBounds.height / 2) * scaleY
+    compositionScale = Math.max(
+      Math.min(compositionBounds.width * scaleX, compositionBounds.height * scaleY),
+      1,
+    )
   }
 
   function updatePointer(delta: number): void {
@@ -565,6 +594,12 @@ function createLunarRenderer(
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uBloomRadius'), settings.bloomRadius)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uBloomWarmth'), settings.bloomWarmth)
+    gl.uniform2f(
+      gl.getUniformLocation(resources.program, 'uCompositionCenter'),
+      compositionCenterX,
+      compositionCenterY,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uCompositionScale'), compositionScale)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalHeightTexture)
     gl.uniform1i(gl.getUniformLocation(resources.program, 'uNormalHeightTexture'), 1)
@@ -617,7 +652,7 @@ function createLunarRenderer(
   }
 
   function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas.getBoundingClientRect()
+    const bounds = compositionRef.current?.getBoundingClientRect() ?? canvas.getBoundingClientRect()
     pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
     pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
   }
@@ -647,8 +682,10 @@ function createLunarRenderer(
 
   const resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(canvas)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
+  if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
+  const pointerTarget: HTMLElement = compositionRef.current ?? canvas
+  pointerTarget.addEventListener('pointermove', handlePointerMove)
+  pointerTarget.addEventListener('pointerleave', handlePointerLeave)
   canvas.addEventListener('webglcontextlost', handleContextLost)
   canvas.addEventListener('webglcontextrestored', handleContextRestored)
   try {
@@ -658,8 +695,8 @@ function createLunarRenderer(
     disposed = true
     sourceGeneration += 1
     resizeObserver.disconnect()
-    canvas.removeEventListener('pointermove', handlePointerMove)
-    canvas.removeEventListener('pointerleave', handlePointerLeave)
+    pointerTarget.removeEventListener('pointermove', handlePointerMove)
+    pointerTarget.removeEventListener('pointerleave', handlePointerLeave)
     canvas.removeEventListener('webglcontextlost', handleContextLost)
     canvas.removeEventListener('webglcontextrestored', handleContextRestored)
     if (!contextLost) deleteResources(gl, resources)
@@ -672,8 +709,8 @@ function createLunarRenderer(
       disposed = true
       sourceGeneration += 1
       resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      pointerTarget.removeEventListener('pointermove', handlePointerMove)
+      pointerTarget.removeEventListener('pointerleave', handlePointerLeave)
       canvas.removeEventListener('webglcontextlost', handleContextLost)
       canvas.removeEventListener('webglcontextrestored', handleContextRestored)
       if (!contextLost) deleteResources(gl, resources)
@@ -686,6 +723,7 @@ export function LunarOrbEffect({
   bloomRadius = 0.08,
   bloomWarmth = 0.35,
   className,
+  composition,
   earthshineIntensity = 0.006,
   exposure = 0.72,
   normalStrength = 0.85,
@@ -700,8 +738,11 @@ export function LunarOrbEffect({
   sunElevation = 16,
   surfaceRotation = 0,
   veilingGlare = 0,
+  viewport,
 }: LunarOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const compositionRef = useRef<HTMLDivElement>(null)
+  const hasComposition = composition !== undefined
   const frameSettings: LunarFrameSettings = {
     bloomIntensity,
     bloomRadius,
@@ -720,7 +761,51 @@ export function LunarOrbEffect({
     veilingGlare,
   }
 
-  useCanvasRenderer(canvasRef, frameSettings, source, createLunarRenderer)
+  const rendererInput = useMemo(
+    () => ({ compositionRef, hasComposition, source }),
+    [hasComposition, source],
+  )
+
+  useCanvasRenderer(canvasRef, frameSettings, rendererInput, createLunarRenderer)
+
+  if (composition) {
+    return (
+      <div
+        className={className}
+        style={{ height: '100%', position: 'relative', width: '100%', ...style }}
+      >
+        <div
+          aria-hidden="true"
+          ref={compositionRef}
+          style={{
+            left: '50%',
+            pointerEvents: 'auto',
+            position: 'absolute',
+            touchAction: 'none',
+            transform: 'translateX(-50%)',
+            ...composition,
+          }}
+        />
+        <div
+          style={{
+            bottom: 0,
+            left: 0,
+            pointerEvents: 'none',
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            ...viewport,
+          }}
+        >
+          <canvas
+            aria-hidden="true"
+            ref={canvasRef}
+            style={{ display: 'block', height: '100%', pointerEvents: 'none', width: '100%' }}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <canvas
