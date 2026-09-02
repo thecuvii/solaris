@@ -761,12 +761,7 @@ export function ShowcasePlanetPage() {
           <p {...stylex.props(styles.summary)}>{planet.summary}</p>
         </div>
 
-        <div
-          {...stylex.props(
-            styles.previewStageSpace,
-            eclipseTransitionActive && styles.previewStageSpaceLunarEclipse,
-          )}
-        />
+        <div {...stylex.props(styles.previewStageSpace)} />
 
         <div
           {...stylex.props(styles.stage, eclipseTransitionActive && styles.stageLunarEclipse)}
@@ -2049,9 +2044,6 @@ const styles = stylex.create({
   },
   previewStageSpace: {
     gridColumn: '1 / -1',
-    height: 'clamp(360px, 52vh, 590px)',
-  },
-  previewStageSpaceLunarEclipse: {
     height: 'clamp(480px, 68vh, 720px)',
   },
   picker: {
@@ -2159,7 +2151,7 @@ const styles = stylex.create({
     },
   },
   planetPreviewTransition: {
-    bottom: 0,
+    bottom: 'calc(clamp(480px, 68vh, 720px) - clamp(360px, 52vh, 590px))',
     height: 'clamp(360px, 52vh, 590px)',
     left: 'clamp(24px, 4vw, 64px)',
     position: 'absolute',
