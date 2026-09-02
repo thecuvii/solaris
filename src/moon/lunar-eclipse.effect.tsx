@@ -54,6 +54,7 @@ export type LunarEclipseEffectProps = {
   style?: CSSProperties
   surfaceRotation?: number
   umbraRadius?: number
+  viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
 
 type LunarEclipseResources = {
@@ -720,6 +721,7 @@ export function LunarEclipseEffect({
   style,
   surfaceRotation = 0,
   umbraRadius = 2.2,
+  viewport,
 }: LunarEclipseEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const compositionRef = useRef<HTMLDivElement>(null)
@@ -763,11 +765,22 @@ export function LunarEclipseEffect({
             ...composition,
           }}
         />
-        <canvas
-          aria-hidden="true"
-          ref={canvasRef}
-          style={{ display: 'block', height: '100%', touchAction: 'none', width: '100%' }}
-        />
+        <div
+          style={{
+            bottom: 0,
+            left: 0,
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            ...viewport,
+          }}
+        >
+          <canvas
+            aria-hidden="true"
+            ref={canvasRef}
+            style={{ display: 'block', height: '100%', touchAction: 'none', width: '100%' }}
+          />
+        </div>
       </div>
     )
   }

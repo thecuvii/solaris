@@ -30,7 +30,11 @@ import {
   useTransform,
 } from 'motion/react'
 import type { Variants } from 'motion/react'
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
+import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
@@ -60,6 +64,12 @@ type ParameterGroupId = 'atmosphere' | 'features' | 'lighting' | 'orientation' |
 type PlanetTransitionContext = {
   direction: -1 | 1
   reducedMotion: boolean
+}
+
+type EclipseTextLightingProperties = CSSProperties & {
+  '--eclipse-introduction-filter': string
+  '--eclipse-introduction-shadow': string
+  '--eclipse-navigation-shadow': string
 }
 
 const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition[]> = {
@@ -371,6 +381,40 @@ export function ShowcaseLayout() {
   const reduceMotion = useReducedMotion()
   const planet = planets.find(({ id }) => id === selectedPlanet) ?? planets[0]
   const settings = settingsByPlanet[selectedPlanet]
+  const eclipseSettings = settingsByPlanet['lunar-eclipse']
+  const haloIntensity = Number(eclipseSettings.haloIntensity)
+  const haloWidth = Number(eclipseSettings.haloWidth)
+  const shadowOffsetX = Number(eclipseSettings.shadowOffsetX)
+  const shadowOffsetY = Number(eclipseSettings.shadowOffsetY)
+  const haloEnergy =
+    selectedPlanet === 'lunar-eclipse'
+      ? Math.min(Math.max((haloIntensity / 3) * Math.sqrt(haloWidth), 0), 1)
+      : 0
+  const shadowDistance = 0.35 + haloEnergy * 1.05
+  const shadowAlpha = haloEnergy * 0.28
+  const rimAlpha = haloEnergy * 0.03
+  const horizontalBias = Math.min(Math.max(shadowOffsetX / 2.5, -1), 1)
+  const verticalBias = Math.min(Math.max(-shadowOffsetY / 2.5, -1), 1)
+  const introductionShadowX = -shadowDistance * (0.28 + horizontalBias * 0.22)
+  const introductionShadowY = -shadowDistance * (0.72 + verticalBias * 0.28)
+  const navigationShadowX = -shadowDistance * (0.72 + horizontalBias * 0.28)
+  const navigationShadowY = shadowDistance * 0.08
+  const shadowBlur = 0.6 + haloEnergy * 0.9
+  const rimBlur = 0.6 + haloEnergy * 1.2
+  const eclipseTextLighting: EclipseTextLightingProperties = {
+    '--eclipse-introduction-filter':
+      haloEnergy === 0
+        ? 'none'
+        : `drop-shadow(${introductionShadowX.toFixed(2)}px ${introductionShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-introductionShadowX * 0.22).toFixed(2)}px ${(-introductionShadowY * 0.22).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(82% 0.075 220 / ${rimAlpha.toFixed(3)}))`,
+    '--eclipse-introduction-shadow':
+      haloEnergy === 0
+        ? 'none'
+        : `${introductionShadowX.toFixed(2)}px ${introductionShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-introductionShadowX * 0.22).toFixed(2)}px ${(-introductionShadowY * 0.22).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(82% 0.075 220 / ${rimAlpha.toFixed(3)})`,
+    '--eclipse-navigation-shadow':
+      haloEnergy === 0
+        ? 'none'
+        : `${navigationShadowX.toFixed(2)}px ${navigationShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-navigationShadowX * 0.22).toFixed(2)}px ${(-navigationShadowY * 0.22).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(82% 0.075 220 / ${rimAlpha.toFixed(3)})`,
+  }
 
   function startPlanetTransition(nextPlanet: PlanetId): void {
     const currentPlanet = selectedPlanetRef.current
@@ -441,7 +485,7 @@ export function ShowcaseLayout() {
         updateSetting,
       }}
     >
-      <div {...stylex.props(styles.page)}>
+      <div {...stylex.props(styles.page)} style={eclipseTextLighting}>
         <PlanetPicker
           gridVisible={showGrid}
           onGridVisibleChange={setShowGrid}
@@ -479,9 +523,9 @@ export function ShowcasePlanetPage() {
   return (
     <div {...stylex.props(styles.panel)}>
       <div {...stylex.props(styles.previewRegion)}>
-        <div {...stylex.props(styles.introduction)}>
+        <div {...stylex.props(styles.introduction, styles.eclipseIntroductionLighting)}>
           <div {...stylex.props(styles.titleRow)}>
-            <h1 {...stylex.props(styles.title)}>{planet.name}</h1>
+            <h1 {...stylex.props(styles.title, styles.eclipseTitleLighting)}>{planet.name}</h1>
             <span {...stylex.props(styles.componentName)}>&lt;{componentName} /&gt;</span>
           </div>
           <p {...stylex.props(styles.summary)}>{planet.summary}</p>
@@ -494,7 +538,13 @@ export function ShowcasePlanetPage() {
           )}
         />
 
-        <div {...stylex.props(styles.stage)} aria-label={`${planet.name} shader preview`}>
+        <div
+          {...stylex.props(
+            styles.stage,
+            selectedPlanet === 'lunar-eclipse' && styles.stageLunarEclipse,
+          )}
+          aria-label={`${planet.name} shader preview`}
+        >
           <AnimatePresence
             custom={{ direction: transitionDirection, reducedMotion: Boolean(reduceMotion) }}
             initial={false}
@@ -575,7 +625,7 @@ function PlanetPicker({
 
   return (
     <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
-      <div {...stylex.props(styles.pickerNavigation)}>
+      <div {...stylex.props(styles.pickerNavigation, styles.eclipseNavigationLighting)}>
         <Link
           onClick={(event) => selectPlanetFromLink(event, 'earth')}
           params={{ planet: 'earth' }}
@@ -692,6 +742,12 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
             width: 'calc(100% - 2 * clamp(24px, 4vw, 64px))',
           }}
           textures={textures['lunar-eclipse']}
+          viewport={{
+            bottom: 0,
+            left: 'calc(50% - 50vw - (var(--showcase-picker-width) - var(--showcase-inspector-width)) / 2)',
+            right: 0,
+            top: 'calc(var(--showcase-preview-top) * -1)',
+          }}
         />
       )
     case 'mars':
@@ -1613,6 +1669,28 @@ const styles = stylex.create({
     gap: 10,
     paddingTop: 12,
   },
+  eclipseIntroductionLighting: {
+    textShadow: 'var(--eclipse-introduction-shadow)',
+    transition: 'text-shadow 100ms cubic-bezier(0.23, 1, 0.32, 1)',
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  eclipseNavigationLighting: {
+    textShadow: 'var(--eclipse-navigation-shadow)',
+    transition: 'text-shadow 100ms cubic-bezier(0.23, 1, 0.32, 1)',
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  eclipseTitleLighting: {
+    filter: 'var(--eclipse-introduction-filter)',
+    textShadow: 'none',
+    transition: 'filter 100ms cubic-bezier(0.23, 1, 0.32, 1)',
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
   introduction: {
     gridColumn: '1 / span 6',
     minWidth: 0,
@@ -1677,15 +1755,22 @@ const styles = stylex.create({
     minWidth: 0,
   },
   page: {
+    '--showcase-inspector-width': '280px',
+    '--showcase-picker-width': '300px',
+    '--showcase-preview-top': 'calc(70px + clamp(24px, 4vh, 52px))',
     backgroundColor: '#07080d',
     display: 'grid',
     gridTemplateColumns: '300px minmax(400px, 1fr) 280px',
     minHeight: '100dvh',
     overflow: 'clip',
-    '@media (max-width: 1080px)': {
+    '@media (min-width: 961px) and (max-width: 1080px)': {
+      '--showcase-picker-width': '260px',
       gridTemplateColumns: '260px minmax(320px, 1fr) 280px',
     },
     '@media (max-width: 960px)': {
+      '--showcase-inspector-width': '0px',
+      '--showcase-picker-width': '0px',
+      '--showcase-preview-top': '0px',
       display: 'block',
       overflow: 'hidden',
     },
@@ -2085,6 +2170,9 @@ const styles = stylex.create({
     inset: 0,
     overflow: 'hidden',
     position: 'absolute',
+  },
+  stageLunarEclipse: {
+    overflow: 'visible',
   },
   summary: {
     color: 'rgba(242, 232, 208, 0.42)',
