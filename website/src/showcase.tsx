@@ -390,30 +390,35 @@ export function ShowcaseLayout() {
     selectedPlanet === 'lunar-eclipse'
       ? Math.min(Math.max((haloIntensity / 3) * Math.sqrt(haloWidth), 0), 1)
       : 0
-  const shadowDistance = 0.35 + haloEnergy * 1.05
-  const shadowAlpha = haloEnergy * 0.28
-  const rimAlpha = haloEnergy * 0.03
+  const visibleHaloResponse = (1 - Math.exp(-6 * haloEnergy)) / (1 - Math.exp(-6))
+  const shadowDistance = 0.6 + haloEnergy * 1.3
+  const shadowAlpha = visibleHaloResponse * (0.3 + haloEnergy * 0.22)
+  const rimAlpha = visibleHaloResponse * 0.18
+  const navigationRimAlpha = visibleHaloResponse * 0.22
+  const rimScale = (0.25 + visibleHaloResponse * 0.35) / shadowDistance
+  const detailShadowScale = 0.65
+  const navigationShadowScale = 0.75
   const horizontalBias = Math.min(Math.max(shadowOffsetX / 2.5, -1), 1)
   const verticalBias = Math.min(Math.max(-shadowOffsetY / 2.5, -1), 1)
   const introductionShadowX = -shadowDistance * (0.28 + horizontalBias * 0.22)
   const introductionShadowY = -shadowDistance * (0.72 + verticalBias * 0.28)
   const navigationShadowX = -shadowDistance * (0.72 + horizontalBias * 0.28)
   const navigationShadowY = shadowDistance * 0.08
-  const shadowBlur = 0.6 + haloEnergy * 0.9
-  const rimBlur = 0.6 + haloEnergy * 1.2
+  const shadowBlur = 0.35 + haloEnergy * 0.45
+  const rimBlur = 0.15 + haloEnergy * 0.2
   const eclipseTextLighting: EclipseTextLightingProperties = {
     '--eclipse-introduction-filter':
       haloEnergy === 0
         ? 'none'
-        : `drop-shadow(${introductionShadowX.toFixed(2)}px ${introductionShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-introductionShadowX * 0.22).toFixed(2)}px ${(-introductionShadowY * 0.22).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(82% 0.075 220 / ${rimAlpha.toFixed(3)}))`,
+        : `drop-shadow(${introductionShadowX.toFixed(2)}px ${introductionShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-introductionShadowX * rimScale).toFixed(2)}px ${(-introductionShadowY * rimScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${rimAlpha.toFixed(3)}))`,
     '--eclipse-introduction-shadow':
       haloEnergy === 0
         ? 'none'
-        : `${introductionShadowX.toFixed(2)}px ${introductionShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-introductionShadowX * 0.22).toFixed(2)}px ${(-introductionShadowY * 0.22).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(82% 0.075 220 / ${rimAlpha.toFixed(3)})`,
+        : `${(introductionShadowX * detailShadowScale).toFixed(2)}px ${(introductionShadowY * detailShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-introductionShadowX * rimScale * detailShadowScale).toFixed(2)}px ${(-introductionShadowY * rimScale * detailShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${rimAlpha.toFixed(3)})`,
     '--eclipse-navigation-shadow':
       haloEnergy === 0
         ? 'none'
-        : `${navigationShadowX.toFixed(2)}px ${navigationShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-navigationShadowX * 0.22).toFixed(2)}px ${(-navigationShadowY * 0.22).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(82% 0.075 220 / ${rimAlpha.toFixed(3)})`,
+        : `${(navigationShadowX * navigationShadowScale).toFixed(2)}px ${(navigationShadowY * navigationShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-navigationShadowX * rimScale * navigationShadowScale).toFixed(2)}px ${(-navigationShadowY * rimScale * navigationShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${navigationRimAlpha.toFixed(3)})`,
   }
 
   function startPlanetTransition(nextPlanet: PlanetId): void {
