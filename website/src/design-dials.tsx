@@ -1,23 +1,20 @@
 import { DialRoot, useDialKit } from 'dialkit'
 import 'dialkit/styles.css'
 
-const buttonPalettes = {
-  github: { end: 'oklch(26.86% 0 0)', start: 'oklch(36% 0 0)' },
-  neptune: { end: 'oklch(49.6% 0.134 261.2)', start: 'oklch(63.8% 0.095 229.9)' },
-  solar: { end: 'oklch(48.6% 0.105 44)', start: 'oklch(67.7% 0.119 65.5)' },
-  lunar: { end: 'oklch(50.4% 0.035 260.6)', start: 'oklch(68.4% 0.033 263.4)' },
-  aurora: { end: 'oklch(48.9% 0.072 190)', start: 'oklch(63.3% 0.092 184.8)' },
-  paper: {
-    end: 'oklch(51.9% 0.272 277.2)',
-    start: 'oklch(62.2% 0.206 277.5)',
-  },
+const accentPalettes = {
+  github: 'oklch(31.5% 0 0)',
+  neptune: 'oklch(54.8% 0.134 253)',
+  solar: 'oklch(56% 0.112 55)',
+  lunar: 'oklch(58% 0.035 262)',
+  aurora: 'oklch(55% 0.082 187)',
+  paper: 'oklch(51.92% 0.2726 277.19)',
 } as const
 
 export function DesignDials() {
   const colors = useDialKit(
     'Interface',
     {
-      button: {
+      controls: {
         palette: {
           type: 'select',
           options: [
@@ -29,29 +26,24 @@ export function DesignDials() {
             { label: 'Paper Violet', value: 'paper' },
             { label: 'Custom', value: 'custom' },
           ],
-          default: 'github',
+          default: 'paper',
         },
-        custom: {
-          _collapsed: true,
-          gradientStart: { type: 'color', default: '#4596ba' },
-          gradientEnd: { type: 'color', default: '#345fad' },
-        },
+        customAccent: { type: 'color', default: '#593cff' },
       },
     },
     {
-      id: 'solaris-interface',
+      id: 'solaris-interface-accent',
       persist: true,
     },
   )
-  const palette = buttonPalettes[colors.button.palette as keyof typeof buttonPalettes]
-  const gradientStart = palette?.start ?? colors.button.custom.gradientStart
-  const gradientEnd = palette?.end ?? colors.button.custom.gradientEnd
+  const accent =
+    accentPalettes[colors.controls.palette as keyof typeof accentPalettes] ??
+    colors.controls.customAccent
 
   return (
     <>
       <style>{`:root {
-        --reset-button-gradient-start: ${gradientStart};
-        --reset-button-gradient-end: ${gradientEnd};
+        --control-accent: ${accent};
       }`}</style>
       <DialRoot defaultOpen={false} position="bottom-left" productionEnabled theme="dark" />
     </>

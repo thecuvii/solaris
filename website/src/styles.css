@@ -7,6 +7,10 @@
     format('woff2-variations');
 }
 
+:root {
+  --control-accent: oklch(51.92% 0.2726 277.19);
+}
+
 @layer reset, priority1, priority2, priority3;
 
 @layer reset {

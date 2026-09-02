@@ -770,12 +770,16 @@ function ParameterSlider({
   value: number
 }) {
   const precision = getPrecision(step)
+  const [active, setActive] = useState(false)
+  const atMaximum = value >= max
 
   return (
     <NumberField.Root
       format={{ maximumFractionDigits: precision, minimumFractionDigits: precision }}
       max={max}
       min={min}
+      onBlurCapture={() => setActive(false)}
+      onFocusCapture={() => setActive(true)}
       onValueChange={(nextValue) => {
         if (nextValue !== null) onValueChange(nextValue)
       }}
@@ -784,19 +788,14 @@ function ParameterSlider({
       value={value}
       {...stylex.props(styles.numberFieldRoot)}
     >
-      <div {...stylex.props(styles.sliderMeta)}>
-        <span title={label} {...stylex.props(styles.sliderLabel)}>
-          {label}
-        </span>
-        <span {...stylex.props(styles.numberFieldValue)}>
-          <NumberField.Input aria-label={label} {...stylex.props(styles.numberFieldInput)} />
-          {suffix && <span {...stylex.props(styles.numberFieldSuffix)}>{suffix}</span>}
-        </span>
-      </div>
+      <span title={label} {...stylex.props(styles.sliderLabel)}>
+        {label}
+      </span>
       <Slider.Root
         aria-label={label}
         max={max}
         min={min}
+        onPointerDown={() => setActive(true)}
         onValueChange={onValueChange}
         step={step}
         value={value}
@@ -804,11 +803,33 @@ function ParameterSlider({
       >
         <Slider.Control {...stylex.props(styles.sliderControl)}>
           <Slider.Track {...stylex.props(styles.sliderTrack)}>
-            <Slider.Indicator {...stylex.props(styles.sliderIndicator)} />
-            <Slider.Thumb aria-label={label} {...stylex.props(styles.sliderThumb)} />
+            <Slider.Indicator
+              {...stylex.props(
+                styles.sliderIndicator,
+                active && styles.sliderIndicatorActive,
+                atMaximum && styles.sliderIndicatorAtMaximum,
+              )}
+            />
+            <Slider.Thumb
+              aria-label={label}
+              {...stylex.props(styles.sliderThumb, active && styles.sliderThumbActive)}
+            />
           </Slider.Track>
         </Slider.Control>
       </Slider.Root>
+      <span {...stylex.props(styles.numberFieldValue, active && styles.numberFieldValueActive)}>
+        <NumberField.Input
+          aria-label={label}
+          {...stylex.props(styles.numberFieldInput, active && styles.numberFieldInputActive)}
+        />
+        {suffix && (
+          <span
+            {...stylex.props(styles.numberFieldSuffix, active && styles.numberFieldSuffixActive)}
+          >
+            {suffix}
+          </span>
+        )}
+      </span>
     </NumberField.Root>
   )
 }
@@ -1107,7 +1128,7 @@ const styles = stylex.create({
     minWidth: 0,
     paddingBlock: 0,
     paddingInline: 'clamp(24px, 4vw, 64px)',
-    '@media (max-width: 920px)': {
+    '@media (max-width: 960px)': {
       gridColumn: 'auto',
     },
   },
@@ -1183,10 +1204,10 @@ const styles = stylex.create({
     transform: 'translateY(-50%)',
     transformOrigin: 'center',
     width: 520,
-    '@media (min-width: 921px) and (max-height: 850px)': {
+    '@media (min-width: 961px) and (max-height: 850px)': {
       transform: 'translateY(-50%) scale(0.82)',
     },
-    '@media (max-width: 920px)': {
+    '@media (max-width: 960px)': {
       height: 320,
       left: '50%',
       top: -254,
@@ -1257,11 +1278,11 @@ const styles = stylex.create({
     position: 'fixed',
     right: 0,
     top: 0,
-    width: 300,
+    width: 480,
     '@media (max-width: 1080px)': {
-      width: 260,
+      width: 420,
     },
-    '@media (max-width: 920px)': {
+    '@media (max-width: 960px)': {
       height: 'auto',
       overflowY: 'visible',
       paddingBlock: 28,
@@ -1329,55 +1350,67 @@ const styles = stylex.create({
     borderWidth: 0,
     color: 'oklch(86.4% 0.003 84.6 / 0.84)',
     fontFamily: '"Inter Variable", Inter, sans-serif',
-    fontSize: 11,
+    fontSize: 12,
     fontVariantNumeric: 'tabular-nums',
     fontWeight: 500,
-    height: 24,
+    height: 40,
     padding: 0,
-    textAlign: 'right',
+    textAlign: 'center',
     width: 44,
     ':focus-visible': {
       color: 'oklch(96% 0.003 84.6)',
       outline: 'none',
     },
   },
+  numberFieldInputActive: {
+    color: 'oklch(96% 0.003 84.6)',
+  },
   numberFieldRoot: {
-    backgroundColor: {
-      default: 'transparent',
-      ':hover': 'oklch(100% 0 0 / 0.035)',
-      ':has(input:focus-visible)': 'oklch(100% 0 0 / 0.05)',
+    alignItems: 'center',
+    display: 'grid',
+    gap: 8,
+    gridTemplateColumns: '145px minmax(120px, 1fr) 72px',
+    height: 48,
+    paddingInline: 4,
+    '@media (max-width: 1080px)': {
+      gridTemplateColumns: '135px minmax(100px, 1fr) 64px',
     },
-    borderRadius: 8,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-    height: 52,
-    paddingInline: 7,
-    transition: 'background-color 140ms ease-out',
+    '@media (max-width: 420px)': {
+      gridTemplateColumns: 'minmax(0, 1fr) minmax(88px, 0.8fr) 64px',
+    },
   },
   numberFieldSuffix: {
     color: 'oklch(86.4% 0.003 84.6 / 0.42)',
     fontFamily: '"Inter Variable", Inter, sans-serif',
     fontSize: 11,
   },
+  numberFieldSuffixActive: {
+    color: 'oklch(96% 0.003 84.6 / 0.64)',
+  },
   numberFieldValue: {
     alignItems: 'center',
-    backgroundColor: 'oklch(100% 0 0 / 0.065)',
-    borderRadius: 6,
-    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.055), 0 1px 2px oklch(0% 0 0 / 0.22)',
+    backgroundColor: 'oklch(26.84% 0.0166 285.23)',
+    borderRadius: 10,
+    boxShadow:
+      '0 3px 7px oklch(0% 0 0 / 0.28), 0 1px 3px oklch(0% 0 0 / 0.22), inset 0 1px 0 oklch(100% 0 0 / 0.018), inset 0 -1px 1px oklch(0% 0 0 / 0.14)',
     display: 'flex',
     gap: 2,
-    height: 24,
+    height: 40,
     justifyContent: 'center',
-    minWidth: 56,
+    minWidth: 0,
     paddingInline: 6,
     pointerEvents: 'auto',
     transition: 'background-color 140ms ease-out, box-shadow 140ms ease-out',
     ':has(input:focus-visible)': {
-      backgroundColor: 'oklch(100% 0 0 / 0.1)',
+      backgroundColor: 'color-mix(in oklch, var(--control-accent) 38%, oklch(16% 0.01 285))',
       boxShadow:
-        'inset 0 1px 0 oklch(100% 0 0 / 0.08), 0 0 0 3px oklch(63.66% 0.1939 265.97 / 0.14)',
+        '0 3px 7px oklch(0% 0 0 / 0.2), 0 0 8px color-mix(in oklch, var(--control-accent) 10%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.025)',
     },
+  },
+  numberFieldValueActive: {
+    backgroundColor: 'color-mix(in oklch, var(--control-accent) 38%, oklch(16% 0.01 285))',
+    boxShadow:
+      '0 3px 7px oklch(0% 0 0 / 0.2), 0 0 8px color-mix(in oklch, var(--control-accent) 10%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.025)',
   },
   parameterGroup: {
     minWidth: 0,
@@ -1385,13 +1418,13 @@ const styles = stylex.create({
   page: {
     backgroundColor: '#07080d',
     display: 'grid',
-    gridTemplateColumns: '300px minmax(400px, 1fr) 300px',
+    gridTemplateColumns: '300px minmax(400px, 1fr) 480px',
     minHeight: '100dvh',
     overflow: 'clip',
     '@media (max-width: 1080px)': {
-      gridTemplateColumns: '260px minmax(360px, 1fr) 260px',
+      gridTemplateColumns: '260px minmax(320px, 1fr) 420px',
     },
-    '@media (max-width: 920px)': {
+    '@media (max-width: 960px)': {
       display: 'block',
       overflow: 'hidden',
     },
@@ -1414,7 +1447,7 @@ const styles = stylex.create({
     '@media (max-width: 1080px)': {
       width: 260,
     },
-    '@media (max-width: 920px)': {
+    '@media (max-width: 960px)': {
       height: 'auto',
       left: 'auto',
       minHeight: 104,
@@ -1432,7 +1465,7 @@ const styles = stylex.create({
     pointerEvents: 'none',
     position: 'relative',
     width: 40,
-    '@media (max-width: 920px)': {
+    '@media (max-width: 960px)': {
       height: 34,
       width: 34,
     },
@@ -1454,10 +1487,10 @@ const styles = stylex.create({
     transform: 'translateY(-50%)',
     transformOrigin: 'center',
     width: 300,
-    '@media (min-width: 921px) and (max-height: 850px)': {
+    '@media (min-width: 961px) and (max-height: 850px)': {
       transform: 'translateY(-50%) scale(0.82)',
     },
-    '@media (max-width: 920px)': {
+    '@media (max-width: 960px)': {
       alignItems: 'center',
       display: 'flex',
       gap: 8,
@@ -1504,7 +1537,7 @@ const styles = stylex.create({
     '@media (max-width: 1080px)': {
       left: 'calc(var(--planet-left) - 12px)',
     },
-    '@media (max-width: 920px)': {
+    '@media (max-width: 960px)': {
       flex: '0 0 auto',
       fontSize: 9,
       left: 'auto',
@@ -1520,13 +1553,13 @@ const styles = stylex.create({
     alignItems: 'center',
     backgroundColor: 'transparent',
     backgroundImage:
-      'linear-gradient(in oklch 180deg, var(--reset-button-gradient-start, oklch(36% 0 0)) 0%, var(--reset-button-gradient-end, oklch(26.86% 0 0)) 100%)',
+      'linear-gradient(in oklch 180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 94%, black) 100%)',
     borderRadius: 8,
     borderWidth: 0,
     boxShadow: {
       default: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
       ':focus-visible':
-        'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset, 0 0 0 3px oklch(86.4% 0.003 84.6 / 0.16)',
+        'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset, 0 0 0 3px color-mix(in oklch, var(--control-accent) 22%, transparent)',
     },
     boxSizing: 'border-box',
     color: 'oklch(86.4% 0.003 84.6)',
@@ -1566,56 +1599,68 @@ const styles = stylex.create({
     alignItems: 'center',
     cursor: 'pointer',
     display: 'flex',
-    height: 24,
+    height: 40,
     touchAction: 'none',
     userSelect: 'none',
     width: '100%',
   },
   sliderIndicator: {
-    backgroundImage:
-      'linear-gradient(90deg, oklch(62.22% 0.2063 277.65), oklch(51.92% 0.2726 277.19))',
-    borderRadius: 999,
-    boxShadow: '0 0 10px oklch(62.22% 0.2063 277.65 / 0.22)',
+    backgroundColor: 'oklch(32.86% 0.0158 285.5)',
+    borderRadius: 10,
+    boxSizing: 'content-box',
+    boxShadow:
+      '2px 0 3px oklch(0% 0 0 / 0.18), inset 0 1px 0 oklch(100% 0 0 / 0.035), inset 0 -1px 1px oklch(0% 0 0 / 0.13)',
     height: '100%',
+    paddingRight: 10,
+    transition: 'background-color 140ms ease-out, box-shadow 140ms ease-out',
+  },
+  sliderIndicatorActive: {
+    backgroundColor: 'transparent',
+    backgroundImage:
+      'linear-gradient(90deg, transparent, color-mix(in oklch, var(--control-accent) 12%, transparent)), linear-gradient(180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 96%, white) 45%, color-mix(in oklch, var(--control-accent) 99%, black) 100%)',
+    borderRadius: '10px 0 0 10px',
+    boxShadow:
+      'inset 0 1px 0 oklch(100% 0 0 / 0.12), inset 1px 0 0 oklch(100% 0 0 / 0.08), inset 0 -1px 1px oklch(0% 0 0 / 0.22), 0 3px 4px color-mix(in oklch, var(--control-accent) 16%, transparent), 0 1px 2px color-mix(in oklch, var(--control-accent) 8%, transparent)',
+  },
+  sliderIndicatorAtMaximum: {
+    borderRadius: 10,
+    paddingRight: 0,
   },
   sliderLabel: {
-    color: 'oklch(86.4% 0.003 84.6 / 0.72)',
-    fontSize: 13,
+    color: 'oklch(86.4% 0.003 84.6 / 0.78)',
+    fontSize: 12,
     fontWeight: 500,
     minWidth: 0,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
-  sliderMeta: {
-    alignItems: 'center',
-    display: 'flex',
-    gap: 6,
-    height: 24,
-    justifyContent: 'space-between',
-    pointerEvents: 'none',
-  },
   sliderRoot: {
-    height: 24,
+    height: 40,
+    minWidth: 0,
     position: 'relative',
   },
   sliderThumb: {
-    backgroundColor: 'oklch(96% 0.004 84.6)',
-    borderRadius: 999,
-    boxShadow: '0 1px 3px oklch(0% 0 0 / 0.36), 0 0 0 2px oklch(62.22% 0.2063 277.65 / 0.1)',
-    height: 12,
+    backgroundColor: 'oklch(52.46% 0.0171 285.8)',
+    borderRadius: 2,
+    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.07), inset 0 -1px 1px oklch(0% 0 0 / 0.1)',
+    height: 24,
     transition: 'box-shadow 140ms ease-out, transform 140ms ease-out',
-    width: 12,
-    ':has(input:focus-visible)': {
-      boxShadow:
-        '0 1px 3px oklch(0% 0 0 / 0.36), 0 0 0 4px oklch(63.66% 0.1939 265.97 / 0.24), 0 0 14px oklch(62.22% 0.2063 277.65 / 0.52)',
-    },
+    width: 4,
+  },
+  sliderThumbActive: {
+    backgroundColor: 'transparent',
+    backgroundImage:
+      'linear-gradient(180deg, oklch(100% 0.004 293.76) 0%, oklch(98.5% 0.006 293.76) 58%, oklch(95.6% 0.012 293.76) 100%)',
+    boxShadow:
+      '0 1px 1px color-mix(in oklch, var(--control-accent) 25%, transparent), 0 0 0 0.5px color-mix(in oklch, var(--control-accent) 65%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.78)',
   },
   sliderTrack: {
-    backgroundColor: 'oklch(100% 0 0 / 0.09)',
-    borderRadius: 999,
-    boxShadow: 'inset 0 1px 1px oklch(0% 0 0 / 0.32)',
-    height: 6,
+    backgroundColor: 'oklch(20.07% 0.0199 284.46)',
+    borderRadius: 10,
+    boxShadow:
+      '0 3px 7px oklch(0% 0 0 / 0.27), 0 1px 3px oklch(0% 0 0 / 0.2), inset 0 1px 0 oklch(100% 0 0 / 0.045), inset 0 -1px 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025)',
+    height: 40,
     position: 'relative',
     width: '100%',
   },
@@ -1674,13 +1719,14 @@ const styles = stylex.create({
     width: 44,
     ':focus-visible': {
       boxShadow:
-        'inset 0 1px 0 oklch(100% 0 0 / 0.12), 0 0 0 3px oklch(63.66% 0.1939 265.97 / 0.22)',
+        'inset 0 1px 0 oklch(100% 0 0 / 0.12), 0 0 0 3px color-mix(in oklch, var(--control-accent) 22%, transparent)',
       outline: 'none',
     },
   },
   switchRootChecked: {
-    backgroundColor: 'oklch(51.92% 0.2726 277.19)',
-    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.18), 0 0 12px oklch(62.22% 0.2063 277.65 / 0.3)',
+    backgroundColor: 'var(--control-accent)',
+    boxShadow:
+      'inset 0 1px 0 oklch(100% 0 0 / 0.18), 0 0 12px color-mix(in oklch, var(--control-accent) 30%, transparent)',
   },
   switchThumb: {
     backgroundColor: 'oklch(96% 0.004 84.6)',
