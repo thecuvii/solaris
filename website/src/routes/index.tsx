@@ -23,8 +23,9 @@ import { Uranus } from '@thecuvii/solaris/uranus'
 import { Venus } from '@thecuvii/solaris/venus'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { useClipboard } from 'foxact/use-clipboard'
-import type { CSSProperties } from 'react'
-import { useState } from 'react'
+import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
@@ -414,21 +415,6 @@ const textures = {
   venus: { cloudStructure: '/textures/v1/venus/venus-cloud-structure.webp' },
 } as const satisfies Record<TexturedPlanetId, Record<string, string>>
 
-const planetPositions: Record<PlanetId, { left: number; top: number }> = {
-  sun: { left: 51, top: 15 },
-  mercury: { left: 101, top: 40 },
-  venus: { left: 144, top: 75 },
-  earth: { left: 178, top: 118 },
-  moon: { left: 202, top: 168 },
-  mars: { left: 214, top: 222 },
-  jupiter: { left: 214, top: 278 },
-  saturn: { left: 202, top: 332 },
-  titan: { left: 178, top: 386 },
-  uranus: { left: 144, top: 435 },
-  neptune: { left: 101, top: 490 },
-  pluto: { left: 51, top: 515 },
-}
-
 const planetThumbnailScales: Record<PlanetId, number> = {
   sun: 1.1,
   mercury: 1,
@@ -515,7 +501,6 @@ function HomePage() {
           </div>
 
           <div {...stylex.props(styles.stage)} aria-label={`${planet.name} shader preview`}>
-            <div {...stylex.props(styles.stageGrid)} aria-hidden="true" />
             <PlanetPreview id={selectedPlanet} settings={settings} />
           </div>
 
@@ -536,47 +521,34 @@ function HomePage() {
 function PlanetPicker({ selectedPlanet }: { selectedPlanet: PlanetId }) {
   return (
     <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
-      <div {...stylex.props(styles.disc)} aria-hidden="true">
-        <div {...stylex.props(styles.discAxis)} />
-      </div>
       <Tabs.List {...stylex.props(styles.planetList)}>
-        {planets.map((planet) => {
-          const position = planetPositions[planet.id]
-
-          return (
-            <Tabs.Tab
-              key={planet.id}
-              value={planet.id}
-              style={
-                {
-                  '--planet-left': `${position.left}px`,
-                  '--planet-top': `${position.top}px`,
-                } as CSSProperties
-              }
-              {...stylex.props(
-                styles.planetTab,
-                selectedPlanet === planet.id && styles.planetTabSelected,
-              )}
-            >
-              <span {...stylex.props(styles.planetThumbnail)} aria-hidden="true">
-                <span
-                  style={
-                    {
-                      '--planet-thumbnail-scale': planetThumbnailScales[planet.id],
-                    } as CSSProperties
-                  }
-                  {...stylex.props(
-                    styles.planetThumbnailCanvas,
-                    selectedPlanet === planet.id && styles.planetThumbnailSelected,
-                  )}
-                >
-                  <PlanetPreview id={planet.id} settings={initialSettings[planet.id]} />
-                </span>
+        {planets.map((planet) => (
+          <Tabs.Tab
+            key={planet.id}
+            value={planet.id}
+            {...stylex.props(
+              styles.planetTab,
+              selectedPlanet === planet.id && styles.planetTabSelected,
+            )}
+          >
+            <span>{planet.name}</span>
+            <span {...stylex.props(styles.planetThumbnail)} aria-hidden="true">
+              <span
+                style={
+                  {
+                    '--planet-thumbnail-scale': planetThumbnailScales[planet.id],
+                  } as CSSProperties
+                }
+                {...stylex.props(
+                  styles.planetThumbnailCanvas,
+                  selectedPlanet === planet.id && styles.planetThumbnailSelected,
+                )}
+              >
+                <PlanetPreview id={planet.id} settings={initialSettings[planet.id]} />
               </span>
-              <span>{planet.name}</span>
-            </Tabs.Tab>
-          )
-        })}
+            </span>
+          </Tabs.Tab>
+        ))}
       </Tabs.List>
     </aside>
   )
@@ -640,13 +612,6 @@ function Inspector({
 
   return (
     <aside {...stylex.props(styles.inspector)}>
-      <div {...stylex.props(styles.inspectorHeader)}>
-        <div>
-          <h2 {...stylex.props(styles.inspectorTitle)}>Parameters</h2>
-          <span {...stylex.props(styles.inspectorSubtitle)}>{formatParameterName(planetId)}</span>
-        </div>
-      </div>
-
       <div {...stylex.props(styles.inspectorGroups)}>
         {groups.map((group) => (
           <ParameterGroup
@@ -667,15 +632,6 @@ function Inspector({
         <ResetIcon />
         Reset
       </Button>
-
-      <div {...stylex.props(styles.inspectorNote)}>
-        <span {...stylex.props(styles.noteIcon)} aria-hidden="true">
-          i
-        </span>
-        <p {...stylex.props(styles.noteCopy)}>
-          Values are passed directly to the component. No renderer restart is required.
-        </p>
-      </div>
     </aside>
   )
 }
@@ -697,7 +653,6 @@ function ParameterGroup({
     <Collapsible.Root open={open} onOpenChange={setOpen} {...stylex.props(styles.parameterGroup)}>
       <Collapsible.Trigger {...stylex.props(styles.groupTrigger)}>
         <span>{label}</span>
-        <span {...stylex.props(styles.groupCount)}>{definitions.length}</span>
         <ChevronIcon open={open} />
       </Collapsible.Trigger>
       <Collapsible.Panel {...stylex.props(styles.groupPanel)}>
@@ -770,66 +725,360 @@ function ParameterSlider({
   value: number
 }) {
   const precision = getPrecision(step)
-  const [active, setActive] = useState(false)
+
+  function clampValue(nextValue: number, lower: number, upper: number): number {
+    return Math.min(Math.max(nextValue, lower), upper)
+  }
+
+  const getNormalizedValue = useCallback(
+    (nextValue: number) => Math.min(Math.max((nextValue - min) / (max - min), 0), 1),
+    [max, min],
+  )
+
+  function quantizeValue(nextValue: number): number {
+    const clampedValue = clampValue(nextValue, min, max)
+    if (clampedValue === min || clampedValue === max) return clampedValue
+
+    const quantized = min + Math.round((clampedValue - min) / step) * step
+    return clampValue(Number(quantized.toFixed(12)), min, max)
+  }
+
+  function getClickValue(nextValue: number, nextProgress: number): number {
+    const stepCount = (max - min) / step
+    if (stepCount <= 10) return quantizeValue(nextValue)
+
+    const nearestDecile = Math.round(nextProgress * 10) / 10
+    const snappedValue =
+      Math.abs(nextProgress - nearestDecile) <= 0.03125
+        ? min + nearestDecile * (max - min)
+        : nextValue
+    return quantizeValue(snappedValue)
+  }
+
+  const reduceMotion = useReducedMotion()
+  const trackRef = useRef<HTMLDivElement>(null)
+  const labelRef = useRef<HTMLSpanElement>(null)
+  const valueRef = useRef<HTMLSpanElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const pointerRef = useRef<{
+    id: number
+    moved: boolean
+    startX: number
+    startY: number
+  } | null>(null)
+  const interactingRef = useRef(false)
+  const editingRef = useRef(false)
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const animationRef = useRef<ReturnType<typeof animate> | null>(null)
+  const progress = useMotionValue(getNormalizedValue(value))
+  const handleOpacity = useMotionValue(1)
+  const fillWidth = useTransform(progress, (current) => `${current * 100}%`)
+  const [hovered, setHovered] = useState(false)
+  const [interacting, setInteracting] = useState(false)
+  const [focused, setFocused] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editArmed, setEditArmed] = useState(false)
+  const [draftValue, setDraftValue] = useState<number | null>(value)
+  const active = hovered || interacting || focused || editing
   const atMaximum = value >= max
+
+  function clearHoverTimer() {
+    if (hoverTimerRef.current !== null) {
+      clearTimeout(hoverTimerRef.current)
+      hoverTimerRef.current = null
+    }
+  }
+
+  function setGestureActive(next: boolean) {
+    interactingRef.current = next
+    setInteracting(next)
+  }
+
+  const animateTo = useCallback(
+    (nextProgress: number, bounce = 0.18) => {
+      animationRef.current?.stop()
+      if (reduceMotion) {
+        progress.set(nextProgress)
+        return
+      }
+      animationRef.current = animate(progress, nextProgress, {
+        bounce,
+        duration: 0.35,
+        type: 'spring',
+      })
+    },
+    [progress, reduceMotion],
+  )
+
+  function updateFromPointer(clientX: number, click: boolean) {
+    const track = trackRef.current
+    if (!track) return value
+
+    const rect = track.getBoundingClientRect()
+    const scale = rect.width / track.offsetWidth || 1
+    const localX = (clientX - rect.left) / scale
+    const rawProgress = localX / track.offsetWidth
+    const nextProgress = clampValue(rawProgress, 0, 1)
+
+    progress.set(nextProgress)
+
+    const rawValue = min + nextProgress * (max - min)
+    return click ? getClickValue(rawValue, nextProgress) : quantizeValue(rawValue)
+  }
+
+  const cancelGesture = useCallback(() => {
+    if (!pointerRef.current) return
+    pointerRef.current = null
+    interactingRef.current = false
+    setInteracting(false)
+    animateTo(getNormalizedValue(value), 0.1)
+  }, [animateTo, getNormalizedValue, value])
+
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
+    animationRef.current?.stop()
+    pointerRef.current = {
+      id: event.pointerId,
+      moved: false,
+      startX: event.clientX,
+      startY: event.clientY,
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setGestureActive(true)
+  }
+
+  function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const pointer = pointerRef.current
+    if (!pointer || pointer.id !== event.pointerId) return
+
+    if (
+      !pointer.moved &&
+      Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY) >= 3
+    ) {
+      pointer.moved = true
+    }
+    if (!pointer.moved) return
+
+    onValueChange(updateFromPointer(event.clientX, false))
+  }
+
+  function handlePointerUp(event: ReactPointerEvent<HTMLDivElement>) {
+    const pointer = pointerRef.current
+    if (!pointer || pointer.id !== event.pointerId) return
+
+    const nextValue = updateFromPointer(event.clientX, !pointer.moved)
+    onValueChange(nextValue)
+    pointerRef.current = null
+    setGestureActive(false)
+    animateTo(getNormalizedValue(nextValue))
+  }
+
+  function beginEditing() {
+    clearHoverTimer()
+    editingRef.current = true
+    setDraftValue(value)
+    setEditing(true)
+    queueMicrotask(() => {
+      inputRef.current?.focus()
+      inputRef.current?.select()
+    })
+  }
+
+  function commitEditing() {
+    if (!editingRef.current) return
+    editingRef.current = false
+    setEditing(false)
+    setEditArmed(false)
+    if (draftValue === null || !Number.isFinite(draftValue)) {
+      setDraftValue(value)
+      return
+    }
+
+    const nextValue = quantizeValue(draftValue)
+    setDraftValue(nextValue)
+    onValueChange(nextValue)
+  }
+
+  function cancelEditing() {
+    editingRef.current = false
+    setDraftValue(value)
+    setEditing(false)
+    setEditArmed(false)
+  }
+
+  useEffect(() => {
+    if (interactingRef.current || editingRef.current) return
+    animateTo(getNormalizedValue(value), 0.12)
+    setDraftValue(value)
+  }, [animateTo, getNormalizedValue, value])
+
+  useEffect(() => {
+    function updateHandleOpacity(current = progress.get()) {
+      const track = trackRef.current
+      const labelElement = labelRef.current
+      const valueElement = valueRef.current
+      if (!track || !labelElement || !valueElement) return
+
+      const handleX = current * track.offsetWidth
+      const labelEnd = labelElement.offsetLeft + labelElement.offsetWidth + 12
+      const valueStart = valueElement.offsetLeft - 12
+      handleOpacity.set(
+        Math.min(
+          Math.min(Math.max((handleX - labelEnd) / 10, 0), 1),
+          Math.min(Math.max((valueStart - handleX) / 10, 0), 1),
+        ),
+      )
+    }
+
+    updateHandleOpacity()
+    const stopListening = progress.on('change', updateHandleOpacity)
+    const resizeObserver = new ResizeObserver(() => updateHandleOpacity())
+    if (trackRef.current) resizeObserver.observe(trackRef.current)
+    if (labelRef.current) resizeObserver.observe(labelRef.current)
+    if (valueRef.current) resizeObserver.observe(valueRef.current)
+
+    return () => {
+      stopListening()
+      resizeObserver.disconnect()
+    }
+  }, [handleOpacity, progress])
+
+  useEffect(() => {
+    window.addEventListener('blur', cancelGesture)
+    return () => window.removeEventListener('blur', cancelGesture)
+  }, [cancelGesture])
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current !== null) clearTimeout(hoverTimerRef.current)
+      animationRef.current?.stop()
+    }
+  }, [])
 
   return (
     <NumberField.Root
       format={{ maximumFractionDigits: precision, minimumFractionDigits: precision }}
       max={max}
       min={min}
-      onBlurCapture={() => setActive(false)}
-      onFocusCapture={() => setActive(true)}
       onValueChange={(nextValue) => {
-        if (nextValue !== null) onValueChange(nextValue)
+        if (editingRef.current) setDraftValue(nextValue)
       }}
       snapOnStep
       step={step}
-      value={value}
+      value={editing ? draftValue : value}
       {...stylex.props(styles.numberFieldRoot)}
     >
-      <span title={label} {...stylex.props(styles.sliderLabel)}>
-        {label}
-      </span>
       <Slider.Root
         aria-label={label}
         max={max}
         min={min}
-        onPointerDown={() => setActive(true)}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false)
+        }}
+        onFocusCapture={() => setFocused(true)}
         onValueChange={onValueChange}
         step={step}
         value={value}
         {...stylex.props(styles.sliderRoot)}
       >
-        <Slider.Control {...stylex.props(styles.sliderControl)}>
-          <Slider.Track {...stylex.props(styles.sliderTrack)}>
-            <Slider.Indicator
+        <motion.div
+          ref={trackRef}
+          onLostPointerCapture={cancelGesture}
+          onPointerCancel={cancelGesture}
+          onPointerDown={handlePointerDown}
+          onPointerEnter={() => setHovered(true)}
+          onPointerLeave={() => {
+            setHovered(false)
+            clearHoverTimer()
+            if (!editingRef.current) setEditArmed(false)
+          }}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          {...stylex.props(styles.sliderTrack)}
+        >
+          <motion.div
+            style={{ width: fillWidth }}
+            {...stylex.props(
+              styles.sliderIndicator,
+              active && styles.sliderIndicatorActive,
+              atMaximum && styles.sliderIndicatorAtMaximum,
+            )}
+          />
+          <span ref={labelRef} title={label} {...stylex.props(styles.sliderLabel)}>
+            {label}
+          </span>
+          <span ref={valueRef} {...stylex.props(styles.numberFieldValue)}>
+            <NumberField.Input
+              ref={inputRef}
+              aria-label={`${label} value`}
+              readOnly={!editing}
+              onBlur={commitEditing}
+              onFocus={() => {
+                if (!editingRef.current) {
+                  editingRef.current = true
+                  setDraftValue(value)
+                  setEditing(true)
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  cancelEditing()
+                  event.currentTarget.blur()
+                } else if (event.key === 'Enter') {
+                  event.preventDefault()
+                  commitEditing()
+                  event.currentTarget.blur()
+                }
+              }}
+              onPointerDown={(event) => {
+                if (event.pointerType === 'mouse' && !editArmed) {
+                  event.preventDefault()
+                  return
+                }
+                event.stopPropagation()
+                beginEditing()
+              }}
+              onPointerEnter={(event) => {
+                if (event.pointerType !== 'mouse' || editingRef.current) return
+                clearHoverTimer()
+                hoverTimerRef.current = setTimeout(() => {
+                  setEditArmed(true)
+                  hoverTimerRef.current = null
+                }, 800)
+              }}
+              onPointerLeave={() => {
+                clearHoverTimer()
+                if (!editingRef.current) setEditArmed(false)
+              }}
               {...stylex.props(
-                styles.sliderIndicator,
-                active && styles.sliderIndicatorActive,
-                atMaximum && styles.sliderIndicatorAtMaximum,
+                styles.numberFieldInput,
+                (active || editArmed) && styles.numberFieldInputActive,
               )}
             />
-            <Slider.Thumb
-              aria-label={label}
-              {...stylex.props(styles.sliderThumb, active && styles.sliderThumbActive)}
-            />
+            {suffix && (
+              <span
+                {...stylex.props(
+                  styles.numberFieldSuffix,
+                  (active || editArmed) && styles.numberFieldSuffixActive,
+                )}
+              >
+                {suffix}
+              </span>
+            )}
+          </span>
+          <motion.div
+            aria-hidden="true"
+            style={{ left: fillWidth, opacity: handleOpacity }}
+            {...stylex.props(styles.sliderThumb, active && styles.sliderThumbActive)}
+          />
+        </motion.div>
+        <Slider.Control {...stylex.props(styles.sliderControl)}>
+          <Slider.Track {...stylex.props(styles.sliderSemanticTrack)}>
+            <Slider.Thumb aria-label={label} {...stylex.props(styles.sliderSemanticThumb)} />
           </Slider.Track>
         </Slider.Control>
       </Slider.Root>
-      <span {...stylex.props(styles.numberFieldValue, active && styles.numberFieldValueActive)}>
-        <NumberField.Input
-          aria-label={label}
-          {...stylex.props(styles.numberFieldInput, active && styles.numberFieldInputActive)}
-        />
-        {suffix && (
-          <span
-            {...stylex.props(styles.numberFieldSuffix, active && styles.numberFieldSuffixActive)}
-          >
-            {suffix}
-          </span>
-        )}
-      </span>
     </NumberField.Root>
   )
 }
@@ -1037,7 +1286,7 @@ const styles = stylex.create({
   chevronIcon: {
     fill: 'none',
     height: 14,
-    marginLeft: 2,
+    marginLeft: 'auto',
     stroke: 'currentColor',
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
@@ -1148,23 +1397,6 @@ const styles = stylex.create({
     paddingBlock: 4,
     paddingInline: 4,
   },
-  groupCount: {
-    alignItems: 'center',
-    backgroundColor: 'oklch(100% 0 0 / 0.06)',
-    borderRadius: 999,
-    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.06)',
-    color: 'oklch(86.4% 0.003 84.6 / 0.42)',
-    display: 'flex',
-    fontFamily: '"Inter Variable", Inter, sans-serif',
-    fontSize: 10,
-    fontVariantNumeric: 'tabular-nums',
-    fontWeight: 500,
-    height: 18,
-    justifyContent: 'center',
-    marginLeft: 'auto',
-    minWidth: 18,
-    paddingInline: 5,
-  },
   groupPanel: {
     overflow: 'hidden',
   },
@@ -1191,39 +1423,6 @@ const styles = stylex.create({
         'inset 0 1px 0 oklch(86.4% 0.003 84.6 / 0.12), 0 0 0 3px oklch(86.4% 0.003 84.6 / 0.08)',
       outline: 'none',
     },
-  },
-  disc: {
-    backgroundColor: 'transparent',
-    backgroundImage:
-      'repeating-radial-gradient(circle, transparent 0 42px, rgba(242,232,208,0.032) 43px 44px)',
-    borderRadius: '50%',
-    height: 520,
-    left: -260,
-    position: 'absolute',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    transformOrigin: 'center',
-    width: 520,
-    '@media (min-width: 961px) and (max-height: 850px)': {
-      transform: 'translateY(-50%) scale(0.82)',
-    },
-    '@media (max-width: 960px)': {
-      height: 320,
-      left: '50%',
-      top: -254,
-      transform: 'translateX(-50%)',
-      width: 320,
-    },
-  },
-  discAxis: {
-    backgroundColor: 'rgba(242, 232, 208, 0.24)',
-    borderRadius: '50%',
-    boxShadow: '0 0 0 7px rgba(255,255,255,0.025)',
-    height: 8,
-    position: 'absolute',
-    right: 34,
-    top: 'calc(50% - 4px)',
-    width: 8,
   },
   githubLink: {
     alignItems: 'center',
@@ -1278,10 +1477,7 @@ const styles = stylex.create({
     position: 'fixed',
     right: 0,
     top: 0,
-    width: 480,
-    '@media (max-width: 1080px)': {
-      width: 420,
-    },
+    width: 280,
     '@media (max-width: 960px)': {
       height: 'auto',
       overflowY: 'visible',
@@ -1293,70 +1489,31 @@ const styles = stylex.create({
       width: 'auto',
     },
   },
-  inspectorHeader: {
-    alignItems: 'center',
-    display: 'flex',
-    justifyContent: 'space-between',
-    paddingBlock: 8,
-    paddingInline: 4,
-  },
   inspectorGroups: {
     display: 'flex',
     flexDirection: 'column',
     gap: 10,
     paddingTop: 12,
   },
-  inspectorNote: {
-    alignItems: 'flex-start',
-    color: 'rgba(242, 232, 208, 0.32)',
-    display: 'flex',
-    fontSize: 10,
-    gap: 9,
-    lineHeight: 1.5,
-    paddingTop: 22,
-  },
-  inspectorTitle: {
-    color: '#f2e8d0',
-    fontSize: 15,
-    fontWeight: 600,
-    letterSpacing: '-0.015em',
-    margin: 0,
-  },
-  inspectorSubtitle: {
-    color: 'rgba(242, 232, 208, 0.34)',
-    display: 'block',
-    fontSize: 11,
-    marginTop: 3,
-  },
   introduction: {
     paddingBottom: 20,
-  },
-  noteIcon: {
-    alignItems: 'center',
-    borderRadius: '50%',
-    display: 'flex',
-    flex: '0 0 auto',
-    fontFamily: 'Georgia, serif',
-    height: 15,
-    justifyContent: 'center',
-    width: 15,
-  },
-  noteCopy: {
-    margin: 0,
   },
   numberFieldInput: {
     appearance: 'none',
     backgroundColor: 'transparent',
     borderWidth: 0,
     color: 'oklch(86.4% 0.003 84.6 / 0.84)',
+    fieldSizing: 'content',
     fontFamily: '"Inter Variable", Inter, sans-serif',
     fontSize: 12,
     fontVariantNumeric: 'tabular-nums',
     fontWeight: 500,
     height: 40,
+    maxWidth: '7ch',
+    minWidth: '1ch',
     padding: 0,
-    textAlign: 'center',
-    width: 44,
+    textAlign: 'right',
+    width: 'auto',
     ':focus-visible': {
       color: 'oklch(96% 0.003 84.6)',
       outline: 'none',
@@ -1366,18 +1523,9 @@ const styles = stylex.create({
     color: 'oklch(96% 0.003 84.6)',
   },
   numberFieldRoot: {
-    alignItems: 'center',
-    display: 'grid',
-    gap: 8,
-    gridTemplateColumns: '145px minmax(120px, 1fr) 72px',
+    display: 'block',
     height: 48,
-    paddingInline: 4,
-    '@media (max-width: 1080px)': {
-      gridTemplateColumns: '135px minmax(100px, 1fr) 64px',
-    },
-    '@media (max-width: 420px)': {
-      gridTemplateColumns: 'minmax(0, 1fr) minmax(88px, 0.8fr) 64px',
-    },
+    padding: 4,
   },
   numberFieldSuffix: {
     color: 'oklch(86.4% 0.003 84.6 / 0.42)',
@@ -1389,28 +1537,16 @@ const styles = stylex.create({
   },
   numberFieldValue: {
     alignItems: 'center',
-    backgroundColor: 'oklch(26.84% 0.0166 285.23)',
-    borderRadius: 10,
-    boxShadow:
-      '0 3px 7px oklch(0% 0 0 / 0.28), 0 1px 3px oklch(0% 0 0 / 0.22), inset 0 1px 0 oklch(100% 0 0 / 0.018), inset 0 -1px 1px oklch(0% 0 0 / 0.14)',
     display: 'flex',
-    gap: 2,
+    gap: 0,
     height: 40,
     justifyContent: 'center',
     minWidth: 0,
-    paddingInline: 6,
+    position: 'absolute',
     pointerEvents: 'auto',
-    transition: 'background-color 140ms ease-out, box-shadow 140ms ease-out',
-    ':has(input:focus-visible)': {
-      backgroundColor: 'color-mix(in oklch, var(--control-accent) 38%, oklch(16% 0.01 285))',
-      boxShadow:
-        '0 3px 7px oklch(0% 0 0 / 0.2), 0 0 8px color-mix(in oklch, var(--control-accent) 10%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.025)',
-    },
-  },
-  numberFieldValueActive: {
-    backgroundColor: 'color-mix(in oklch, var(--control-accent) 38%, oklch(16% 0.01 285))',
-    boxShadow:
-      '0 3px 7px oklch(0% 0 0 / 0.2), 0 0 8px color-mix(in oklch, var(--control-accent) 10%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.025)',
+    right: 10,
+    top: 0,
+    zIndex: 3,
   },
   parameterGroup: {
     minWidth: 0,
@@ -1418,11 +1554,11 @@ const styles = stylex.create({
   page: {
     backgroundColor: '#07080d',
     display: 'grid',
-    gridTemplateColumns: '300px minmax(400px, 1fr) 480px',
+    gridTemplateColumns: '300px minmax(400px, 1fr) 280px',
     minHeight: '100dvh',
     overflow: 'clip',
     '@media (max-width: 1080px)': {
-      gridTemplateColumns: '260px minmax(320px, 1fr) 420px',
+      gridTemplateColumns: '260px minmax(320px, 1fr) 280px',
     },
     '@media (max-width: 960px)': {
       display: 'block',
@@ -1480,29 +1616,35 @@ const styles = stylex.create({
     filter: 'drop-shadow(0 0 6px rgba(242,232,208,0.22))',
   },
   planetList: {
-    height: 560,
-    left: 0,
+    bottom: 16,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    overflowY: 'auto',
+    paddingRight: 24,
     position: 'absolute',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    transformOrigin: 'center',
-    width: 300,
-    '@media (min-width: 961px) and (max-height: 850px)': {
-      transform: 'translateY(-50%) scale(0.82)',
+    right: 0,
+    scrollbarWidth: 'none',
+    top: 'calc(178px + clamp(24px, 4vh, 52px))',
+    width: 204,
+    '@media (min-width: 961px) and (max-width: 1080px)': {
+      top: 'calc(188px + clamp(24px, 4vh, 52px))',
     },
     '@media (max-width: 960px)': {
       alignItems: 'center',
-      display: 'flex',
+      bottom: 'auto',
+      flexDirection: 'row',
       gap: 8,
       height: 'auto',
       left: 'auto',
       overflowX: 'auto',
+      overflowY: 'hidden',
       paddingBlock: 13,
       paddingInline: 16,
       position: 'relative',
+      right: 'auto',
       scrollSnapType: 'x proximity',
       top: 'auto',
-      transform: 'none',
       width: '100%',
     },
   },
@@ -1516,33 +1658,31 @@ const styles = stylex.create({
       ':focus-visible': '#f2e8d0',
     },
     cursor: 'pointer',
-    display: 'flex',
-    flexDirection: 'column',
-    fontSize: 10,
-    gap: 3,
-    left: 'var(--planet-left)',
-    lineHeight: 1.1,
-    minHeight: 60,
-    padding: 4,
-    position: 'absolute',
+    display: 'grid',
+    fontSize: 11,
+    gap: 12,
+    gridTemplateColumns: 'minmax(0, 1fr) 40px',
+    lineHeight: 1.2,
+    minHeight: 40,
+    padding: 0,
     scrollSnapAlign: 'center',
-    textAlign: 'center',
+    textAlign: 'right',
     textDecoration: { ':focus-visible': 'underline' },
     textUnderlineOffset: 3,
     transition: 'color 140ms ease-out',
     whiteSpace: 'nowrap',
-    top: 'var(--planet-top)',
-    width: 68,
+    width: 180,
     ':focus-visible': { outline: 'none' },
-    '@media (max-width: 1080px)': {
-      left: 'calc(var(--planet-left) - 12px)',
-    },
     '@media (max-width: 960px)': {
+      display: 'flex',
       flex: '0 0 auto',
+      flexDirection: 'column-reverse',
       fontSize: 9,
-      left: 'auto',
-      position: 'relative',
-      top: 'auto',
+      gap: 3,
+      minHeight: 60,
+      padding: 4,
+      textAlign: 'center',
+      width: 68,
     },
   },
   planetTabSelected: {
@@ -1596,13 +1736,10 @@ const styles = stylex.create({
     width: 12,
   },
   sliderControl: {
-    alignItems: 'center',
-    cursor: 'pointer',
-    display: 'flex',
-    height: 40,
-    touchAction: 'none',
-    userSelect: 'none',
-    width: '100%',
+    inset: 0,
+    opacity: 0,
+    pointerEvents: 'none',
+    position: 'absolute',
   },
   sliderIndicator: {
     backgroundColor: 'oklch(32.86% 0.0158 285.5)',
@@ -1611,42 +1748,62 @@ const styles = stylex.create({
     boxShadow:
       '2px 0 3px oklch(0% 0 0 / 0.18), inset 0 1px 0 oklch(100% 0 0 / 0.035), inset 0 -1px 1px oklch(0% 0 0 / 0.13)',
     height: '100%',
+    left: 0,
     paddingRight: 10,
+    position: 'absolute',
+    top: 0,
     transition: 'background-color 140ms ease-out, box-shadow 140ms ease-out',
   },
   sliderIndicatorActive: {
-    backgroundColor: 'transparent',
     backgroundImage:
       'linear-gradient(90deg, transparent, color-mix(in oklch, var(--control-accent) 12%, transparent)), linear-gradient(180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 96%, white) 45%, color-mix(in oklch, var(--control-accent) 99%, black) 100%)',
-    borderRadius: '10px 0 0 10px',
     boxShadow:
       'inset 0 1px 0 oklch(100% 0 0 / 0.12), inset 1px 0 0 oklch(100% 0 0 / 0.08), inset 0 -1px 1px oklch(0% 0 0 / 0.22), 0 3px 4px color-mix(in oklch, var(--control-accent) 16%, transparent), 0 1px 2px color-mix(in oklch, var(--control-accent) 8%, transparent)',
   },
   sliderIndicatorAtMaximum: {
-    borderRadius: 10,
     paddingRight: 0,
   },
   sliderLabel: {
     color: 'oklch(86.4% 0.003 84.6 / 0.78)',
     fontSize: 12,
     fontWeight: 500,
+    left: 14,
     minWidth: 0,
     overflow: 'hidden',
+    pointerEvents: 'none',
+    position: 'absolute',
     textOverflow: 'ellipsis',
+    top: '50%',
+    transform: 'translateY(-50%)',
     whiteSpace: 'nowrap',
+    zIndex: 2,
   },
   sliderRoot: {
     height: 40,
     minWidth: 0,
     position: 'relative',
+    width: '100%',
+  },
+  sliderSemanticThumb: {
+    height: 1,
+    width: 1,
+  },
+  sliderSemanticTrack: {
+    height: '100%',
+    width: '100%',
   },
   sliderThumb: {
     backgroundColor: 'oklch(52.46% 0.0171 285.8)',
     borderRadius: 2,
     boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.07), inset 0 -1px 1px oklch(0% 0 0 / 0.1)',
     height: 24,
+    pointerEvents: 'none',
+    position: 'absolute',
+    top: 8,
     transition: 'box-shadow 140ms ease-out, transform 140ms ease-out',
+    translate: '-50% 0',
     width: 4,
+    zIndex: 2,
   },
   sliderThumbActive: {
     backgroundColor: 'transparent',
@@ -1661,24 +1818,17 @@ const styles = stylex.create({
     boxShadow:
       '0 3px 7px oklch(0% 0 0 / 0.27), 0 1px 3px oklch(0% 0 0 / 0.2), inset 0 1px 0 oklch(100% 0 0 / 0.045), inset 0 -1px 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025)',
     height: 40,
+    overflow: 'hidden',
     position: 'relative',
+    touchAction: 'none',
+    userSelect: 'none',
     width: '100%',
   },
   stage: {
-    backgroundColor: '#090c14',
-    backgroundImage: 'radial-gradient(circle at 50% 48%, #171c30 0, #0d111d 44%, #090c14 72%)',
     borderRadius: 14,
     height: 'clamp(360px, 52vh, 590px)',
     overflow: 'hidden',
     position: 'relative',
-  },
-  stageGrid: {
-    backgroundImage:
-      'linear-gradient(rgba(132,146,190,0.025) 1px, transparent 1px), linear-gradient(90deg, rgba(132,146,190,0.025) 1px, transparent 1px)',
-    backgroundSize: '48px 48px',
-    inset: 0,
-    maskImage: 'radial-gradient(circle, black, transparent 72%)',
-    position: 'absolute',
   },
   summary: {
     color: 'rgba(242, 232, 208, 0.42)',

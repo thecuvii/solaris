@@ -180,6 +180,9 @@ importers:
       foxact:
         specifier: 0.3.10
         version: 0.3.10(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      motion:
+        specifier: ^13.1.1
+        version: 13.1.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       nitro:
         specifier: 3.0.260610-beta
         version: 3.0.260610-beta(@voidzero-dev/vite-plus-core@0.3.0(@types/node@24.13.3)(jiti@2.7.0)(typescript@7.0.2))(chokidar@5.0.0)(jiti@2.7.0)
@@ -211,9 +214,6 @@ importers:
       dialkit:
         specifier: ^1.4.3
         version: 1.4.3(motion@13.1.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      motion:
-        specifier: ^13.1.1
-        version: 13.1.1(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       typescript:
         specifier: 7.0.2
         version: 7.0.2
