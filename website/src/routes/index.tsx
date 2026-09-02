@@ -568,19 +568,6 @@ function HomePage() {
       <PlanetPicker selectedPlanet={selectedPlanet} />
 
       <main {...stylex.props(styles.content)}>
-        <header {...stylex.props(styles.header)}>
-          <Link to="/" {...stylex.props(styles.wordmark)}>
-            <span {...stylex.props(styles.wordmarkMark)} aria-hidden="true" />
-            Solaris
-          </Link>
-          <a href="https://github.com/thecuvii/solaris" {...stylex.props(styles.githubLink)}>
-            GitHub
-            <span aria-hidden="true" {...stylex.props(styles.githubArrow)}>
-              ↗
-            </span>
-          </a>
-        </header>
-
         <Tabs.Panel value={selectedPlanet} {...stylex.props(styles.panel)}>
           <div {...stylex.props(styles.introduction)}>
             <div {...stylex.props(styles.titleRow)}>
@@ -627,33 +614,55 @@ function HomePage() {
 function PlanetPicker({ selectedPlanet }: { selectedPlanet: PlanetId }) {
   return (
     <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
-      <Tabs.List {...stylex.props(styles.planetList)}>
-        {planets.map((planet) => (
-          <Tabs.Tab
-            key={planet.id}
-            value={planet.id}
-            {...stylex.props(
-              styles.planetTab,
-              selectedPlanet === planet.id && styles.planetTabSelected,
-            )}
-          >
-            <span>{planet.name}</span>
-            <span {...stylex.props(styles.planetThumbnail)} aria-hidden="true">
-              <img
-                alt=""
-                draggable={false}
-                height={160}
-                src={`/thumbnails/v1/${planet.id}.avif`}
-                width={160}
-                {...stylex.props(
-                  styles.planetThumbnailImage,
-                  selectedPlanet === planet.id && styles.planetThumbnailSelected,
-                )}
-              />
-            </span>
-          </Tabs.Tab>
-        ))}
-      </Tabs.List>
+      <div {...stylex.props(styles.pickerNavigation)}>
+        <Link to="/" {...stylex.props(styles.wordmark, styles.pickerWordmark)}>
+          <span {...stylex.props(styles.wordmarkMark)} aria-hidden="true" />
+          Solaris
+        </Link>
+
+        <Tabs.List {...stylex.props(styles.planetList)}>
+          {planets.map((planet) => (
+            <Tabs.Tab
+              key={planet.id}
+              value={planet.id}
+              {...stylex.props(
+                styles.planetTab,
+                selectedPlanet === planet.id && styles.planetTabSelected,
+              )}
+            >
+              <span>{planet.name}</span>
+              <span {...stylex.props(styles.planetThumbnail)} aria-hidden="true">
+                <img
+                  alt=""
+                  draggable={false}
+                  height={160}
+                  src={`/thumbnails/v1/${planet.id}.avif`}
+                  width={160}
+                  {...stylex.props(
+                    styles.planetThumbnailImage,
+                    selectedPlanet === planet.id && styles.planetThumbnailSelected,
+                  )}
+                />
+              </span>
+            </Tabs.Tab>
+          ))}
+        </Tabs.List>
+
+        <div {...stylex.props(styles.pickerMeta)}>
+          <div>
+            Source ·{' '}
+            <a href="https://github.com/thecuvii/solaris" {...stylex.props(styles.pickerMetaLink)}>
+              GitHub
+            </a>
+          </div>
+          <div>
+            Made by{' '}
+            <a href="https://github.com/thecuvii" {...stylex.props(styles.pickerMetaLink)}>
+              Cuvii
+            </a>
+          </div>
+        </div>
+      </div>
     </aside>
   )
 }
@@ -1535,49 +1544,6 @@ const styles = stylex.create({
       outline: 'none',
     },
   },
-  githubLink: {
-    alignItems: 'center',
-    backdropFilter: 'blur(6px)',
-    backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.1))',
-    borderRadius: 12,
-    boxShadow: {
-      default:
-        'inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.28), 0 1px 2px rgba(0,0,0,0.35), 0 8px 24px rgba(0,0,0,0.22)',
-      ':hover':
-        'inset 0 1px 0 rgba(255,255,255,0.22), inset 0 -1px 0 rgba(0,0,0,0.28), 0 1px 2px rgba(0,0,0,0.35), 0 12px 30px rgba(0,0,0,0.3)',
-      ':active':
-        'inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.28), 0 1px 2px rgba(0,0,0,0.3)',
-      ':focus-visible':
-        '0 0 0 2px #101112, 0 0 0 4px rgba(242,232,208,0.62), inset 0 1px 0 rgba(255,255,255,0.18), inset 0 -1px 0 rgba(0,0,0,0.28), 0 8px 24px rgba(0,0,0,0.22)',
-    },
-    color: '#f2e8d0',
-    display: 'flex',
-    fontSize: 13,
-    fontWeight: 600,
-    gap: 8,
-    height: 44,
-    paddingInline: 16,
-    textDecoration: 'none',
-    transform: {
-      default: 'translateY(0)',
-      ':hover': 'translateY(-1px)',
-      ':active': 'translateY(0)',
-    },
-    transition:
-      'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 180ms cubic-bezier(0.2, 0.8, 0.2, 1)',
-    ':focus-visible': { outline: 'none' },
-  },
-  githubArrow: {
-    display: 'inline-block',
-    transform: { default: 'translateX(0)', ':hover': 'translateX(2px)' },
-    transition: 'transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1)',
-  },
-  header: {
-    alignItems: 'center',
-    display: 'flex',
-    height: 70,
-    justifyContent: 'space-between',
-  },
   inspector: {
     backdropFilter: 'blur(18px)',
     backgroundColor: 'oklch(8.52% 0.0384 274.56 / 0.9)',
@@ -1681,7 +1647,10 @@ const styles = stylex.create({
     marginInline: 'auto',
     maxWidth: 820,
     paddingBottom: 44,
-    paddingTop: 'clamp(24px, 4vh, 52px)',
+    paddingTop: 'calc(70px + clamp(24px, 4vh, 52px))',
+    '@media (max-width: 960px)': {
+      paddingTop: 24,
+    },
   },
   picker: {
     height: '100dvh',
@@ -1697,12 +1666,75 @@ const styles = stylex.create({
     '@media (max-width: 960px)': {
       height: 'auto',
       left: 'auto',
-      minHeight: 104,
+      minHeight: 0,
       overflow: 'hidden',
-      paddingTop: 34,
       position: 'relative',
       top: 'auto',
       width: 'auto',
+    },
+  },
+  pickerMeta: {
+    alignSelf: 'flex-end',
+    color: 'rgba(242, 232, 208, 0.38)',
+    display: 'flex',
+    flex: '0 0 auto',
+    flexDirection: 'column',
+    fontSize: 12,
+    gap: 5,
+    lineHeight: 1.45,
+    marginRight: 24,
+    marginTop: 16,
+    textAlign: 'left',
+    width: 180,
+    '@media (max-width: 960px)': {
+      marginBottom: 20,
+      marginLeft: 16,
+      marginRight: 16,
+      width: 'auto',
+    },
+  },
+  pickerMetaLink: {
+    color: {
+      default: 'rgba(242, 232, 208, 0.82)',
+      ':hover': '#f2e8d0',
+      ':focus-visible': '#ffffff',
+    },
+    textDecorationLine: 'underline',
+    textDecorationThickness: 1,
+    textUnderlineOffset: 3,
+    transition: 'color 140ms ease-out',
+    ':focus-visible': {
+      outline: 'none',
+    },
+  },
+  pickerNavigation: {
+    bottom: 16,
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'absolute',
+    right: 0,
+    top: 'calc(146px + clamp(24px, 4vh, 52px))',
+    width: 204,
+    '@media (min-width: 961px) and (max-width: 1080px)': {
+      top: 'calc(156px + clamp(24px, 4vh, 52px))',
+    },
+    '@media (max-width: 960px)': {
+      bottom: 'auto',
+      position: 'relative',
+      right: 'auto',
+      top: 'auto',
+      width: '100%',
+    },
+  },
+  pickerWordmark: {
+    alignSelf: 'flex-end',
+    flex: '0 0 auto',
+    marginRight: 24,
+    '@media (max-width: 960px)': {
+      alignSelf: 'flex-start',
+      marginLeft: 16,
+      marginRight: 0,
+      marginTop: 20,
     },
   },
   planetPreviewTransition: {
@@ -1735,35 +1767,28 @@ const styles = stylex.create({
     filter: 'drop-shadow(0 0 6px rgba(242,232,208,0.22))',
   },
   planetList: {
-    bottom: 16,
     display: 'flex',
+    flexShrink: 1,
     flexDirection: 'column',
     gap: 4,
+    marginTop: 16,
+    minHeight: 0,
     overflowY: 'auto',
     paddingRight: 24,
-    position: 'absolute',
-    right: 0,
     scrollbarWidth: 'none',
-    top: 'calc(178px + clamp(24px, 4vh, 52px))',
     width: 204,
-    '@media (min-width: 961px) and (max-width: 1080px)': {
-      top: 'calc(188px + clamp(24px, 4vh, 52px))',
-    },
     '@media (max-width: 960px)': {
       alignItems: 'center',
-      bottom: 'auto',
+      flexShrink: 0,
       flexDirection: 'row',
       gap: 8,
       height: 'auto',
-      left: 'auto',
+      marginTop: 12,
       overflowX: 'auto',
       overflowY: 'hidden',
       paddingBlock: 13,
       paddingInline: 16,
-      position: 'relative',
-      right: 'auto',
       scrollSnapType: 'x proximity',
-      top: 'auto',
       width: '100%',
     },
   },
