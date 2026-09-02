@@ -16,7 +16,7 @@ export default defineConfig({
   },
   pack: {
     deps: {
-      neverBundle: ['react', 'react-dom', 'react/jsx-runtime', 'three'],
+      neverBundle: ['react', 'react-dom', 'react/jsx-runtime'],
     },
     dts: true,
     entry: {

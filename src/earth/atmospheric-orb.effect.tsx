@@ -1,9 +1,8 @@
 'use client'
 
-// Requires: react, three
+// Requires: react
 
 import { useMemo, useRef, type CSSProperties } from 'react'
-import * as THREE from 'three'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -34,23 +33,6 @@ export type AtmosphericOrbSource = {
   } | null
 }
 
-export type CelestialOrbit = {
-  altitude: number
-  color: string
-  inclination: number
-  longitude: number
-  opacity?: number
-  speed?: number
-}
-
-export type CelestialRoute = {
-  altitude: number
-  color: string
-  from: readonly [latitude: number, longitude: number]
-  opacity?: number
-  to: readonly [latitude: number, longitude: number]
-}
-
 export type AtmosphericOrbEffectProps = {
   aerosol?: number
   atmosphereDensity?: number
@@ -59,20 +41,14 @@ export type AtmosphericOrbEffectProps = {
   cloudDensity?: number
   cloudHeight?: number
   cloudShadowIntensity?: number
-  detailIntensity?: number
-  detailSpeed?: number
   manualOrbit?: boolean
   model: AtmosphericOrbModel
   multipleScattering?: number
   nightLightIntensity?: number
   oceanGlint?: number
   oceanWaveStrength?: number
-  orbits?: readonly CelestialOrbit[]
   orbitSpeed?: number
-  routes?: readonly CelestialRoute[]
   showAtmosphere?: boolean
-  showFlightRoutes?: boolean
-  showSatelliteOrbits?: boolean
   source?: AtmosphericOrbSource
   style?: CSSProperties
   sunAzimuth?: number
@@ -86,8 +62,6 @@ type AtmosphericFrameSettings = {
   cloudDensity: number
   cloudHeight: number
   cloudShadowIntensity: number
-  detailIntensity: number
-  detailSpeed: number
   manualOrbit: boolean
   model: AtmosphericOrbModel
   multipleScattering: number
@@ -96,20 +70,14 @@ type AtmosphericFrameSettings = {
   oceanWaveStrength: number
   orbitSpeed: number
   showAtmosphere: boolean
-  showFlightRoutes: boolean
-  showSatelliteOrbits: boolean
   sunAzimuth: number
   sunElevation: number
 }
 
 type AtmosphericRendererInput = {
-  orbits: readonly CelestialOrbit[]
-  routes: readonly CelestialRoute[]
   source: AtmosphericOrbSource | undefined
 }
 
-const EMPTY_ORBITS: readonly CelestialOrbit[] = []
-const EMPTY_ROUTES: readonly CelestialRoute[] = []
 const PLANET_RADIUS = 0.82
 
 const VERTEX_SHADER = `#version 300 es
@@ -891,179 +859,6 @@ void main() {
 }
 `
 
-type DetailMaterial = {
-  baseOpacity: number
-  material: THREE.LineBasicMaterial | THREE.MeshBasicMaterial
-}
-
-type OrbitVisual = {
-  radius: number
-  satellite: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>
-  speed: number
-}
-
-type RouteVisual = {
-  points: THREE.Vector3[]
-  pulse: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>
-}
-
-type DetailResources = {
-  camera: THREE.PerspectiveCamera
-  depthMaterial: THREE.MeshBasicMaterial
-  materials: DetailMaterial[]
-  orbitRoot: THREE.Group
-  orbits: OrbitVisual[]
-  routeRoot: THREE.Group
-  routes: RouteVisual[]
-  scene: THREE.Scene
-}
-
-function latLonToVector(
-  coordinate: readonly [latitude: number, longitude: number],
-  radius: number,
-): THREE.Vector3 {
-  const latitude = THREE.MathUtils.degToRad(coordinate[0])
-  const longitude = THREE.MathUtils.degToRad(coordinate[1])
-  const latitudeCosine = Math.cos(latitude)
-  return new THREE.Vector3(
-    Math.sin(longitude) * latitudeCosine,
-    Math.sin(latitude),
-    Math.cos(longitude) * latitudeCosine,
-  ).multiplyScalar(radius)
-}
-
-function greatCirclePoints(route: CelestialRoute): THREE.Vector3[] {
-  const start = latLonToVector(route.from, 1).normalize()
-  const end = latLonToVector(route.to, 1).normalize()
-  const angle = start.angleTo(end)
-  const sine = Math.max(Math.sin(angle), 0.0001)
-  return Array.from({ length: 97 }, (_, index) => {
-    const progress = index / 96
-    const startWeight = Math.sin((1 - progress) * angle) / sine
-    const endWeight = Math.sin(progress * angle) / sine
-    const altitude = route.altitude * Math.sin(progress * Math.PI)
-    return start
-      .clone()
-      .multiplyScalar(startWeight)
-      .addScaledVector(end, endWeight)
-      .normalize()
-      .multiplyScalar(PLANET_RADIUS + 0.008 + altitude)
-  })
-}
-
-function createDetailResources(
-  orbits: readonly CelestialOrbit[],
-  routes: readonly CelestialRoute[],
-): DetailResources {
-  const scene = new THREE.Scene()
-  const camera = new THREE.PerspectiveCamera(42.6, 1, 0.1, 10)
-  camera.position.set(0, 0, 3)
-  camera.lookAt(0, 0, 0)
-
-  const depthGeometry = new THREE.SphereGeometry(PLANET_RADIUS, 64, 48)
-  const depthMaterial = new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: true })
-  const depthSphere = new THREE.Mesh(depthGeometry, depthMaterial)
-  depthSphere.renderOrder = 0
-  scene.add(depthSphere)
-
-  const materials: DetailMaterial[] = []
-  const orbitRoot = new THREE.Group()
-  const orbitVisuals = orbits.map((orbit, index) => {
-    const radius = PLANET_RADIUS + orbit.altitude
-    const points = Array.from({ length: 192 }, (_, pointIndex) => {
-      const angle = (pointIndex / 192) * Math.PI * 2
-      return new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius)
-    })
-    const geometry = new THREE.BufferGeometry().setFromPoints(points)
-    const opacity = orbit.opacity ?? 0.34
-    const material = new THREE.LineBasicMaterial({
-      color: orbit.color,
-      depthTest: true,
-      depthWrite: false,
-      opacity,
-      transparent: true,
-    })
-    materials.push({ baseOpacity: opacity, material })
-    const line = new THREE.LineLoop(geometry, material)
-    line.renderOrder = 1
-
-    const satelliteMaterial = new THREE.MeshBasicMaterial({
-      color: orbit.color,
-      depthTest: true,
-      depthWrite: false,
-      opacity: Math.min(opacity * 2.8, 1),
-      transparent: true,
-    })
-    materials.push({ baseOpacity: Math.min(opacity * 2.8, 1), material: satelliteMaterial })
-    const satellite = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), satelliteMaterial)
-    satellite.renderOrder = 2
-
-    const group = new THREE.Group()
-    group.rotation.x = THREE.MathUtils.degToRad(orbit.inclination)
-    group.rotation.y = THREE.MathUtils.degToRad(orbit.longitude)
-    group.add(line, satellite)
-    orbitRoot.add(group)
-    return {
-      radius,
-      satellite,
-      speed: (orbit.speed ?? 0.11) * (index % 2 === 0 ? 1 : -1),
-    }
-  })
-  scene.add(orbitRoot)
-
-  const routeRoot = new THREE.Group()
-  const routeVisuals = routes.map((route) => {
-    const points = greatCirclePoints(route)
-    const geometry = new THREE.BufferGeometry().setFromPoints(points)
-    const opacity = route.opacity ?? 0.54
-    const material = new THREE.LineBasicMaterial({
-      color: route.color,
-      depthTest: true,
-      depthWrite: false,
-      opacity,
-      transparent: true,
-    })
-    materials.push({ baseOpacity: opacity, material })
-    const line = new THREE.Line(geometry, material)
-    line.renderOrder = 2
-    routeRoot.add(line)
-
-    const pulseMaterial = new THREE.MeshBasicMaterial({
-      color: route.color,
-      depthTest: true,
-      depthWrite: false,
-      opacity: Math.min(opacity * 1.7, 1),
-      transparent: true,
-    })
-    materials.push({ baseOpacity: Math.min(opacity * 1.7, 1), material: pulseMaterial })
-    const pulse = new THREE.Mesh(new THREE.SphereGeometry(0.009, 10, 6), pulseMaterial)
-    pulse.renderOrder = 3
-    routeRoot.add(pulse)
-    return { points, pulse }
-  })
-  scene.add(routeRoot)
-
-  return {
-    camera,
-    depthMaterial,
-    materials,
-    orbitRoot,
-    orbits: orbitVisuals,
-    routeRoot,
-    routes: routeVisuals,
-    scene,
-  }
-}
-
-function deleteDetailResources(details: DetailResources): void {
-  details.scene.traverse((object) => {
-    if (!(object instanceof THREE.Line || object instanceof THREE.Mesh)) return
-    object.geometry.dispose()
-  })
-  for (const { material } of details.materials) material.dispose()
-  details.depthMaterial.dispose()
-}
-
 type RenderTarget = {
   framebuffer: WebGLFramebuffer
   height: number
@@ -1310,7 +1105,7 @@ function setColor(
 
 function createAtmosphericRenderer(
   canvas: HTMLCanvasElement,
-  { orbits, routes, source }: AtmosphericRendererInput,
+  { source }: AtmosphericRendererInput,
   getSettings: () => AtmosphericFrameSettings,
 ): CanvasRenderer<AtmosphericFrameSettings> | null {
   const context = canvas.getContext('webgl2', {
@@ -1321,15 +1116,6 @@ function createAtmosphericRenderer(
   })
   if (!context) return null
   const gl: WebGL2RenderingContext = context
-  const threeRenderer = new THREE.WebGLRenderer({
-    alpha: true,
-    canvas,
-    context: gl,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  threeRenderer.autoClear = false
-  const details = createDetailResources(orbits, routes)
 
   let contextLost = false
   let disposed = false
@@ -1395,7 +1181,7 @@ function createAtmosphericRenderer(
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
     hasSurfaceSource = true
-    longitudeOffset = THREE.MathUtils.degToRad(surface.longitudeOffsetDegrees ?? 0)
+    longitudeOffset = (surface.longitudeOffsetDegrees ?? 0) * (Math.PI / 180)
   }
 
   function resize(): void {
@@ -1404,11 +1190,9 @@ function createAtmosphericRenderer(
     const width = Math.max(Math.round(bounds.width * dpr), 1)
     const height = Math.max(Math.round(bounds.height * dpr), 1)
     if (canvas!.width !== width || canvas!.height !== height) {
-      threeRenderer.setPixelRatio(dpr)
-      threeRenderer.setSize(Math.max(bounds.width, 1), Math.max(bounds.height, 1), false)
+      canvas!.width = width
+      canvas!.height = height
     }
-    details.camera.aspect = Math.max(bounds.width, 1) / Math.max(bounds.height, 1)
-    details.camera.updateProjectionMatrix()
     resizeRenderTarget(gl, resources.atmosphere, width, height)
     if (earthResources) {
       resizeRenderTarget(gl, earthResources.emission, width, height)
@@ -1531,7 +1315,7 @@ function createAtmosphericRenderer(
     lastTime = timestamp
     updatePointer(delta)
 
-    const baseAzimuth = THREE.MathUtils.degToRad(current.sunAzimuth)
+    const baseAzimuth = current.sunAzimuth * (Math.PI / 180)
     const orbitAngle = current.manualOrbit
       ? baseAzimuth + pointer.currentX * Math.PI
       : elapsed * current.orbitSpeed + baseAzimuth + pointer.currentX * 0.42
@@ -1665,32 +1449,6 @@ function createAtmosphericRenderer(
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 
-    details.orbitRoot.visible = current.showSatelliteOrbits
-    details.routeRoot.visible = current.showFlightRoutes
-    for (const [index, orbit] of details.orbits.entries()) {
-      const satelliteAngle = elapsed * orbit.speed * current.detailSpeed + index * 2.1
-      orbit.satellite.position.set(
-        Math.cos(satelliteAngle) * orbit.radius,
-        0,
-        Math.sin(satelliteAngle) * orbit.radius,
-      )
-    }
-    for (const [index, route] of details.routes.entries()) {
-      const progress = (elapsed * 0.16 * current.detailSpeed + index * 0.31) % 1
-      const pointIndex = Math.min(
-        Math.floor(progress * route.points.length),
-        route.points.length - 1,
-      )
-      route.pulse.position.copy(route.points[pointIndex]!)
-    }
-    for (const { baseOpacity, material } of details.materials) {
-      material.opacity = Math.min(baseOpacity * current.detailIntensity, 1)
-    }
-
-    threeRenderer.resetState()
-    threeRenderer.clearDepth()
-    threeRenderer.render(details.scene, details.camera)
-    threeRenderer.resetState()
     gl.bindVertexArray(null)
   }
 
@@ -1745,8 +1503,6 @@ function createAtmosphericRenderer(
       canvas.removeEventListener('pointerleave', handlePointerLeave)
       canvas.removeEventListener('webglcontextlost', handleContextLost)
       canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      deleteDetailResources(details)
-      threeRenderer.dispose()
       if (!contextLost) {
         if (earthResources) deleteEarthResources(gl, earthResources)
         deleteResources(gl, resources)
@@ -1764,20 +1520,14 @@ export function AtmosphericOrbEffect({
   cloudDensity = 1,
   cloudHeight = 0.012,
   cloudShadowIntensity = 0.48,
-  detailIntensity = 1,
-  detailSpeed = 1,
   manualOrbit = false,
   model,
   multipleScattering = 1,
   nightLightIntensity = 1,
   oceanGlint = 0.72,
   oceanWaveStrength = 0.8,
-  orbits = EMPTY_ORBITS,
   orbitSpeed = 0.08,
-  routes = EMPTY_ROUTES,
   showAtmosphere = true,
-  showFlightRoutes = false,
-  showSatelliteOrbits = false,
   source,
   style,
   sunAzimuth = -41.25,
@@ -1791,8 +1541,6 @@ export function AtmosphericOrbEffect({
     cloudDensity,
     cloudHeight,
     cloudShadowIntensity,
-    detailIntensity,
-    detailSpeed,
     manualOrbit,
     model,
     multipleScattering,
@@ -1801,15 +1549,10 @@ export function AtmosphericOrbEffect({
     oceanWaveStrength,
     orbitSpeed,
     showAtmosphere,
-    showFlightRoutes,
-    showSatelliteOrbits,
     sunAzimuth,
     sunElevation,
   }
-  const rendererInput = useMemo<AtmosphericRendererInput>(
-    () => ({ orbits, routes, source }),
-    [orbits, routes, source],
-  )
+  const rendererInput = useMemo<AtmosphericRendererInput>(() => ({ source }), [source])
 
   useCanvasRenderer(canvasRef, frameSettings, rendererInput, createAtmosphericRenderer)
 
