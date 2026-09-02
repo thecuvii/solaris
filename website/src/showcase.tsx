@@ -359,11 +359,11 @@ const linear = 'linear' as const
 function getPlanetTransitionPlan(from: PlanetId, to: PlanetId): PlanetTransitionPlan {
   if ((from === 'moon' && to === 'lunar-eclipse') || (from === 'lunar-eclipse' && to === 'moon')) {
     return {
-      duration: 0.48,
-      farScale: 0.5,
-      horizonY: -1.5,
+      duration: 0.58,
+      farScale: 0.42,
+      horizonY: -2,
       roll: 0,
-      turnX: 4,
+      turnX: 5,
     }
   }
 
@@ -374,11 +374,11 @@ function getPlanetTransitionPlan(from: PlanetId, to: PlanetId): PlanetTransition
     (from === 'titan' && to === 'saturn')
   if (isLocalSystem) {
     return {
-      duration: 0.66,
-      farScale: 0.3,
-      horizonY: -3.5,
+      duration: 0.76,
+      farScale: 0.24,
+      horizonY: -4,
       roll: 0.2,
-      turnX: 10,
+      turnX: 12,
     }
   }
 
@@ -386,11 +386,11 @@ function getPlanetTransitionPlan(from: PlanetId, to: PlanetId): PlanetTransition
   const distanceFactor = Math.min(Math.log1p(distance) / Math.log1p(orbitalAnchorAu.pluto), 1)
   const range = Math.sqrt(distanceFactor)
   return {
-    duration: 0.74 + 0.16 * range,
-    farScale: 0.26 - 0.1 * range,
-    horizonY: -(5 + 4 * range),
+    duration: 0.88 + 0.2 * range,
+    farScale: 0.2 - 0.08 * range,
+    horizonY: -(6 + 4 * range),
     roll: 0.35 + 0.3 * range,
-    turnX: 13 + 11 * range,
+    turnX: 15 + 12 * range,
   }
 }
 
@@ -485,8 +485,8 @@ const planetPreviewVariants: Variants = {
       ],
       transition: {
         duration: plan.duration,
-        ease: [linear, linear, linear, easeOut, easeOut, easeOut],
-        times: [0, 0.44, 0.5, 0.56, 0.68, 0.86, 1],
+        ease: [linear, easeInOut, easeOut, easeOut, easeOut, easeOut],
+        times: [0, 0.46, 0.5, 0.58, 0.72, 0.9, 1],
       },
     }
   },
@@ -511,8 +511,8 @@ const planetPreviewVariants: Variants = {
       transform: [...transforms, transforms[5]],
       transition: {
         duration: plan.duration,
-        ease: [easeInOut, easeInOut, easeInOut, linear, linear, linear],
-        times: [0, 0.14, 0.32, 0.44, 0.5, 0.56, 1],
+        ease: [easeOut, easeInOut, easeInOut, easeInOut, easeOut, linear],
+        times: [0, 0.12, 0.34, 0.46, 0.5, 0.58, 1],
       },
     }
   },
