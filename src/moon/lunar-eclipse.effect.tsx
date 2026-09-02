@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -31,9 +31,16 @@ export type LunarEclipseSource = {
   } | null
 }
 
+export type LunarEclipseComposition = {
+  bottom?: CSSProperties['bottom']
+  height: CSSProperties['height']
+  width: CSSProperties['width']
+}
+
 export type LunarEclipseEffectProps = {
   atmosphericOpticalDepth?: number
   className?: string
+  composition?: LunarEclipseComposition
   exposure?: number
   haloIntensity?: number
   haloWidth?: number
@@ -84,6 +91,8 @@ in vec2 vUv;
 
 uniform sampler2D uAlbedoTexture;
 uniform float uAtmosphericOpticalDepth;
+uniform vec2 uCompositionCenter;
+uniform float uCompositionScale;
 uniform float uExposure;
 uniform float uHaloIntensity;
 uniform float uHaloWidth;
@@ -262,8 +271,7 @@ void main() {
     return;
   }
 
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
+  vec2 position = (vUv * uResolution - uCompositionCenter) * 2.0 / uCompositionScale;
   float radialDistance = length(position);
   float edgeWidth = max(fwidth(radialDistance), 0.0005);
   float coverage = 1.0 - smoothstep(MOON_RADIUS - edgeWidth, MOON_RADIUS + edgeWidth, radialDistance);
@@ -449,8 +457,13 @@ function uploadTexture(
 
 function createLunarEclipseRenderer(
   canvas: HTMLCanvasElement,
-  source: LunarEclipseSource,
+  input: {
+    compositionRef: RefObject<HTMLDivElement | null>
+    hasComposition: boolean
+    source: LunarEclipseSource
+  },
 ): CanvasRenderer<LunarEclipseFrameSettings> | null {
+  const { compositionRef, hasComposition, source } = input
   const context = canvas.getContext('webgl2', {
     alpha: true,
     antialias: false,
@@ -468,6 +481,9 @@ function createLunarEclipseRenderer(
   let resourceGeneration = 0
   let resources = createResources(gl)
   let lastTime = performance.now()
+  let compositionCenterX = 0
+  let compositionCenterY = 0
+  let compositionScale = 1
   const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
 
   function uploadSource(): void {
@@ -521,6 +537,18 @@ function createLunarEclipseRenderer(
       canvas.width = width
       canvas.height = height
     }
+
+    const compositionBounds = compositionRef.current?.getBoundingClientRect() ?? bounds
+    const scaleX = width / Math.max(bounds.width, 1)
+    const scaleY = height / Math.max(bounds.height, 1)
+    compositionCenterX =
+      (compositionBounds.left - bounds.left + compositionBounds.width / 2) * scaleX
+    compositionCenterY =
+      height - (compositionBounds.top - bounds.top + compositionBounds.height / 2) * scaleY
+    compositionScale = Math.max(
+      Math.min(compositionBounds.width * scaleX, compositionBounds.height * scaleY),
+      1,
+    )
   }
 
   function updatePointer(delta: number): void {
@@ -560,6 +588,12 @@ function createLunarEclipseRenderer(
       gl.getUniformLocation(resources.program, 'uAtmosphericOpticalDepth'),
       settings.atmosphericOpticalDepth,
     )
+    gl.uniform2f(
+      gl.getUniformLocation(resources.program, 'uCompositionCenter'),
+      compositionCenterX,
+      compositionCenterY,
+    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uCompositionScale'), compositionScale)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uHaloIntensity'), settings.haloIntensity)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uHaloWidth'), settings.haloWidth)
@@ -604,7 +638,7 @@ function createLunarEclipseRenderer(
   }
 
   function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas.getBoundingClientRect()
+    const bounds = compositionRef.current?.getBoundingClientRect() ?? canvas.getBoundingClientRect()
     pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
     pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
   }
@@ -634,6 +668,7 @@ function createLunarEclipseRenderer(
 
   const resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(canvas)
+  if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
   canvas.addEventListener('pointermove', handlePointerMove)
   canvas.addEventListener('pointerleave', handlePointerLeave)
   canvas.addEventListener('webglcontextlost', handleContextLost)
@@ -671,6 +706,7 @@ function createLunarEclipseRenderer(
 export function LunarEclipseEffect({
   atmosphericOpticalDepth = 1.18,
   className,
+  composition,
   exposure = 1.18,
   haloIntensity = 1.15,
   haloWidth = 0.23,
@@ -686,6 +722,8 @@ export function LunarEclipseEffect({
   umbraRadius = 2.2,
 }: LunarEclipseEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const compositionRef = useRef<HTMLDivElement>(null)
+  const hasComposition = composition !== undefined
   const frameSettings: LunarEclipseFrameSettings = {
     atmosphericOpticalDepth,
     exposure,
@@ -701,7 +739,38 @@ export function LunarEclipseEffect({
     umbraRadius,
   }
 
-  useCanvasRenderer(canvasRef, frameSettings, source, createLunarEclipseRenderer)
+  const rendererInput = useMemo(
+    () => ({ compositionRef, hasComposition, source }),
+    [hasComposition, source],
+  )
+
+  useCanvasRenderer(canvasRef, frameSettings, rendererInput, createLunarEclipseRenderer)
+
+  if (composition) {
+    return (
+      <div
+        className={className}
+        style={{ height: '100%', position: 'relative', width: '100%', ...style }}
+      >
+        <div
+          aria-hidden="true"
+          ref={compositionRef}
+          style={{
+            left: '50%',
+            pointerEvents: 'none',
+            position: 'absolute',
+            transform: 'translateX(-50%)',
+            ...composition,
+          }}
+        />
+        <canvas
+          aria-hidden="true"
+          ref={canvasRef}
+          style={{ display: 'block', height: '100%', touchAction: 'none', width: '100%' }}
+        />
+      </div>
+    )
+  }
 
   return (
     <canvas

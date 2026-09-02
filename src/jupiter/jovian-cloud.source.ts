@@ -1,15 +1,5 @@
 import type { JovianOrbSource } from './jovian-orb.effect'
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.decoding = 'async'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(`Unable to load Jovian cloud texture: ${url}`))
-    image.src = url
-  })
-}
+import { loadTextureImage } from '../texture-image'
 
 export function createJovianCloudSource(
   albedoUrl: string,
@@ -22,7 +12,7 @@ export function createJovianCloudSource(
 
   return {
     ready() {
-      pending ??= loadImage(albedoUrl).then((image) => {
+      pending ??= loadTextureImage(albedoUrl).then((image) => {
         albedo = image
       })
       return pending

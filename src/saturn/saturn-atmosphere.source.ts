@@ -1,15 +1,5 @@
 import type { SaturnOrbSource } from './saturn-orb.effect'
-
-function loadImage(url: string, label: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.decoding = 'async'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(`Unable to load Saturn ${label} texture: ${url}`))
-    image.src = url
-  })
-}
+import { loadTextureImage } from '../texture-image'
 
 export function createSaturnAtmosphereSource(
   atmosphereUrl: string,
@@ -26,13 +16,12 @@ export function createSaturnAtmosphereSource(
 
   return {
     ready() {
-      pending ??= Promise.all([
-        loadImage(atmosphereUrl, 'atmosphere'),
-        loadImage(ringsUrl, 'ring data'),
-      ]).then(([atmosphereImage, ringImage]) => {
-        atmosphere = atmosphereImage
-        rings = ringImage
-      })
+      pending ??= Promise.all([loadTextureImage(atmosphereUrl), loadTextureImage(ringsUrl)]).then(
+        ([atmosphereImage, ringImage]) => {
+          atmosphere = atmosphereImage
+          rings = ringImage
+        },
+      )
       return pending
     },
     render() {

@@ -1,15 +1,5 @@
 import type { VenusianOrbSource } from './venusian-orb.effect'
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.decoding = 'async'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(`Unable to load Venus cloud texture: ${url}`))
-    image.src = url
-  })
-}
+import { loadTextureImage } from '../texture-image'
 
 export function createVenusianCloudSource(
   cloudStructureUrl: string,
@@ -20,7 +10,7 @@ export function createVenusianCloudSource(
 
   return {
     ready() {
-      pending ??= loadImage(cloudStructureUrl).then((image) => {
+      pending ??= loadTextureImage(cloudStructureUrl).then((image) => {
         cloudStructure = image
       })
       return pending

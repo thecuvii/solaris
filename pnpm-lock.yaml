@@ -192,6 +192,9 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+      torph:
+        specifier: ^0.1.0
+        version: 0.1.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
     devDependencies:
       '@stylexjs/unplugin':
         specifier: 0.19.0
@@ -2167,6 +2170,23 @@ packages:
     resolution: {integrity: sha512-yau8yJdTt989Mm0Bd/236QnzEiPf2xLLTqUZRUJOo/3CB078LSwzei343DgtJVmfJKJE3TMINY1u42SQsP6mXw==}
     engines: {node: '>=14.0.0'}
 
+  torph@0.1.0:
+    resolution: {integrity: sha512-2HxoKBIjydwsVilfP44Dawsc6Ou4iL00GgnCvs4raL+Oc8EfY1kKyAxm+wmPYtVRdgdUoSIWUeaaIShNadxQPQ==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
+      svelte: '>=5'
+      vue: '>=3'
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
+
   totalist@3.0.1:
     resolution: {integrity: sha512-sf4i37nQ2LBx4m3wB74y+ubopq6W/dIzXg0FDGjsYnZHVa1Da8FH853wlL2gtUhg+xJXjfk3kUZS3BRoQeoQBQ==}
     engines: {node: '>=6'}
@@ -4065,6 +4085,11 @@ snapshots:
   tinypool@2.1.0: {}
 
   tinyrainbow@3.1.1: {}
+
+  torph@0.1.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
+    optionalDependencies:
+      react: 19.2.8
+      react-dom: 19.2.8(react@19.2.8)
 
   totalist@3.0.1: {}
 

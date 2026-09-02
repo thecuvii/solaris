@@ -1,15 +1,5 @@
 import type { MartianOrbSource } from './martian-orb.effect'
-
-function loadImage(url: string, label: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.decoding = 'async'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(`Unable to load Martian ${label} texture: ${url}`))
-    image.src = url
-  })
-}
+import { loadTextureImage } from '../texture-image'
 
 export function createMartianSurfaceSource(
   albedoUrl: string,
@@ -24,8 +14,8 @@ export function createMartianSurfaceSource(
   return {
     ready() {
       pending ??= Promise.all([
-        loadImage(albedoUrl, 'albedo'),
-        loadImage(normalHeightUrl, 'normal-height'),
+        loadTextureImage(albedoUrl),
+        loadTextureImage(normalHeightUrl),
       ]).then(([albedoImage, normalHeightImage]) => {
         albedo = albedoImage
         normalHeight = normalHeightImage

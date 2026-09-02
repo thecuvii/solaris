@@ -1,11 +1,10 @@
 import type { SolarDataPlane, SolarOrbSource } from './solar-orb.effect'
+import { loadTextureImage } from '../texture-image'
 
-function loadObservation(url: string): Promise<SolarDataPlane> {
+async function loadObservation(url: string): Promise<SolarDataPlane> {
+  const image = await loadTextureImage(url)
   return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.decoding = 'async'
-    image.onload = () => {
+    try {
       const canvas = document.createElement('canvas')
       canvas.width = image.naturalWidth
       canvas.height = image.naturalHeight
@@ -21,9 +20,9 @@ function loadObservation(url: string): Promise<SolarDataPlane> {
         height: canvas.height,
         width: canvas.width,
       })
+    } catch (error) {
+      reject(error)
     }
-    image.onerror = () => reject(new Error(`Unable to load the AIA 304 observation: ${url}`))
-    image.src = url
   })
 }
 

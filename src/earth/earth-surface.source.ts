@@ -1,15 +1,5 @@
 import type { AtmosphericOrbSource } from './atmospheric-orb.effect'
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.decoding = 'async'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(`Unable to load Earth surface texture: ${url}`))
-    image.src = url
-  })
-}
+import { loadTextureImage } from '../texture-image'
 
 export function createEarthSurfaceSource(
   dayUrl: string,
@@ -31,12 +21,12 @@ export function createEarthSurfaceSource(
   return {
     ready() {
       pending ??= Promise.all([
-        loadImage(dayUrl),
-        loadImage(nightUrl),
-        loadImage(normalUrl),
-        loadImage(roughnessUrl),
-        loadImage(cloudUrl),
-        loadImage(materialUrl),
+        loadTextureImage(dayUrl),
+        loadTextureImage(nightUrl),
+        loadTextureImage(normalUrl),
+        loadTextureImage(roughnessUrl),
+        loadTextureImage(cloudUrl),
+        loadTextureImage(materialUrl),
       ]).then((images) => {
         day = images[0]
         night = images[1]

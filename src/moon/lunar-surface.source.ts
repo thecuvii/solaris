@@ -1,15 +1,5 @@
 import type { LunarOrbSource } from './lunar-orb.effect'
-
-function loadImage(url: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const image = new Image()
-    image.crossOrigin = 'anonymous'
-    image.decoding = 'async'
-    image.onload = () => resolve(image)
-    image.onerror = () => reject(new Error(`Unable to load lunar surface texture: ${url}`))
-    image.src = url
-  })
-}
+import { loadTextureImage } from '../texture-image'
 
 export function createLunarSurfaceSource(
   albedoUrl: string,
@@ -23,7 +13,10 @@ export function createLunarSurfaceSource(
 
   return {
     ready() {
-      pending ??= Promise.all([loadImage(albedoUrl), loadImage(normalHeightUrl)]).then((images) => {
+      pending ??= Promise.all([
+        loadTextureImage(albedoUrl),
+        loadTextureImage(normalHeightUrl),
+      ]).then((images) => {
         albedo = images[0]
         normalHeight = images[1]
       })

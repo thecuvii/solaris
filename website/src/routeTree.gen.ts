@@ -10,33 +10,49 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ShowcaseRouteImport } from './routes/_showcase'
+import { Route as ShowcasePlanetRouteImport } from './routes/_showcase.$planet'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ShowcaseRoute = ShowcaseRouteImport.update({
+  id: '/_showcase',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ShowcasePlanetRoute = ShowcasePlanetRouteImport.update({
+  id: '/$planet',
+  path: '/$planet',
+  getParentRoute: () => ShowcaseRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/$planet': typeof ShowcasePlanetRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/$planet': typeof ShowcasePlanetRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_showcase': typeof ShowcaseRouteWithChildren
+  '/_showcase/$planet': typeof ShowcasePlanetRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/$planet'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/$planet'
+  id: '__root__' | '/' | '/_showcase' | '/_showcase/$planet'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ShowcaseRoute: typeof ShowcaseRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +64,38 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_showcase': {
+      id: '/_showcase'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof ShowcaseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_showcase/$planet': {
+      id: '/_showcase/$planet'
+      path: '/$planet'
+      fullPath: '/$planet'
+      preLoaderRoute: typeof ShowcasePlanetRouteImport
+      parentRoute: typeof ShowcaseRoute
+    }
   }
 }
 
+interface ShowcaseRouteChildren {
+  ShowcasePlanetRoute: typeof ShowcasePlanetRoute
+}
+
+const ShowcaseRouteChildren: ShowcaseRouteChildren = {
+  ShowcasePlanetRoute: ShowcasePlanetRoute,
+}
+
+const ShowcaseRouteWithChildren = ShowcaseRoute._addFileChildren(
+  ShowcaseRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ShowcaseRoute: ShowcaseRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
