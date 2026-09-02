@@ -503,6 +503,7 @@ const planetPreviewVariants: Variants = {
 
 function HomePage() {
   const [selectedPlanet, setSelectedPlanet] = useState<PlanetId>('earth')
+  const [showGrid, setShowGrid] = useState(false)
   const [transitionDirection, setTransitionDirection] = useState<-1 | 1>(1)
   const [settingsByPlanet, setSettingsByPlanet] = useState(initialSettings)
   const selectedPlanetRef = useRef<PlanetId>('earth')
@@ -565,7 +566,11 @@ function HomePage() {
 
   return (
     <Tabs.Root value={selectedPlanet} onValueChange={selectPlanet} {...stylex.props(styles.page)}>
-      <PlanetPicker selectedPlanet={selectedPlanet} />
+      <PlanetPicker
+        gridVisible={showGrid}
+        onGridVisibleChange={setShowGrid}
+        selectedPlanet={selectedPlanet}
+      />
 
       <main {...stylex.props(styles.content)}>
         <Tabs.Panel value={selectedPlanet} {...stylex.props(styles.panel)}>
@@ -607,11 +612,43 @@ function HomePage() {
         settings={settings}
         updateSetting={updateSetting}
       />
+
+      {showGrid && <LayoutGridOverlay />}
     </Tabs.Root>
   )
 }
 
-function PlanetPicker({ selectedPlanet }: { selectedPlanet: PlanetId }) {
+function LayoutGridOverlay() {
+  return (
+    <div {...stylex.props(styles.gridOverlay)} aria-hidden="true">
+      <span {...stylex.props(styles.gridOverlayRail)} />
+      <div {...stylex.props(styles.gridOverlayCenter)}>
+        <div {...stylex.props(styles.gridOverlayContent)}>
+          {Array.from({ length: 8 }, (_, index) => (
+            <span
+              key={index}
+              {...stylex.props(
+                styles.gridOverlayColumn,
+                index >= 4 && styles.gridOverlayColumnMobileHidden,
+              )}
+            />
+          ))}
+        </div>
+      </div>
+      <span {...stylex.props(styles.gridOverlayRail)} />
+    </div>
+  )
+}
+
+function PlanetPicker({
+  gridVisible,
+  onGridVisibleChange,
+  selectedPlanet,
+}: {
+  gridVisible: boolean
+  onGridVisibleChange: (visible: boolean) => void
+  selectedPlanet: PlanetId
+}) {
   return (
     <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
       <div {...stylex.props(styles.pickerNavigation)}>
@@ -661,6 +698,14 @@ function PlanetPicker({ selectedPlanet }: { selectedPlanet: PlanetId }) {
               Cuvii
             </a>
           </div>
+        </div>
+
+        <div {...stylex.props(styles.pickerGridToggle)}>
+          <ParameterSwitch
+            checked={gridVisible}
+            label="Grid"
+            onCheckedChange={onGridVisibleChange}
+          />
         </div>
       </div>
     </aside>
@@ -1478,6 +1523,7 @@ const styles = stylex.create({
     backgroundImage: 'linear-gradient(180deg, rgba(132,146,190,0.11), rgba(132,146,190,0.045))',
     borderRadius: 16,
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.075), 0 16px 48px rgba(0,0,0,0.2)',
+    gridColumn: '1 / -1',
     marginTop: 18,
     minWidth: 0,
     overflow: 'hidden',
@@ -1544,6 +1590,56 @@ const styles = stylex.create({
       outline: 'none',
     },
   },
+  gridOverlay: {
+    backgroundImage:
+      'repeating-linear-gradient(to bottom, transparent 0, transparent 7px, color-mix(in oklch, var(--control-accent) 3%, transparent) 7px, color-mix(in oklch, var(--control-accent) 3%, transparent) 8px), repeating-linear-gradient(to bottom, transparent 0, transparent 63px, color-mix(in oklch, var(--control-accent) 7%, transparent) 63px, color-mix(in oklch, var(--control-accent) 7%, transparent) 64px)',
+    display: 'grid',
+    gridTemplateColumns: '300px minmax(400px, 1fr) 280px',
+    inset: 0,
+    pointerEvents: 'none',
+    position: 'fixed',
+    zIndex: 100,
+    '@media (max-width: 1080px)': {
+      gridTemplateColumns: '260px minmax(320px, 1fr) 280px',
+    },
+    '@media (max-width: 960px)': {
+      display: 'block',
+    },
+  },
+  gridOverlayCenter: {
+    backgroundColor: 'color-mix(in oklch, var(--control-accent) 2%, transparent)',
+    height: '100%',
+    minWidth: 0,
+    paddingInline: 'clamp(24px, 4vw, 64px)',
+  },
+  gridOverlayColumn: {
+    backgroundColor: 'color-mix(in oklch, var(--control-accent) 5%, transparent)',
+  },
+  gridOverlayColumnMobileHidden: {
+    '@media (max-width: 960px)': {
+      display: 'none',
+    },
+  },
+  gridOverlayContent: {
+    columnGap: 24,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(8, minmax(0, 1fr))',
+    height: '100%',
+    marginInline: 'auto',
+    maxWidth: 820,
+    '@media (max-width: 1279px)': {
+      columnGap: 16,
+    },
+    '@media (max-width: 960px)': {
+      gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    },
+  },
+  gridOverlayRail: {
+    backgroundColor: 'color-mix(in oklch, var(--control-accent) 4%, transparent)',
+    '@media (max-width: 960px)': {
+      display: 'none',
+    },
+  },
   inspector: {
     backdropFilter: 'blur(18px)',
     backgroundColor: 'oklch(8.52% 0.0384 274.56 / 0.9)',
@@ -1573,7 +1669,12 @@ const styles = stylex.create({
     paddingTop: 12,
   },
   introduction: {
+    gridColumn: '1 / span 6',
+    minWidth: 0,
     paddingBottom: 20,
+    '@media (max-width: 1279px)': {
+      gridColumn: '1 / -1',
+    },
   },
   numberFieldInput: {
     appearance: 'none',
@@ -1643,12 +1744,19 @@ const styles = stylex.create({
     },
   },
   panel: {
-    display: 'block',
+    columnGap: 24,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(8, minmax(0, 1fr))',
     marginInline: 'auto',
     maxWidth: 820,
     paddingBottom: 44,
     paddingTop: 'calc(70px + clamp(24px, 4vh, 52px))',
+    position: 'relative',
+    '@media (max-width: 1279px)': {
+      columnGap: 16,
+    },
     '@media (max-width: 960px)': {
+      gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
       paddingTop: 24,
     },
   },
@@ -1673,18 +1781,36 @@ const styles = stylex.create({
       width: 'auto',
     },
   },
+  pickerGridToggle: {
+    alignSelf: 'flex-end',
+    flex: '0 0 auto',
+    marginRight: 24,
+    marginTop: 'auto',
+    width: 180,
+    '@media (max-width: 960px)': {
+      marginBottom: 16,
+      marginLeft: 16,
+      marginRight: 16,
+      marginTop: 12,
+      width: 'auto',
+    },
+  },
   pickerMeta: {
     alignSelf: 'flex-end',
+    borderTopColor: 'oklch(86.4% 0.003 84.6 / 0.1)',
+    borderTopStyle: 'dashed',
+    borderTopWidth: 1,
     color: 'rgba(242, 232, 208, 0.38)',
     display: 'flex',
     flex: '0 0 auto',
     flexDirection: 'column',
-    fontSize: 12,
+    fontSize: 11,
     gap: 5,
     lineHeight: 1.45,
     marginRight: 24,
-    marginTop: 16,
-    textAlign: 'left',
+    marginTop: 12,
+    paddingTop: 12,
+    textAlign: 'right',
     width: 180,
     '@media (max-width: 960px)': {
       marginBottom: 20,
@@ -1713,11 +1839,8 @@ const styles = stylex.create({
     flexDirection: 'column',
     position: 'absolute',
     right: 0,
-    top: 'calc(146px + clamp(24px, 4vh, 52px))',
+    top: 'calc(78px + clamp(24px, 4vh, 52px))',
     width: 204,
-    '@media (min-width: 961px) and (max-width: 1080px)': {
-      top: 'calc(156px + clamp(24px, 4vh, 52px))',
-    },
     '@media (max-width: 960px)': {
       bottom: 'auto',
       position: 'relative',
@@ -1730,11 +1853,13 @@ const styles = stylex.create({
     alignSelf: 'flex-end',
     flex: '0 0 auto',
     marginRight: 24,
+    transform: 'translateY(2px)',
     '@media (max-width: 960px)': {
       alignSelf: 'flex-start',
       marginLeft: 16,
       marginRight: 0,
       marginTop: 20,
+      transform: 'none',
     },
   },
   planetPreviewTransition: {
@@ -1744,11 +1869,11 @@ const styles = stylex.create({
   },
   planetThumbnail: {
     flex: '0 0 auto',
-    height: 40,
+    height: 28,
     overflow: 'visible',
     pointerEvents: 'none',
     position: 'relative',
-    width: 40,
+    width: 28,
     '@media (max-width: 960px)': {
       height: 34,
       width: 34,
@@ -1770,8 +1895,8 @@ const styles = stylex.create({
     display: 'flex',
     flexShrink: 1,
     flexDirection: 'column',
-    gap: 4,
-    marginTop: 16,
+    gap: 2,
+    marginTop: 32,
     minHeight: 0,
     overflowY: 'auto',
     paddingRight: 24,
@@ -1805,9 +1930,9 @@ const styles = stylex.create({
     display: 'grid',
     fontSize: 11,
     gap: 12,
-    gridTemplateColumns: 'minmax(0, 1fr) 40px',
+    gridTemplateColumns: 'minmax(0, 1fr) 28px',
     lineHeight: 1.2,
-    minHeight: 40,
+    minHeight: 36,
     padding: 0,
     scrollSnapAlign: 'center',
     textAlign: 'right',
@@ -1923,7 +2048,7 @@ const styles = stylex.create({
     zIndex: 2,
   },
   sliderRoot: {
-    height: 40,
+    height: 32,
     minWidth: 0,
     position: 'relative',
     width: '100%',
@@ -1943,7 +2068,7 @@ const styles = stylex.create({
     height: 24,
     pointerEvents: 'none',
     position: 'absolute',
-    top: 8,
+    top: 4,
     transition: 'box-shadow 140ms ease-out, transform 140ms ease-out',
     translate: '-50% 0',
     width: 4,
@@ -1961,7 +2086,7 @@ const styles = stylex.create({
     borderRadius: 10,
     boxShadow:
       '0 3px 7px oklch(0% 0 0 / 0.27), 0 1px 3px oklch(0% 0 0 / 0.2), inset 0 1px 0 oklch(100% 0 0 / 0.045), inset 0 -1px 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025)',
-    height: 40,
+    height: 32,
     overflow: 'hidden',
     position: 'relative',
     touchAction: 'none',
@@ -1970,6 +2095,7 @@ const styles = stylex.create({
   },
   stage: {
     borderRadius: 14,
+    gridColumn: '1 / -1',
     height: 'clamp(360px, 52vh, 590px)',
     overflow: 'hidden',
     position: 'relative',
@@ -2007,10 +2133,10 @@ const styles = stylex.create({
     cursor: 'pointer',
     display: 'block',
     flex: '0 0 auto',
-    height: 24,
+    height: 18,
     position: 'relative',
     transition: 'background-color 300ms ease, box-shadow 300ms ease',
-    width: 44,
+    width: 34,
     ':focus-visible': {
       boxShadow:
         'inset 0 1px 0 oklch(100% 0 0 / 0.12), 0 0 0 3px color-mix(in oklch, var(--control-accent) 22%, transparent)',
@@ -2027,20 +2153,21 @@ const styles = stylex.create({
     borderRadius: '50%',
     boxShadow: '0 2px 4px oklch(0% 0 0 / 0.28)',
     display: 'block',
-    height: 20,
+    height: 14,
     left: 2,
     position: 'absolute',
     top: 2,
     transform: 'translateX(0)',
     transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-    width: 20,
+    width: 14,
   },
   switchThumbChecked: {
-    transform: 'translateX(20px)',
+    transform: 'translateX(16px)',
   },
   title: {
     backgroundClip: 'text',
-    backgroundImage: 'linear-gradient(180deg, #ffffff 8%, rgba(242,232,208,0.82) 100%)',
+    backgroundImage:
+      'linear-gradient(180deg, color(display-p3 1 1 1) 0%, color(display-p3 0.8787 0.8708 0.8589) 100%)',
     color: 'transparent',
     fontFamily: '"Inter Variable", Inter, sans-serif',
     fontSize: 'clamp(36px, 4vw, 52px)',
