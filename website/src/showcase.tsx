@@ -25,9 +25,7 @@ import {
   AnimatePresence,
   animate,
   motion,
-  useIsPresent,
   useMotionValue,
-  usePresenceData,
   useReducedMotion,
   useTransform,
 } from 'motion/react'
@@ -83,11 +81,6 @@ type PlanetTransitionContext = {
 
 type PlanetTransitionPlan = {
   duration: number
-  farScale: number
-  horizonY: number
-  roll: number
-  surfaceTravel: number
-  turnX: number
 }
 
 type EclipseTextLightingProperties = CSSProperties & {
@@ -434,141 +427,22 @@ const earthModel = {
   sunIntensity: 18,
 } as const
 
-const orbitalAnchorAu: Record<PlanetId, number> = {
-  earth: 1,
-  jupiter: 5.203,
-  'lunar-eclipse': 1,
-  mars: 1.524,
-  mercury: 0.387,
-  moon: 1,
-  neptune: 30.07,
-  pluto: 39.482,
-  saturn: 9.537,
-  sun: 0,
-  titan: 9.537,
-  uranus: 19.191,
-  venus: 0.723,
-}
-
 const linear = 'linear' as const
-const transitionTimes = Array.from({ length: 61 }, (_, index) => index / 60)
 
 function getPlanetTransitionPlan(from: PlanetId, to: PlanetId): PlanetTransitionPlan {
   if ((from === 'moon' && to === 'lunar-eclipse') || (from === 'lunar-eclipse' && to === 'moon')) {
     return {
-      duration: 0.58,
-      farScale: 0.42,
-      horizonY: -2,
-      roll: 0,
-      surfaceTravel: 0,
-      turnX: 5,
+      duration: 0.56,
     }
   }
 
-  const isLocalSystem =
-    (from === 'earth' && (to === 'moon' || to === 'lunar-eclipse')) ||
-    (to === 'earth' && (from === 'moon' || from === 'lunar-eclipse')) ||
-    (from === 'saturn' && to === 'titan') ||
-    (from === 'titan' && to === 'saturn')
-  if (isLocalSystem) {
-    return {
-      duration: 0.76,
-      farScale: 0.24,
-      horizonY: -4,
-      roll: 0.2,
-      surfaceTravel: 18,
-      turnX: 12,
-    }
-  }
-
-  const distance = Math.abs(orbitalAnchorAu[to] - orbitalAnchorAu[from])
-  const distanceFactor = Math.min(Math.log1p(distance) / Math.log1p(orbitalAnchorAu.pluto), 1)
-  const range = Math.sqrt(distanceFactor)
   return {
-    duration: 0.88 + 0.2 * range,
-    farScale: 0.2 - 0.08 * range,
-    horizonY: -(6 + 4 * range),
-    roll: 0.35 + 0.3 * range,
-    surfaceTravel: 18,
-    turnX: 15 + 12 * range,
+    duration: 0.62,
   }
 }
 
-function billboardTransform(x: number, y: number, scale: number, roll: number): string {
-  return `translate3d(${x}%, ${y}%, 0) scale(${scale}) rotateZ(${roll}deg)`
-}
-
-function clampProgress(value: number): number {
-  return Math.min(Math.max(value, 0), 1)
-}
-
-function smoothstep(value: number): number {
-  const progress = clampProgress(value)
-  return progress * progress * (3 - 2 * progress)
-}
-
-function interpolate(from: number, to: number, progress: number): number {
-  return from + (to - from) * progress
-}
-
-function projectBillboard(
-  plan: PlanetTransitionPlan,
-  side: -1 | 1,
-  scale: number,
-  roll: number,
-  sweep = 0,
-): string {
-  const depthProgress = clampProgress((1 - scale) / (1 - plan.farScale))
-  const x = side * plan.turnX * (depthProgress ** 1.25 + sweep)
-  const y = plan.horizonY * (depthProgress ** 1.1 - sweep * (2 / 9))
-  return billboardTransform(x, y, scale, roll)
-}
-
-function outgoingKeyframes(
-  plan: PlanetTransitionPlan,
-  direction: -1 | 1,
-): { opacity: number[]; transform: string[] } {
-  const side = direction === 1 ? -1 : 1
-  const turnScale = plan.farScale * 1.16
-  const exitScale = plan.farScale * 0.92
-  const frames = transitionTimes.map((time) => {
-    const retreat = smoothstep(time / 0.46)
-    const turn = smoothstep((time - 0.46) / 0.12)
-    const scale =
-      time <= 0.46 ? interpolate(1, turnScale, retreat) : interpolate(turnScale, exitScale, turn)
-    const roll = -direction * plan.roll * (retreat * 0.8 + turn * 0.2)
-    return {
-      opacity: 1 - smoothstep((time - 0.4) / 0.16),
-      transform: projectBillboard(plan, side, scale, roll, turn * 0.18),
-    }
-  })
-  return {
-    opacity: frames.map(({ opacity }) => opacity),
-    transform: frames.map(({ transform }) => transform),
-  }
-}
-
-function incomingKeyframes(
-  plan: PlanetTransitionPlan,
-  direction: -1 | 1,
-): { opacity: number[]; transform: string[] } {
-  const turnScale = plan.farScale * 1.16
-  const entryScale = plan.farScale * 0.92
-  const frames = transitionTimes.map((time) => {
-    const turn = smoothstep((time - 0.46) / 0.12)
-    const approach = smoothstep((time - 0.58) / 0.42)
-    const scale =
-      time <= 0.58 ? interpolate(entryScale, turnScale, turn) : interpolate(turnScale, 1, approach)
-    const roll = -direction * plan.roll * (time <= 0.58 ? 1 - turn * 0.2 : 0.8 * (1 - approach))
-    return {
-      opacity: smoothstep((time - 0.44) / 0.16),
-      transform: projectBillboard(plan, direction, scale, roll, (1 - turn) * 0.18),
-    }
-  })
-  return {
-    opacity: frames.map(({ opacity }) => opacity),
-    transform: frames.map(({ transform }) => transform),
-  }
+function slideTransform(x: number, scale: number, rotation: number): string {
+  return `translate3d(${x}%, 0, 0) scale(${scale}) rotateZ(${rotation}deg)`
 }
 
 const highlighter = createHighlighterCoreSync({
@@ -578,49 +452,45 @@ const highlighter = createHighlighterCoreSync({
 })
 
 const planetPreviewVariants: Variants = {
-  center: ({ direction, plan, reducedMotion }: PlanetTransitionContext) => {
+  center: ({ plan, reducedMotion }: PlanetTransitionContext) => {
     if (reducedMotion) {
       return {
         opacity: 1,
-        transform: billboardTransform(0, 0, 1, 0),
+        transform: slideTransform(0, 1, 0),
         transition: { duration: 0.14, ease: linear },
       }
     }
 
-    const keyframes = incomingKeyframes(plan, direction)
     return {
-      opacity: keyframes.opacity,
-      transform: keyframes.transform,
+      opacity: 1,
+      transform: slideTransform(0, 1, 0),
       transition: {
-        duration: plan.duration,
-        ease: linear,
-        times: transitionTimes,
+        opacity: { delay: plan.duration * 0.08, duration: plan.duration * 0.3, ease: linear },
+        transform: { duration: plan.duration, ease: [0.4, 0, 0.2, 1] },
       },
     }
   },
-  enter: ({ direction, plan, reducedMotion }: PlanetTransitionContext) => ({
+  enter: ({ direction, reducedMotion }: PlanetTransitionContext) => ({
     opacity: 0,
     transform: reducedMotion
-      ? billboardTransform(0, 0, 1, 0)
-      : incomingKeyframes(plan, direction).transform[0],
+      ? slideTransform(0, 1, 0)
+      : slideTransform(direction * 82, 0.94, direction * 2),
   }),
   exit: ({ direction, plan, reducedMotion }: PlanetTransitionContext) => {
     if (reducedMotion) {
       return {
         opacity: 0,
-        transform: billboardTransform(0, 0, 1, 0),
+        transform: slideTransform(0, 1, 0),
         transition: { duration: 0.14, ease: linear },
       }
     }
 
-    const keyframes = outgoingKeyframes(plan, direction)
     return {
-      opacity: keyframes.opacity,
-      transform: keyframes.transform,
+      opacity: [1, 1, 0],
+      transform: slideTransform(direction * -82, 0.94, direction * -2),
       transition: {
-        duration: plan.duration,
-        ease: linear,
-        times: transitionTimes,
+        opacity: { duration: plan.duration, ease: linear, times: [0, 0.72, 1] },
+        transform: { duration: plan.duration, ease: [0.4, 0, 0.2, 1] },
       },
     }
   },
@@ -633,7 +503,6 @@ type ShowcaseContextValue = {
   planet: Planet
   previewPlanet: PlanetId
   settingsStore: SettingsStore
-  transitionActive: boolean
   transitionDirection: -1 | 1
 }
 
@@ -816,12 +685,10 @@ export function ShowcaseLayout() {
       planet,
       previewPlanet,
       settingsStore,
-      transitionActive: departingPlanet !== null,
       transitionDirection,
     }),
     [
       completePlanetTransition,
-      departingPlanet,
       expandedPreviewActive,
       plan,
       planet,
@@ -866,7 +733,6 @@ export function ShowcasePlanetPage() {
     planet,
     previewPlanet,
     settingsStore,
-    transitionActive,
     transitionDirection,
   } = context
   const componentName = planet.componentName ?? planet.name
@@ -917,13 +783,7 @@ export function ShowcasePlanetPage() {
                     styles.planetPreviewTransitionExpanded,
                 )}
               >
-                <TravelingPlanetPreviewWithSettings
-                  id={previewPlanet}
-                  plan={plan}
-                  reducedMotion={Boolean(reduceMotion)}
-                  settingsStore={settingsStore}
-                  transitionActive={transitionActive}
-                />
+                <PlanetPreviewWithSettings id={previewPlanet} settingsStore={settingsStore} />
               </div>
             </motion.div>
           </AnimatePresence>
@@ -1084,105 +944,15 @@ const PlanetPicker = memo(function PlanetPicker({
   )
 })
 
-function getRotationDirection(id: PlanetId, settings: PlanetSettings): -1 | 1 {
-  const rotationSpeed = Number(settings.rotationSpeed)
-  if (Number.isFinite(rotationSpeed) && rotationSpeed !== 0) return rotationSpeed < 0 ? -1 : 1
-  return id === 'pluto' ? -1 : 1
-}
-
-function getSurfaceTravel(id: PlanetId, plan: PlanetTransitionPlan): number {
-  if (id === 'sun') return 0
-  if (id === 'earth') return plan.surfaceTravel * 0.5
-  return plan.surfaceTravel
-}
-
-function wrapLongitude(value: number): number {
-  return ((((value + 180) % 360) + 360) % 360) - 180
-}
-
-function applySurfaceTravel(
-  id: PlanetId,
-  settings: PlanetSettings,
-  offset: number,
-): PlanetSettings {
-  if (offset === 0 || id === 'sun') return settings
-  if (id === 'earth') {
-    return { ...settings, sunAzimuth: Number(settings.sunAzimuth) + offset }
-  }
-  if (id === 'titan') {
-    return {
-      ...settings,
-      longitudeOffsetDegrees: wrapLongitude(Number(settings.longitudeOffsetDegrees) + offset),
-    }
-  }
-  return { ...settings, surfaceRotation: Number(settings.surfaceRotation) + offset }
-}
-
-function TravelingPlanetPreview({
+function PlanetPreviewWithSettings({
   id,
-  plan,
-  reducedMotion,
-  settings,
-  transitionActive,
-}: {
-  id: PlanetId
-  plan: PlanetTransitionPlan
-  reducedMotion: boolean
-  settings: PlanetSettings
-  transitionActive: boolean
-}) {
-  const isPresent = useIsPresent()
-  const presenceData = usePresenceData() as PlanetTransitionContext | undefined
-  const activePlan = isPresent ? plan : (presenceData?.plan ?? plan)
-  const travel = getSurfaceTravel(id, activePlan)
-  const direction = getRotationDirection(id, settings)
-  const [surfaceOffset, setSurfaceOffset] = useState(() =>
-    transitionActive && !reducedMotion ? -direction * travel : 0,
-  )
-
-  useEffect(() => {
-    if (reducedMotion || travel === 0 || (isPresent && !transitionActive)) return
-
-    const controls = animate(0, 1, {
-      duration: activePlan.duration,
-      ease: linear,
-      onUpdate: (progress) => {
-        const offset = isPresent
-          ? -direction * travel * (1 - clampProgress((progress - 0.44) / 0.56)) ** 3
-          : direction * travel * clampProgress(progress / 0.56) ** 3
-        setSurfaceOffset(offset)
-      },
-    })
-    return () => controls.stop()
-  }, [activePlan.duration, direction, isPresent, reducedMotion, transitionActive, travel])
-
-  const visibleOffset = reducedMotion || (isPresent && !transitionActive) ? 0 : surfaceOffset
-  return <PlanetPreview id={id} settings={applySurfaceTravel(id, settings, visibleOffset)} />
-}
-
-function TravelingPlanetPreviewWithSettings({
-  id,
-  plan,
-  reducedMotion,
   settingsStore,
-  transitionActive,
 }: {
   id: PlanetId
-  plan: PlanetTransitionPlan
-  reducedMotion: boolean
   settingsStore: SettingsStore
-  transitionActive: boolean
 }) {
   const settings = usePlanetSettings(settingsStore, id)
-  return (
-    <TravelingPlanetPreview
-      id={id}
-      plan={plan}
-      reducedMotion={reducedMotion}
-      settings={settings}
-      transitionActive={transitionActive}
-    />
-  )
+  return <PlanetPreview id={id} settings={settings} />
 }
 
 function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSettings }) {
