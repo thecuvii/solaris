@@ -1,11 +1,12 @@
 import { Button } from '@base-ui/react/button'
 import { NumberField } from '@base-ui/react/number-field'
+import { PreviewCard } from '@base-ui/react/preview-card'
 import { Slider } from '@base-ui/react/slider'
 import { Switch } from '@base-ui/react/switch'
 import { createHighlighterCoreSync } from '@shikijs/core'
 import { createJavaScriptRegexEngine } from '@shikijs/engine-javascript'
 import tsx from '@shikijs/langs/tsx'
-import githubDarkDefault from '@shikijs/themes/github-dark-default'
+import vesper from '@shikijs/themes/vesper'
 import * as stylex from '@stylexjs/stylex'
 import { Earth } from '@thecuvii/solaris/earth'
 import { Jupiter } from '@thecuvii/solaris/jupiter'
@@ -124,7 +125,7 @@ function slideTransform(x: number, scale: number, rotation: number): string {
 const highlighter = createHighlighterCoreSync({
   engine: createJavaScriptRegexEngine(),
   langs: [tsx],
-  themes: [githubDarkDefault],
+  themes: [vesper],
 })
 
 const planetPreviewVariants: Variants = {
@@ -1559,7 +1560,7 @@ function CodeBlock({ planet }: { planet: Planet }) {
     })
     const lines = highlighter.codeToTokensBase(staticCode, {
       lang: 'tsx',
-      theme: 'github-dark-default',
+      theme: 'vesper',
     })
 
     return { lines, ranges }
@@ -1649,7 +1650,10 @@ function TextureDocs({ planetId }: { planetId: PlanetId }) {
 
   return (
     <section {...stylex.props(styles.textureSection)}>
-      <h2 {...stylex.props(styles.textureHeading)}>Textures</h2>
+      <div {...stylex.props(styles.textureHeadingRow)}>
+        <h2 {...stylex.props(styles.textureHeading)}>Textures</h2>
+        <TextureHeadingHelp />
+      </div>
       {docs.length === 0 ? (
         <p {...stylex.props(styles.textureEmpty)}>
           No texture files. Atmosphere and surface structure are generated in the shader.
@@ -1665,9 +1669,42 @@ function TextureDocs({ planetId }: { planetId: PlanetId }) {
   )
 }
 
+function TextureHeadingHelp() {
+  return (
+    <PreviewCard.Root>
+      <PreviewCard.Trigger
+        closeDelay={150}
+        delay={200}
+        render={<button type="button" />}
+        {...stylex.props(styles.textureHelpTrigger)}
+      >
+        what's this?
+      </PreviewCard.Trigger>
+      <PreviewCard.Portal>
+        <PreviewCard.Positioner
+          align="center"
+          side="top"
+          sideOffset={8}
+          {...stylex.props(styles.textureHelpPositioner)}
+        >
+          <PreviewCard.Popup {...stylex.props(styles.textureHelpPopup)}>
+            <p {...stylex.props(styles.textureHelpCopy)}>
+              The example already uses the hosted textures.
+            </p>
+            <p {...stylex.props(styles.textureHelpCopy)}>
+              Download only if you want to host them yourself.
+            </p>
+          </PreviewCard.Popup>
+        </PreviewCard.Positioner>
+      </PreviewCard.Portal>
+    </PreviewCard.Root>
+  )
+}
+
 function TextureDocRow({ doc }: { doc: TextureDoc }) {
   const { copied, copy } = useClipboard({ timeout: 1500 })
   const file = useTextureFileMeta(doc.url)
+  const reduceMotion = useReducedMotion()
   const squarePreview = doc.key === 'observation' || doc.key === 'rings'
 
   return (
@@ -1712,7 +1749,22 @@ function TextureDocRow({ doc }: { doc: TextureDoc }) {
           {...stylex.props(styles.textureAction, copied && styles.textureActionCopied)}
         >
           <CopyIcon copied={copied} />
-          {copied ? 'Copied' : 'Copy URL'}
+          <span {...stylex.props(styles.textureActionLabel)}>
+            <span aria-hidden="true" {...stylex.props(styles.textureActionLabelSizer)}>
+              Copy URL
+            </span>
+            <span {...stylex.props(styles.textureActionLabelMorph)}>
+              <TextMorph
+                as="span"
+                disabled={Boolean(reduceMotion)}
+                duration={220}
+                ease="cubic-bezier(0.22, 1, 0.36, 1)"
+                scale={false}
+              >
+                {copied ? 'Copied' : 'Copy URL'}
+              </TextMorph>
+            </span>
+          </span>
         </Button>
         <a
           aria-label={`Download ${doc.filename}`}
@@ -1794,18 +1846,44 @@ function DownloadIcon() {
   )
 }
 
+const copyIconSwapTransition = { duration: 0.25, ease: 'easeInOut' } as const
+
 function CopyIcon({ copied }: { copied: boolean }) {
+  const reduceMotion = useReducedMotion()
+  const transition = reduceMotion ? { duration: 0 } : copyIconSwapTransition
+
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" {...stylex.props(styles.copyIcon)}>
-      {copied ? (
-        <path d="m3 8.5 3 3 7-7" />
-      ) : (
-        <>
+    <span aria-hidden="true" {...stylex.props(styles.copyIconSwap)}>
+      <motion.span
+        animate={{
+          filter: copied ? 'blur(2px)' : 'blur(0px)',
+          opacity: copied ? 0 : 1,
+          scale: copied ? 0.25 : 1,
+        }}
+        initial={false}
+        style={{ gridArea: '1 / 1' }}
+        transition={transition}
+      >
+        <svg viewBox="0 0 16 16" {...stylex.props(styles.copyIcon)}>
           <rect height="9" rx="1.5" width="9" x="5" y="2" />
           <path d="M11 11v1.5A1.5 1.5 0 0 1 9.5 14h-6A1.5 1.5 0 0 1 2 12.5v-6A1.5 1.5 0 0 1 3.5 5H5" />
-        </>
-      )}
-    </svg>
+        </svg>
+      </motion.span>
+      <motion.span
+        animate={{
+          filter: copied ? 'blur(0px)' : 'blur(2px)',
+          opacity: copied ? 1 : 0,
+          scale: copied ? 1 : 0.25,
+        }}
+        initial={false}
+        style={{ gridArea: '1 / 1' }}
+        transition={transition}
+      >
+        <svg viewBox="0 0 16 16" {...stylex.props(styles.copyIcon)}>
+          <path d="m3 8.5 3 3 7-7" />
+        </svg>
+      </motion.span>
+    </span>
   )
 }
 
@@ -1928,6 +2006,21 @@ const styles = stylex.create({
   textureActionCopied: {
     color: '#f2e8d0',
   },
+  textureActionLabel: {
+    display: 'grid',
+    justifyItems: 'start',
+  },
+  textureActionLabelMorph: {
+    gridArea: '1 / 1',
+    minWidth: 0,
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+  },
+  textureActionLabelSizer: {
+    gridArea: '1 / 1',
+    visibility: 'hidden',
+    whiteSpace: 'nowrap',
+  },
   textureActions: {
     display: 'flex',
     gap: 16,
@@ -1977,7 +2070,76 @@ const styles = stylex.create({
     letterSpacing: '-0.02em',
     lineHeight: 1.2,
     margin: 0,
+    width: 'fit-content',
+  },
+  textureHeadingRow: {
+    alignItems: 'baseline',
+    display: 'flex',
+    gap: 8,
+    minWidth: 0,
     paddingBottom: 8,
+    paddingTop: 32,
+    width: '100%',
+  },
+  textureHelpCopy: {
+    margin: 0,
+    whiteSpace: 'nowrap',
+  },
+  textureHelpPopup: {
+    backgroundColor: '#12151c',
+    borderRadius: 12,
+    boxShadow:
+      'inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 16px 40px rgba(0, 0, 0, 0.32)',
+    boxSizing: 'border-box',
+    color: 'rgba(242, 232, 208, 0.72)',
+    display: 'flex',
+    flexDirection: 'column',
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 13,
+    gap: 8,
+    lineHeight: 1.5,
+    padding: 14,
+    transformOrigin: 'var(--transform-origin)',
+    transition: 'opacity 160ms ease-out, transform 160ms ease-out',
+    width: 'max-content',
+    ':is([data-starting-style], [data-ending-style])': {
+      opacity: 0,
+      transform: 'scale(0.96)',
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  textureHelpPositioner: {
+    zIndex: 200,
+  },
+  textureHelpTrigger: {
+    appearance: 'none',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    color: {
+      default: 'rgba(242, 232, 208, 0.42)',
+      ':hover': 'rgba(242, 232, 208, 0.78)',
+      ':focus-visible': 'rgba(242, 232, 208, 0.78)',
+    },
+    cursor: 'pointer',
+    flexShrink: 0,
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 12,
+    fontWeight: 500,
+    letterSpacing: '-0.01em',
+    lineHeight: 1.2,
+    margin: 0,
+    padding: 0,
+    textDecoration: {
+      default: 'none',
+      ':focus-visible': 'underline',
+    },
+    textUnderlineOffset: 3,
+    transition: 'color 140ms ease-out',
+    ':focus-visible': {
+      outline: 'none',
+    },
   },
   textureList: {
     display: 'flex',
@@ -2108,12 +2270,19 @@ const styles = stylex.create({
     },
   },
   copyIcon: {
+    display: 'block',
     fill: 'none',
     height: 13,
     stroke: 'currentColor',
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
     strokeWidth: 1.25,
+    width: 13,
+  },
+  copyIconSwap: {
+    display: 'inline-grid',
+    height: 13,
+    placeItems: 'center',
     width: 13,
   },
   controlGroup: {
@@ -2199,7 +2368,8 @@ const styles = stylex.create({
     minWidth: 0,
     overflowY: 'auto',
     paddingBottom: 12,
-    paddingInline: 12,
+    paddingInlineEnd: 20,
+    paddingInlineStart: 12,
     paddingTop: 'calc(var(--showcase-preview-top) - (36px - 13px) / 2)',
     position: 'fixed',
     right: 0,
