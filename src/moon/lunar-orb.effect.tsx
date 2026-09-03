@@ -12,6 +12,7 @@ type LunarFrameSettings = {
   bloomWarmth: number
   earthshineIntensity: number
   exposure: number
+  followPointer: boolean
   normalStrength: number
   oppositionStrength: number
   oppositionWidth: number
@@ -48,6 +49,7 @@ export type LunarOrbEffectProps = {
   composition?: LunarOrbComposition
   earthshineIntensity?: number
   exposure?: number
+  followPointer?: boolean
   normalStrength?: number
   oppositionStrength?: number
   oppositionWidth?: number
@@ -549,7 +551,11 @@ function createLunarRenderer(
     )
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -567,7 +573,7 @@ function createLunarRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, settings.followPointer)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -726,6 +732,7 @@ export function LunarOrbEffect({
   composition,
   earthshineIntensity = 0.006,
   exposure = 0.72,
+  followPointer = true,
   normalStrength = 0.85,
   oppositionStrength = 0.25,
   oppositionWidth = 0.035,
@@ -749,6 +756,7 @@ export function LunarOrbEffect({
     bloomWarmth,
     earthshineIntensity,
     exposure,
+    followPointer,
     normalStrength,
     oppositionStrength,
     oppositionWidth,

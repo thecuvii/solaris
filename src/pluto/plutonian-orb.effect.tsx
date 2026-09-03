@@ -20,6 +20,7 @@ export type PlutonianOrbSource = {
 export type PlutonianOrbEffectProps = {
   className?: string
   exposure?: number
+  followPointer?: boolean
   hazeForwardScattering?: number
   hazeIntensity?: number
   hazeThickness?: number
@@ -47,6 +48,7 @@ type PlutonianResources = {
 
 type PlutonianFrameSettings = {
   exposure: number
+  followPointer: boolean
   hazeForwardScattering: number
   hazeIntensity: number
   hazeThickness: number
@@ -691,7 +693,11 @@ function createPlutonianRenderer(
     }
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -709,7 +715,7 @@ function createPlutonianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, settings.followPointer)
     const azimuth = (clamp(settings.sunAzimuth, -180, 180) * Math.PI) / 180
     const elevation = (clamp(settings.sunElevation, -30, 90) * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -858,6 +864,7 @@ function createPlutonianRenderer(
 export function PlutonianOrbEffect({
   className,
   exposure = 1,
+  followPointer = true,
   hazeForwardScattering = 0.78,
   hazeIntensity = 0.28,
   hazeThickness = 0.08,
@@ -877,6 +884,7 @@ export function PlutonianOrbEffect({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: PlutonianFrameSettings = {
     exposure,
+    followPointer,
     hazeForwardScattering,
     hazeIntensity,
     hazeThickness,

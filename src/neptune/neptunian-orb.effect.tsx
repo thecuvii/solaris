@@ -23,6 +23,7 @@ type NeptunianFrameSettings = {
   companionCloud: number
   deepOpticalDepth: number
   exposure: number
+  followPointer: boolean
   flowDetail: number
   forwardScattering: number
   hazeOpticalDepth: number
@@ -56,6 +57,7 @@ export type NeptunianOrbEffectProps = {
   companionCloud?: number
   deepOpticalDepth?: number
   exposure?: number
+  followPointer?: boolean
   flowDetail?: number
   forwardScattering?: number
   hazeOpticalDepth?: number
@@ -767,7 +769,11 @@ function createNeptunianRenderer(
     }
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -785,7 +791,7 @@ function createNeptunianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, settings.followPointer)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -914,6 +920,7 @@ export function NeptunianOrbEffect({
   companionCloud = 0.68,
   deepOpticalDepth = 0.72,
   exposure = 0.72,
+  followPointer = true,
   flowDetail = 0.34,
   forwardScattering = 0.28,
   hazeOpticalDepth = 0.48,
@@ -938,6 +945,7 @@ export function NeptunianOrbEffect({
     companionCloud,
     deepOpticalDepth,
     exposure,
+    followPointer,
     flowDetail,
     forwardScattering,
     hazeOpticalDepth,

@@ -24,6 +24,7 @@ export type MartianOrbEffectProps = {
   dustAerosol?: number
   dustDetail?: number
   exposure?: number
+  followPointer?: boolean
   normalStrength?: number
   photometricMix?: number
   rotationSpeed?: number
@@ -50,6 +51,7 @@ type MartianFrameSettings = {
   dustAerosol: number
   dustDetail: number
   exposure: number
+  followPointer: boolean
   normalStrength: number
   photometricMix: number
   rotationSpeed: number
@@ -645,7 +647,11 @@ function createMartianRenderer(
     }
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -663,7 +669,7 @@ function createMartianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, settings.followPointer)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -796,6 +802,7 @@ export function MartianOrbEffect({
   dustAerosol = 0.36,
   dustDetail = 0.1,
   exposure = 1.06,
+  followPointer = true,
   normalStrength = 1.6,
   photometricMix = 0.45,
   rotationSpeed = 0.021,
@@ -814,6 +821,7 @@ export function MartianOrbEffect({
     dustAerosol,
     dustDetail,
     exposure,
+    followPointer,
     normalStrength,
     photometricMix,
     rotationSpeed,

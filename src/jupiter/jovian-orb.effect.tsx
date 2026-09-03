@@ -23,6 +23,7 @@ export type JovianOrbEffectProps = {
   detailScale?: number
   detailSpeed?: number
   exposure?: number
+  followPointer?: boolean
   jetStrength?: number
   limbHaze?: number
   oblateness?: number
@@ -52,6 +53,7 @@ type JovianFrameSettings = {
   detailScale: number
   detailSpeed: number
   exposure: number
+  followPointer: boolean
   jetStrength: number
   limbHaze: number
   oblateness: number
@@ -475,7 +477,11 @@ function createJovianRenderer(
     }
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -493,7 +499,7 @@ function createJovianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, settings.followPointer)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -616,6 +622,7 @@ export function JovianOrbEffect({
   detailScale = 1,
   detailSpeed = 0.055,
   exposure = 1.05,
+  followPointer = true,
   jetStrength = 0.65,
   limbHaze = 0.16,
   oblateness = 0.0649,
@@ -634,6 +641,7 @@ export function JovianOrbEffect({
     detailScale,
     detailSpeed,
     exposure,
+    followPointer,
     jetStrength,
     limbHaze,
     oblateness,

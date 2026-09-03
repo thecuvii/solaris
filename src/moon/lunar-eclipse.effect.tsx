@@ -9,6 +9,7 @@ import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-r
 type LunarEclipseFrameSettings = {
   atmosphericOpticalDepth: number
   exposure: number
+  followPointer: boolean
   haloIntensity: number
   haloWidth: number
   normalStrength: number
@@ -42,6 +43,7 @@ export type LunarEclipseEffectProps = {
   className?: string
   composition?: LunarEclipseComposition
   exposure?: number
+  followPointer?: boolean
   haloIntensity?: number
   haloWidth?: number
   normalStrength?: number
@@ -552,7 +554,11 @@ function createLunarEclipseRenderer(
     )
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -569,7 +575,7 @@ function createLunarEclipseRenderer(
     resize()
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, settings.followPointer)
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, canvas.width, canvas.height)
@@ -709,6 +715,7 @@ export function LunarEclipseEffect({
   className,
   composition,
   exposure = 1.18,
+  followPointer = true,
   haloIntensity = 1.15,
   haloWidth = 0.23,
   normalStrength = 0.82,
@@ -729,6 +736,7 @@ export function LunarEclipseEffect({
   const frameSettings: LunarEclipseFrameSettings = {
     atmosphericOpticalDepth,
     exposure,
+    followPointer,
     haloIntensity,
     haloWidth,
     normalStrength,

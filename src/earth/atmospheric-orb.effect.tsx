@@ -41,6 +41,7 @@ export type AtmosphericOrbEffectProps = {
   cloudDensity?: number
   cloudHeight?: number
   cloudShadowIntensity?: number
+  followPointer?: boolean
   manualOrbit?: boolean
   model: AtmosphericOrbModel
   multipleScattering?: number
@@ -48,6 +49,7 @@ export type AtmosphericOrbEffectProps = {
   oceanGlint?: number
   oceanWaveStrength?: number
   orbitSpeed?: number
+  rotationSpeed?: number
   showAtmosphere?: boolean
   source?: AtmosphericOrbSource
   style?: CSSProperties
@@ -62,6 +64,7 @@ type AtmosphericFrameSettings = {
   cloudDensity: number
   cloudHeight: number
   cloudShadowIntensity: number
+  followPointer: boolean
   manualOrbit: boolean
   model: AtmosphericOrbModel
   multipleScattering: number
@@ -69,6 +72,7 @@ type AtmosphericFrameSettings = {
   oceanGlint: number
   oceanWaveStrength: number
   orbitSpeed: number
+  rotationSpeed: number
   showAtmosphere: boolean
   sunAzimuth: number
   sunElevation: number
@@ -258,6 +262,7 @@ uniform float uOceanWaveStrength;
 uniform vec3 uOzoneAbsorption;
 uniform float uPlanetRadius;
 uniform vec3 uRayleighScattering;
+uniform float uRotationSpeed;
 uniform sampler2D uRoughnessTexture;
 uniform vec3 uSpaceColor;
 uniform vec3 uSunColor;
@@ -273,6 +278,7 @@ layout(location = 1) out vec4 emissionColor;
 
 const float PI = 3.141592653589793;
 const int PRIMARY_STEPS = 24;
+const float CLOUD_SPIN_RATIO = 0.0215 / 0.024;
 
 vec2 raySphereIntersect(vec3 rayOrigin, vec3 rayDirection, float radius) {
   float b = dot(rayOrigin, rayDirection);
@@ -549,7 +555,7 @@ void main() {
   if (hitsSurface) {
     vec3 surfacePoint = rayOrigin + rayDirection * planetHit.x;
     vec3 normal = normalize(surfacePoint);
-    vec3 rotatedNormal = rotateAroundY(normal, uTime * 0.024 + uLongitudeOffset);
+    vec3 rotatedNormal = rotateAroundY(normal, uTime * uRotationSpeed + uLongitudeOffset);
     float lightFacing = dot(normal, uSunDirection);
     float directLight = max(lightFacing, 0.0);
     float surfaceVariation = valueNoise(rotatedNormal * 2.8) * 0.65 + valueNoise(rotatedNormal * 7.0) * 0.35;
@@ -616,13 +622,13 @@ void main() {
         cloudNormal = normalize(cloudPoint);
         vec3 rotatedCloudNormal = rotateAroundY(
           cloudNormal,
-          uTime * 0.0215 + uLongitudeOffset
+          uTime * uRotationSpeed * CLOUD_SPIN_RATIO + uLongitudeOffset
         );
         float coverage = cloudCoverage(rotatedCloudNormal);
         cloudOpticalDepth = 1.0 - exp(-coverage * 2.6);
         vec3 rotatedSunDirection = rotateAroundY(
           uSunDirection,
-          uTime * 0.0215 + uLongitudeOffset
+          uTime * uRotationSpeed * CLOUD_SPIN_RATIO + uLongitudeOffset
         );
         vec3 cloudSunTangent =
           rotatedSunDirection - rotatedCloudNormal * dot(rotatedCloudNormal, rotatedSunDirection);
@@ -638,7 +644,7 @@ void main() {
           vec3 shadowShellNormal = normalize(shadowOrigin + uSunDirection * shadowHit.y);
           vec3 rotatedShadowNormal = rotateAroundY(
             shadowShellNormal,
-            uTime * 0.0215 + uLongitudeOffset
+            uTime * uRotationSpeed * CLOUD_SPIN_RATIO + uLongitudeOffset
           );
           cloudShadow = cloudCoverage(rotatedShadowNormal) * directLight;
         }
@@ -1292,7 +1298,11 @@ function createAtmosphericRenderer(
     blur(earth.bloomB, earth.bloomA, 0, 1)
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -1313,7 +1323,7 @@ function createAtmosphericRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, current.followPointer)
 
     const baseAzimuth = current.sunAzimuth * (Math.PI / 180)
     const orbitAngle = current.manualOrbit
@@ -1417,6 +1427,10 @@ function createAtmosphericRenderer(
       gl.getUniformLocation(resources.atmosphereProgram, 'uOceanWaveStrength'),
       current.oceanWaveStrength,
     )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uRotationSpeed'),
+      current.rotationSpeed,
+    )
     gl.uniform1f(gl.getUniformLocation(resources.atmosphereProgram, 'uTime'), elapsed)
     gl.uniform3f(
       gl.getUniformLocation(resources.atmosphereProgram, 'uSunDirection'),
@@ -1459,7 +1473,7 @@ function createAtmosphericRenderer(
   }
 
   function handlePointerLeave(): void {
-    if (!getSettings().manualOrbit) {
+    if (!getSettings().followPointer || !getSettings().manualOrbit) {
       pointer.targetX = 0
       pointer.targetY = 0
     }
@@ -1520,6 +1534,7 @@ export function AtmosphericOrbEffect({
   cloudDensity = 1,
   cloudHeight = 0.012,
   cloudShadowIntensity = 0.48,
+  followPointer = true,
   manualOrbit = false,
   model,
   multipleScattering = 1,
@@ -1527,6 +1542,7 @@ export function AtmosphericOrbEffect({
   oceanGlint = 0.72,
   oceanWaveStrength = 0.8,
   orbitSpeed = 0.08,
+  rotationSpeed = 0.024,
   showAtmosphere = true,
   source,
   style,
@@ -1541,6 +1557,7 @@ export function AtmosphericOrbEffect({
     cloudDensity,
     cloudHeight,
     cloudShadowIntensity,
+    followPointer,
     manualOrbit,
     model,
     multipleScattering,
@@ -1548,6 +1565,7 @@ export function AtmosphericOrbEffect({
     oceanGlint,
     oceanWaveStrength,
     orbitSpeed,
+    rotationSpeed,
     showAtmosphere,
     sunAzimuth,
     sunElevation,

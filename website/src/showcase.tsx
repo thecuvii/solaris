@@ -54,6 +54,8 @@ import { TextMorph } from 'torph/react'
 import { getPlanetTextureDocs, isPlanetId, planets, textures } from './showcase-data'
 import type { Planet, PlanetId, TextureDoc, TexturedPlanetId } from './showcase-data'
 import {
+  effectSettingValue,
+  effectSettings,
   initialSettings,
   parameterDefinitions,
   parameterGroupsByPlanet,
@@ -749,7 +751,7 @@ function PlanetPreviewWithSettings({ id }: { id: PlanetId }) {
 
 function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSettings }) {
   const shared = {
-    ...settings,
+    ...effectSettings(id, settings),
     style: { height: '100%', position: 'relative' as const, width: '100%' },
   }
 
@@ -860,65 +862,21 @@ function PlanetIntroduction({
   )
 }
 
-function PresetCarousel({ planetId }: { planetId: PlanetId }) {
+function PresetGrid({ planetId }: { planetId: PlanetId }) {
   const applyPlanetSettings = useSetAtom(applyPlanetSettingsAtom)
   const presets = planetPresets[planetId]
   const activeId = useAtomValue(activePresetIdAtom(planetId))
-  const scrollerRef = useRef<HTMLDivElement>(null)
-  const reduceMotion = useReducedMotion()
-
-  const scrollByCard = useCallback(
-    (direction: -1 | 1) => {
-      const scroller = scrollerRef.current
-      const card = scroller?.querySelector<HTMLElement>('[data-preset-card]')
-      if (!scroller || !card) return
-
-      scroller.scrollBy({
-        behavior: reduceMotion ? 'auto' : 'smooth',
-        left: direction * (card.offsetWidth + 8),
-      })
-    },
-    [reduceMotion],
-  )
 
   return (
     <section {...stylex.props(styles.parameterGroup)}>
-      <div {...stylex.props(styles.presetHeader)}>
-        <h2 {...stylex.props(styles.groupTitle, styles.presetHeading)}>Looks</h2>
-        {presets.length > 1 ? (
-          <div {...stylex.props(styles.presetControls)}>
-            <button
-              aria-label="Previous look"
-              onClick={() => scrollByCard(-1)}
-              type="button"
-              {...stylex.props(styles.presetControl)}
-            >
-              <PresetChevron direction={-1} />
-            </button>
-            <button
-              aria-label="Next look"
-              onClick={() => scrollByCard(1)}
-              type="button"
-              {...stylex.props(styles.presetControl)}
-            >
-              <PresetChevron direction={1} />
-            </button>
-          </div>
-        ) : null}
-      </div>
-      <div
-        aria-label="Looks"
-        ref={scrollerRef}
-        role="radiogroup"
-        {...stylex.props(styles.presetScroller)}
-      >
+      <h2 {...stylex.props(styles.groupTitle)}>Looks</h2>
+      <div aria-label="Looks" role="radiogroup" {...stylex.props(styles.presetGrid)}>
         {presets.map((preset) => {
           const selected = activeId === preset.id
           return (
             <button
               key={preset.id}
               aria-checked={selected}
-              data-preset-card=""
               onClick={() => applyPlanetSettings({ planetId, values: preset.values })}
               role="radio"
               type="button"
@@ -943,21 +901,13 @@ function PresetCarousel({ planetId }: { planetId: PlanetId }) {
   )
 }
 
-function PresetChevron({ direction }: { direction: -1 | 1 }) {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 12 12" {...stylex.props(styles.presetChevron)}>
-      <path d={direction === -1 ? 'M7.5 2.5 3.5 6l4 3.5' : 'M4.5 2.5 8.5 6l-4 3.5'} />
-    </svg>
-  )
-}
-
 function Inspector({ planetId }: { planetId: PlanetId }) {
   const groups = parameterGroupsByPlanet.get(planetId) ?? []
 
   return (
     <>
       <div {...stylex.props(styles.inspectorGroups)}>
-        <PresetCarousel planetId={planetId} />
+        <PresetGrid planetId={planetId} />
         {groups.map((group) => (
           <ParameterGroup
             key={group.id}
@@ -1503,16 +1453,27 @@ function SliderValueMorph({
 
 function ResetIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" {...stylex.props(styles.resetIcon)}>
-      <path d="M3.5 5.5A5 5 0 1 1 3 9M3.5 5.5V2.75M3.5 5.5h2.75" />
+    <svg aria-hidden="true" viewBox="0 0 12 12" {...stylex.props(styles.resetIcon)}>
+      <g
+        fill="none"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1}
+      >
+        <path d="M4.25 9.25L4 9.25C2.20508 9.25 0.75 7.79493 0.750001 6C0.750001 4.20507 2.20507 2.75 4 2.75L5.25 2.75L4 1" />
+        <path d="M7.75 2.75L8 2.75C9.79492 2.75 11.25 4.20508 11.25 6C11.25 7.79493 9.79493 9.25 8 9.25L6.75 9.25L8 11" />
+      </g>
     </svg>
   )
 }
 
 function formatSettingValue(definition: ParameterDefinition, value: boolean | number): string {
-  return definition.kind === 'boolean'
-    ? String(value)
-    : Number(value).toFixed(getPrecision(definition.step))
+  const effectValue = effectSettingValue(definition, value)
+  if (typeof effectValue === 'boolean') return String(effectValue)
+  if (definition.kind === 'boolean') return String(effectValue)
+  const precision = definition.toEffect === undefined ? getPrecision(definition.step) : 3
+  return Number(effectValue).toFixed(precision)
 }
 
 function buildExampleCode(planet: Planet, settings: PlanetSettings): string {
@@ -1572,19 +1533,22 @@ function AnimatedCodeValue({
     return (
       <span style={{ color }}>
         <TextMorph as="span" duration={400} scale style={{ verticalAlign: 'baseline' }}>
-          {String(setting)}
+          {String(effectSettingValue(definition, setting))}
         </TextMorph>
       </span>
     )
   }
 
+  const effectValue = Number(effectSettingValue(definition, setting))
+  const precision = definition.toEffect === undefined ? getPrecision(definition.step) : 3
+
   return (
     <NumberFlow
-      format={numberFlowFormat(getPrecision(definition.step))}
+      format={numberFlowFormat(precision)}
       isolate
       plugins={[continuous]}
       style={{ color }}
-      value={Number(setting)}
+      value={effectValue}
       willChange
       {...numberFlowTimings}
       {...stylex.props(styles.codeNumberFlow)}
@@ -2400,12 +2364,12 @@ const styles = stylex.create({
     color: 'rgba(242, 232, 208, 0.48)',
     cursor: 'pointer',
     display: 'flex',
-    flex: '0 0 64px',
     flexDirection: 'column',
     gap: 6,
+    minWidth: 0,
     padding: 0,
-    scrollSnapAlign: 'start',
     textAlign: 'left',
+    width: 64,
     ':focus-visible': {
       outline: '1px solid color-mix(in oklch, var(--control-accent) 28%, transparent)',
       outlineOffset: 2,
@@ -2413,42 +2377,6 @@ const styles = stylex.create({
   },
   presetCardSelected: {
     color: '#f2e8d0',
-  },
-  presetChevron: {
-    display: 'block',
-    fill: 'none',
-    height: 12,
-    stroke: 'currentColor',
-    strokeLinecap: 'round',
-    strokeLinejoin: 'round',
-    strokeWidth: 1.4,
-    width: 12,
-  },
-  presetControl: {
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-    borderRadius: 6,
-    borderWidth: 0,
-    color: 'rgba(242, 232, 208, 0.48)',
-    cursor: 'pointer',
-    display: 'flex',
-    height: 24,
-    justifyContent: 'center',
-    padding: 0,
-    width: 24,
-    ':hover': {
-      color: 'rgba(242, 232, 208, 0.82)',
-    },
-    ':focus-visible': {
-      boxShadow: '0 0 0 2px color-mix(in oklch, var(--control-accent) 40%, transparent)',
-      outline: 'none',
-    },
-  },
-  presetControls: {
-    display: 'flex',
-    flex: '0 0 auto',
-    gap: 2,
-    marginRight: 0,
   },
   presetFrame: {
     backgroundColor: 'rgba(255, 255, 255, 0.028)',
@@ -2467,15 +2395,11 @@ const styles = stylex.create({
   presetFrameSelected: {
     boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(255, 255, 255, 0.1)',
   },
-  presetHeading: {
-    flex: 1,
-    width: 'auto',
-  },
-  presetHeader: {
-    alignItems: 'center',
-    display: 'flex',
-    minWidth: 0,
-    width: '100%',
+  presetGrid: {
+    display: 'grid',
+    gap: 8,
+    gridTemplateColumns: 'repeat(auto-fill, 64px)',
+    paddingBlock: 4,
   },
   presetImage: {
     borderRadius: 4,
@@ -2495,17 +2419,6 @@ const styles = stylex.create({
     paddingInline: 0,
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-  },
-  presetScroller: {
-    display: 'flex',
-    gap: 8,
-    marginInline: 0,
-    overflowX: 'auto',
-    paddingBlock: 4,
-    paddingInline: 0,
-    scrollPaddingInline: 0,
-    scrollSnapType: 'x mandatory',
-    scrollbarWidth: 'none',
   },
   page: {
     '--showcase-inspector-width': '280px',
@@ -2862,7 +2775,7 @@ const styles = stylex.create({
     stroke: 'currentColor',
     strokeLinecap: 'round',
     strokeLinejoin: 'round',
-    strokeWidth: 1.25,
+    strokeWidth: 1,
     width: 12,
   },
   sliderControl: {

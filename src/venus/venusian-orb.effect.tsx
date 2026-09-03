@@ -11,6 +11,7 @@ type VenusianFrameSettings = {
   cloudContrast: number
   cloudDetail: number
   exposure: number
+  followPointer: boolean
   flowSpeed: number
   flowStrength: number
   forwardScattering: number
@@ -38,6 +39,7 @@ export type VenusianOrbEffectProps = {
   cloudContrast?: number
   cloudDetail?: number
   exposure?: number
+  followPointer?: boolean
   flowSpeed?: number
   flowStrength?: number
   forwardScattering?: number
@@ -631,7 +633,11 @@ function createVenusianRenderer(
     }
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -648,7 +654,7 @@ function createVenusianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, settings.followPointer)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -768,6 +774,7 @@ export function VenusianOrbEffect({
   cloudContrast = 0.3,
   cloudDetail = 0.22,
   exposure = 1.08,
+  followPointer = true,
   flowSpeed = 0.045,
   flowStrength = 0.7,
   forwardScattering = 0.72,
@@ -788,6 +795,7 @@ export function VenusianOrbEffect({
     cloudContrast,
     cloudDetail,
     exposure,
+    followPointer,
     flowSpeed,
     flowStrength,
     forwardScattering,

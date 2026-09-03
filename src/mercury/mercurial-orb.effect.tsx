@@ -32,6 +32,7 @@ export type MercurialOrbSource = {
 export type MercurialOrbEffectProps = {
   className?: string
   exposure?: number
+  followPointer?: boolean
   microDetail?: number
   normalStrength?: number
   photometricStrength?: number
@@ -54,6 +55,7 @@ type MercurialResources = {
 
 type MercurialFrameSettings = {
   exposure: number
+  followPointer: boolean
   microDetail: number
   normalStrength: number
   photometricStrength: number
@@ -603,7 +605,11 @@ function createMercurialRenderer(
     }
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -621,7 +627,7 @@ function createMercurialRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, settings.followPointer)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -750,6 +756,7 @@ function createMercurialRenderer(
 export function MercurialOrbEffect({
   className,
   exposure = 0.92,
+  followPointer = true,
   microDetail = 0.08,
   normalStrength = 1.35,
   photometricStrength = 1,
@@ -765,6 +772,7 @@ export function MercurialOrbEffect({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: MercurialFrameSettings = {
     exposure,
+    followPointer,
     microDetail,
     normalStrength,
     photometricStrength,

@@ -24,6 +24,7 @@ export type SaturnOrbEffectProps = {
   detailIntensity?: number
   detailSpeed?: number
   exposure?: number
+  followPointer?: boolean
   forwardScatter?: number
   limbHaze?: number
   oblateness?: number
@@ -59,6 +60,7 @@ type SaturnFrameSettings = {
   detailIntensity: number
   detailSpeed: number
   exposure: number
+  followPointer: boolean
   forwardScatter: number
   limbHaze: number
   oblateness: number
@@ -932,7 +934,11 @@ function createSaturnRenderer(
     }
   }
 
-  function updatePointer(delta: number): void {
+  function updatePointer(delta: number, enabled: boolean): void {
+    if (!enabled) {
+      pointer.targetX = 0
+      pointer.targetY = 0
+    }
     const stiffness = 42
     const damping = 11
     pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
@@ -950,7 +956,7 @@ function createSaturnRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta)
+    updatePointer(delta, current.followPointer)
     const azimuth = (current.sunAzimuth * Math.PI) / 180
     const elevation = (current.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -1089,6 +1095,7 @@ export function SaturnOrbEffect({
   detailIntensity = 0.06,
   detailSpeed = 0.018,
   exposure = 0.96,
+  followPointer = true,
   forwardScatter = 0.35,
   limbHaze = 0.1,
   oblateness = 0.09796,
@@ -1112,6 +1119,7 @@ export function SaturnOrbEffect({
     detailIntensity,
     detailSpeed,
     exposure,
+    followPointer,
     forwardScatter,
     limbHaze,
     oblateness,
