@@ -496,6 +496,30 @@ const planetPreviewVariants: Variants = {
   },
 }
 
+const inspectorVariants: Variants = {
+  center: (reducedMotion: boolean) => ({
+    filter: 'blur(0px)',
+    opacity: 1,
+    transform: 'translate3d(0, 0, 0)',
+    transition: reducedMotion
+      ? { duration: 0.14, ease: linear }
+      : { duration: 0.24, ease: [0.32, 0.72, 0, 1] },
+  }),
+  enter: (reducedMotion: boolean) => ({
+    filter: reducedMotion ? 'blur(0px)' : 'blur(2px)',
+    opacity: 0,
+    transform: reducedMotion ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 14px), 0, 0)',
+  }),
+  exit: (reducedMotion: boolean) => ({
+    filter: reducedMotion ? 'blur(0px)' : 'blur(2px)',
+    opacity: 0,
+    transform: reducedMotion ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 14px), 0, 0)',
+    transition: reducedMotion
+      ? { duration: 0.14, ease: linear }
+      : { duration: 0.18, ease: [0.32, 0.72, 0, 1] },
+  }),
+}
+
 type ShowcaseContextValue = {
   completePlanetTransition: () => void
   expandedPreviewActive: boolean
@@ -713,7 +737,14 @@ export function ShowcaseLayout() {
           <Outlet />
         </main>
 
-        <Inspector planetId={presentedPlanet} settingsStore={settingsStore} />
+        <AnimatePresence custom={Boolean(reduceMotion)} initial={false}>
+          <Inspector
+            key={presentedPlanet}
+            planetId={presentedPlanet}
+            reducedMotion={Boolean(reduceMotion)}
+            settingsStore={settingsStore}
+          />
+        </AnimatePresence>
 
         {showGrid && <LayoutGridOverlay />}
       </EclipseLightingPage>
@@ -736,13 +767,20 @@ export function ShowcasePlanetPage() {
     transitionDirection,
   } = context
   const componentName = planet.componentName ?? planet.name
+  const titleProps = stylex.props(styles.title, styles.eclipseTitleLighting)
 
   return (
     <div {...stylex.props(styles.panel)}>
       <div {...stylex.props(styles.previewRegion)}>
         <div {...stylex.props(styles.introduction, styles.eclipseIntroductionLighting)}>
           <div {...stylex.props(styles.titleRow)}>
-            <h1 {...stylex.props(styles.title, styles.eclipseTitleLighting)}>{planet.name}</h1>
+            <TextMorph
+              as="h1"
+              className={`showcase-title-morph ${titleProps.className}`}
+              duration={400}
+            >
+              {planet.name}
+            </TextMorph>
             <span {...stylex.props(styles.componentName)}>&lt;{componentName} /&gt;</span>
           </div>
           <p {...stylex.props(styles.summary)}>{planet.summary}</p>
@@ -1025,15 +1063,24 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
 
 function Inspector({
   planetId,
+  reducedMotion,
   settingsStore,
 }: {
   planetId: PlanetId
+  reducedMotion: boolean
   settingsStore: SettingsStore
 }) {
   const groups = parameterGroupsByPlanet.get(planetId) ?? []
 
   return (
-    <aside {...stylex.props(styles.inspector)}>
+    <motion.aside
+      animate="center"
+      custom={reducedMotion}
+      exit="exit"
+      initial="enter"
+      variants={inspectorVariants}
+      {...stylex.props(styles.inspector)}
+    >
       <div {...stylex.props(styles.inspectorGroups)}>
         {groups.map((group) => (
           <ParameterGroup
@@ -1047,7 +1094,7 @@ function Inspector({
       </div>
 
       <ResetSettingsButton planetId={planetId} settingsStore={settingsStore} />
-    </aside>
+    </motion.aside>
   )
 }
 
@@ -1983,8 +2030,7 @@ const styles = stylex.create({
     },
   },
   inspector: {
-    backdropFilter: 'blur(18px)',
-    backgroundColor: 'oklch(8.52% 0.0384 274.56 / 0.9)',
+    backgroundColor: 'transparent',
     height: '100dvh',
     minWidth: 0,
     overflowY: 'auto',
@@ -2257,7 +2303,7 @@ const styles = stylex.create({
     },
   },
   planetPreviewTransition: {
-    bottom: 'calc(clamp(480px, 68vh, 720px) - clamp(360px, 52vh, 590px))',
+    bottom: 'calc((clamp(480px, 68vh, 720px) - clamp(360px, 52vh, 590px)) / 2)',
     height: 'clamp(360px, 52vh, 590px)',
     left: 'clamp(24px, 4vw, 64px)',
     position: 'absolute',
