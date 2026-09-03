@@ -28,6 +28,7 @@ Local adaptations, reproducible with `scripts/generate-moon-textures.py`:
 
 - `moon-albedo.webp` is a 4096×2048 sRGB WebP conversion of the LROC WAC color map.
 - `moon-normal-height.webp` is a 4096×2048 linear RGBA WebP. RGB stores a seam-wrapped tangent-space normal derived on the sphere from the LOLA DEM. Alpha stores elevation normalized over the fixed range −10 km to 12 km; the shader converts that range to `22 / 1737.4` lunar radii for terrain self-shadowing.
+- `moon-albedo-2048.webp` and `moon-normal-height-2048.webp` are 2048×1024 showcase previews generated from those 4K maps. Height is decoded, resized, and re-packed with newly derived tangent normals. Reproducible with `scripts/textures/generate-preview-textures.py`.
 
 # Jupiter texture credits
 
@@ -39,6 +40,7 @@ Local adaptations, reproducible with `scripts/generate-jupiter-texture.py`:
 - Removed chromatic projection artifacts above approximately 78° north.
 - Repaired the periodic longitude seam over 32 pixels.
 - Converted the sRGB PNG to a native-resolution 3600×1800 WebP without deriving height or normal data from color.
+- `jupiter-albedo-2048.webp` is a 2048×1024 showcase preview generated from that 3600×1800 map. Reproducible with `scripts/textures/generate-preview-textures.py`.
 
 The fixed source SHA-256, generated output hash, source URL, GRS calibration, tool versions, and modification record are stored in `jupiter-texture-manifest.json`.
 
@@ -67,6 +69,7 @@ The fixed source SHA-256, generated output hashes, source URLs, dimensions, chan
 Local adaptations, reproducible with `scripts/generate-mars-textures.py`:
 
 - Downsampled the 23059×11530 Viking mosaic to a 4096×2048 sRGB WebP, preserving its −180°..180° positive-east longitude convention, progressively removing longitude identity at the projection poles, and repairing the periodic color seam over 64 pixels.
+- `mars-albedo-2048.webp` and `mars-normal-height-2048.png` are 2048×1024 showcase previews generated from those 4K maps. Height is decoded to meters, resized, and re-packed with newly derived octahedral normals so the 16-bit BA channel is never filtered as RGBA. Reproducible with `scripts/textures/generate-preview-textures.py`.
 - Decoded MOLA's signed big-endian elevation in meters, aligned its 0°..360° east longitudes to the Viking mosaic, and resampled it to 4096×2048 without deriving any terrain data from color.
 - Derived metric spherical slopes from MOLA after converging longitude at the poles. RG stores an octahedrally encoded upward tangent normal; BA stores unsigned 16-bit normalized height over the observed range −8177 m to 21171 m.
 - The shader uploads the packed MOLA image to separate filtered-normal and nearest-height textures, so byte interpolation cannot corrupt the 16-bit terrain samples used for low-sun self-shadowing.
@@ -85,6 +88,7 @@ Local adaptations, reproducible with `scripts/generate-mercury-textures.py`:
 - Aligned the DEM's 0°..360° positive-east longitude to the color map's −180°..180° convention, resampled it to 2048×1024, and derived metric spherical tangent normals without displacing the silhouette.
 - RG stores an octahedrally encoded east/north/up tangent normal. BA stores unsigned 16-bit normalized height over the observed source range −10764 m to 8994 m, high byte then low byte, relative to the 2439400 m datum radius.
 - The packed data PNG is lossless and contains no gamma, chromaticity, sRGB, or ICC color-transform chunks. The shader uploads it to separate filtered-normal and nearest/manual-decoded height textures.
+- `mercury-albedo-1024.webp` and `mercury-normal-height-1024.png` are 1024×512 showcase previews generated from those 2048 maps. Height is decoded to meters, resized, and re-packed with newly derived octahedral normals so albedo and normalHeight stay the same size. Reproducible with `scripts/textures/generate-preview-textures.py`.
 - Surface relief visibility is a finite, curvature-aware DEM approximation for the Gallery card, not a claim of physical crater ray tracing.
 
 The fixed source SHA-256 hashes, generated output hashes, source URLs, dimensions, channel contract, tool versions, no-data count, and full modification record are stored in `mercury-texture-manifest.json`.
@@ -102,6 +106,7 @@ Local adaptations, reproducible with `scripts/generate-pluto-textures.py`:
 - Kept unknown DEM terrain at datum with an up normal and zero decoded relief confidence; confidence feathers only inward from reliable coverage so the boundary cannot become a synthetic cliff or occluder.
 - Packed octahedral tangent normal in RG and unsigned 16-bit height over −4101 m to 6491 m in BA. The separate albedo alpha transport stores `round(confidence × 254) + 1`; the shader decodes zero confidence without sacrificing hidden RGB bytes.
 - Preserved the periodic longitude seam, converged color at the projection poles, and wrote both assets as lossless PNG without deriving relief from color.
+- `pluto-albedo-1024.png` and `pluto-normal-height-1024.png` are 1024×512 showcase previews generated from those 2048 maps. Confidence is decoded from albedo alpha, resized with height, and re-packed so zero-confidence pixels keep an up normal and datum height. Reproducible with `scripts/textures/generate-preview-textures.py`.
 
 The fixed source SHA-256 hashes, output hashes, source dimensions and counts, datum, height range, registration, channel contract, processing steps, and tool versions are stored in `pluto-texture-manifest.json`. Full evidence and exclusions are recorded in `research/pluto-rendering-webgl-shader-survey.md` and `research/pluto-reference-manifest.json`. These adaptations do not imply NASA, JHUAPL, SwRI, LPI, or USGS endorsement.
 
@@ -144,6 +149,7 @@ The TIFF is an 8-bit sRGB coded-color visualization of the AIA 304 Å (30.4 nm) 
 Local adaptations, reproducible with `scripts/generate-sun-texture.py`:
 
 - Preserved the fixed SVS coded-color palette while downsampling the source to a 1024×1024 RGBA PNG.
+- `sun-aia-304.webp` is a same-resolution 1024×1024 showcase conversion of that PNG. Disk center and radius stay hardcoded as `/1024` in `src/sun/solar-aia-304.source.ts`. Reproducible with `scripts/textures/generate-preview-textures.py`.
 - Fitted a fully opaque observed disk independently of RGB intensity, so dark on-disk filaments remain opaque.
 - Subtracted the smooth dark-red exterior background and retained only connected, attached off-limb emission; background-subtracted emission is stored as straight color plus coverage alpha.
 - Dilated hidden edge color for safe filtering. The copied Effect builds its mip chain with alpha-weighted RGB so minification does not create a dark fringe.
