@@ -23,13 +23,13 @@ type NeptunianFrameSettings = {
   companionCloud: number
   deepOpticalDepth: number
   exposure: number
-  followPointer: boolean
+  flattening: number
   flowDetail: number
   forwardScattering: number
   hazeOpticalDepth: number
+  lean: boolean
   methaneAbsorption: number
-  oblateness: number
-  rotationSpeed: number
+  spin: number
   sunAzimuth: number
   sunElevation: number
   yaw: number
@@ -57,14 +57,13 @@ export type NeptunianOrbEffectProps = {
   companionCloud?: number
   deepOpticalDepth?: number
   exposure?: number
-  followPointer?: boolean
+  flattening?: number
   flowDetail?: number
   forwardScattering?: number
   hazeOpticalDepth?: number
+  lean?: boolean
   methaneAbsorption?: number
-  oblateness?: number
-  /** Display-time rotation in radians per second, not Neptune's physical rotation rate. */
-  rotationSpeed?: number
+  spin?: number
   source: NeptunianOrbSource
   style?: CSSProperties
   sunAzimuth?: number
@@ -89,7 +88,7 @@ type NeptunianUniforms = {
   hazeOpticalDepth: WebGLUniformLocation | null
   highCloudTexture: WebGLUniformLocation | null
   methaneAbsorption: WebGLUniformLocation | null
-  oblateness: WebGLUniformLocation | null
+  flattening: WebGLUniformLocation | null
   opticalDepthTexture: WebGLUniformLocation | null
   pointer: WebGLUniformLocation | null
   resolution: WebGLUniformLocation | null
@@ -147,7 +146,7 @@ uniform float uForwardScattering;
 uniform sampler2D uHighCloudTexture;
 uniform float uHazeOpticalDepth;
 uniform float uMethaneAbsorption;
-uniform float uOblateness;
+uniform float uFlattening;
 uniform sampler2D uOpticalDepthTexture;
 uniform vec2 uPointer;
 uniform vec2 uResolution;
@@ -436,7 +435,7 @@ void main() {
 
   float aspect = uResolution.x / max(uResolution.y, 1.0);
   vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
-  float flattening = 1.0 - clamp(uOblateness, 0.0, 0.12);
+  float flattening = 1.0 - clamp(uFlattening, 0.0, 0.12);
   vec3 rayOrigin = vec3(position.x, position.y / flattening, CAMERA_DISTANCE);
   vec3 rayDirection = vec3(0.0, 0.0, -1.0);
   vec3 viewDirection = -rayDirection;
@@ -613,7 +612,7 @@ function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): Neptuni
     hazeOpticalDepth: gl.getUniformLocation(program, 'uHazeOpticalDepth'),
     highCloudTexture: gl.getUniformLocation(program, 'uHighCloudTexture'),
     methaneAbsorption: gl.getUniformLocation(program, 'uMethaneAbsorption'),
-    oblateness: gl.getUniformLocation(program, 'uOblateness'),
+    flattening: gl.getUniformLocation(program, 'uFlattening'),
     opticalDepthTexture: gl.getUniformLocation(program, 'uOpticalDepthTexture'),
     pointer: gl.getUniformLocation(program, 'uPointer'),
     resolution: gl.getUniformLocation(program, 'uResolution'),
@@ -791,7 +790,7 @@ function createNeptunianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, settings.followPointer)
+    updatePointer(delta, settings.lean)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -827,15 +826,12 @@ function createNeptunianRenderer(
     gl.uniform1f(resources.uniforms.forwardScattering, settings.forwardScattering)
     gl.uniform1f(resources.uniforms.hazeOpticalDepth, settings.hazeOpticalDepth)
     gl.uniform1f(resources.uniforms.methaneAbsorption, settings.methaneAbsorption)
-    gl.uniform1f(resources.uniforms.oblateness, settings.oblateness)
+    gl.uniform1f(resources.uniforms.flattening, settings.flattening / 100)
     gl.uniform2f(resources.uniforms.pointer, pointer.currentX, pointer.currentY)
     gl.uniform2f(resources.uniforms.resolution, canvas.width, canvas.height)
     gl.uniform1f(resources.uniforms.sourceReady, hasSource ? 1 : 0)
     gl.uniform3f(resources.uniforms.sunDirection, ...sunDirection)
-    gl.uniform1f(
-      resources.uniforms.yaw,
-      (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed,
-    )
+    gl.uniform1f(resources.uniforms.yaw, ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180)
     gl.uniform1f(resources.uniforms.time, elapsed)
     gl.uniform1f(resources.uniforms.upperClouds, settings.upperClouds)
     gl.uniform1f(resources.uniforms.upperHaze, settings.upperHaze)
@@ -920,13 +916,13 @@ export function NeptunianOrbEffect({
   companionCloud = 0.68,
   deepOpticalDepth = 0.72,
   exposure = 0.72,
-  followPointer = true,
+  flattening = 1.7,
   flowDetail = 0.34,
   forwardScattering = 0.28,
   hazeOpticalDepth = 0.48,
+  lean = true,
   methaneAbsorption = 0.78,
-  oblateness = 0.017,
-  rotationSpeed = 0.022,
+  spin = 1.3,
   source,
   style,
   sunAzimuth = -10,
@@ -945,13 +941,13 @@ export function NeptunianOrbEffect({
     companionCloud,
     deepOpticalDepth,
     exposure,
-    followPointer,
+    flattening,
     flowDetail,
     forwardScattering,
     hazeOpticalDepth,
+    lean,
     methaneAbsorption,
-    oblateness,
-    rotationSpeed,
+    spin,
     sunAzimuth,
     sunElevation,
     yaw,

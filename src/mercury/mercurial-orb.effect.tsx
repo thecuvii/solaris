@@ -32,18 +32,18 @@ export type MercurialOrbSource = {
 export type MercurialOrbEffectProps = {
   className?: string
   exposure?: number
-  followPointer?: boolean
+  lean?: boolean
   microDetail?: number
   normalStrength?: number
   photometricStrength?: number
   reliefShadowStrength?: number
-  rotationSpeed?: number
   source: MercurialOrbSource
+  spin?: number
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
+  tilt?: number
   yaw?: number
-  viewTilt?: number
 }
 
 type MercurialResources = {
@@ -55,16 +55,16 @@ type MercurialResources = {
 
 type MercurialFrameSettings = {
   exposure: number
-  followPointer: boolean
+  lean: boolean
   microDetail: number
   normalStrength: number
   photometricStrength: number
   reliefShadowStrength: number
-  rotationSpeed: number
+  spin: number
   sunAzimuth: number
   sunElevation: number
+  tilt: number
   yaw: number
-  viewTilt: number
 }
 
 type AnisotropyExtension = {
@@ -627,7 +627,7 @@ function createMercurialRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, settings.followPointer)
+    updatePointer(delta, settings.lean)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -688,11 +688,11 @@ function createMercurialRenderer(
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uYaw'),
-      (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+      ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
     )
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uViewTilt'),
-      (settings.viewTilt * Math.PI) / 180,
+      (settings.tilt * Math.PI) / 180,
     )
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
@@ -756,32 +756,32 @@ function createMercurialRenderer(
 export function MercurialOrbEffect({
   className,
   exposure = 0.92,
-  followPointer = true,
+  lean = true,
   microDetail = 0.08,
   normalStrength = 1.35,
   photometricStrength = 1,
   reliefShadowStrength = 0.72,
-  rotationSpeed = 0.01,
   source,
+  spin = 0.6,
   style,
   sunAzimuth = -12,
   sunElevation = 14,
+  tilt = 0,
   yaw = 0,
-  viewTilt = 0,
 }: MercurialOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: MercurialFrameSettings = {
     exposure,
-    followPointer,
+    lean,
     microDetail,
     normalStrength,
     photometricStrength,
     reliefShadowStrength,
-    rotationSpeed,
+    spin,
     sunAzimuth,
     sunElevation,
+    tilt,
     yaw,
-    viewTilt,
   }
 
   useCanvasRenderer(canvasRef, frameSettings, source, createMercurialRenderer)

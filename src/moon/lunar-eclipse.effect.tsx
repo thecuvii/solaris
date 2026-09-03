@@ -9,15 +9,15 @@ import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-r
 type LunarEclipseFrameSettings = {
   atmosphericOpticalDepth: number
   exposure: number
-  followPointer: boolean
   haloIntensity: number
   haloWidth: number
+  lean: boolean
   normalStrength: number
+  offsetX: number
+  offsetY: number
   penumbraWidth: number
   refractedLightIntensity: number
   reliefShadowStrength: number
-  shadowOffsetX: number
-  shadowOffsetY: number
   yaw: number
   umbraRadius: number
 }
@@ -43,15 +43,15 @@ export type LunarEclipseEffectProps = {
   className?: string
   composition?: LunarEclipseComposition
   exposure?: number
-  followPointer?: boolean
   haloIntensity?: number
   haloWidth?: number
+  lean?: boolean
   normalStrength?: number
+  offsetX?: number
+  offsetY?: number
   penumbraWidth?: number
   refractedLightIntensity?: number
   reliefShadowStrength?: number
-  shadowOffsetX?: number
-  shadowOffsetY?: number
   source: LunarEclipseSource
   style?: CSSProperties
   yaw?: number
@@ -575,7 +575,7 @@ function createLunarEclipseRenderer(
     resize()
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, settings.followPointer)
+    updatePointer(delta, settings.lean)
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, canvas.width, canvas.height)
@@ -631,8 +631,8 @@ function createLunarEclipseRenderer(
     )
     gl.uniform2f(
       gl.getUniformLocation(resources.program, 'uShadowOffset'),
-      settings.shadowOffsetX,
-      settings.shadowOffsetY,
+      settings.offsetX,
+      settings.offsetY,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uYaw'), (settings.yaw * Math.PI) / 180)
@@ -712,15 +712,15 @@ export function LunarEclipseEffect({
   className,
   composition,
   exposure = 1.18,
-  followPointer = true,
   haloIntensity = 1.15,
   haloWidth = 0.23,
+  lean = true,
   normalStrength = 0.82,
+  offsetX = 0.55,
+  offsetY = -1.55,
   penumbraWidth = 0.72,
   refractedLightIntensity = 1.7,
   reliefShadowStrength = 0.36,
-  shadowOffsetX = 0.55,
-  shadowOffsetY = -1.55,
   source,
   style,
   yaw = 0,
@@ -733,15 +733,15 @@ export function LunarEclipseEffect({
   const frameSettings: LunarEclipseFrameSettings = {
     atmosphericOpticalDepth,
     exposure,
-    followPointer,
     haloIntensity,
     haloWidth,
+    lean,
     normalStrength,
+    offsetX,
+    offsetY,
     penumbraWidth,
     refractedLightIntensity,
     reliefShadowStrength,
-    shadowOffsetX,
-    shadowOffsetY,
     yaw,
     umbraRadius,
   }

@@ -11,13 +11,13 @@ type VenusianFrameSettings = {
   cloudContrast: number
   cloudDetail: number
   exposure: number
-  followPointer: boolean
   flowSpeed: number
   flowStrength: number
   forwardScattering: number
   gloryStrength: number
+  lean: boolean
   opticalDepth: number
-  rotationSpeed: number
+  spin: number
   sulfurTint: number
   sunAzimuth: number
   sunElevation: number
@@ -39,13 +39,13 @@ export type VenusianOrbEffectProps = {
   cloudContrast?: number
   cloudDetail?: number
   exposure?: number
-  followPointer?: boolean
   flowSpeed?: number
   flowStrength?: number
   forwardScattering?: number
   gloryStrength?: number
+  lean?: boolean
   opticalDepth?: number
-  rotationSpeed?: number
+  spin?: number
   source: VenusianOrbSource
   style?: CSSProperties
   sulfurTint?: number
@@ -654,7 +654,7 @@ function createVenusianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, settings.followPointer)
+    updatePointer(delta, settings.lean)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -691,7 +691,7 @@ function createVenusianRenderer(
     gl.uniform1f(uniforms.sourceReady, hasSource ? 1 : 0)
     gl.uniform1f(uniforms.sulfurTint, settings.sulfurTint)
     gl.uniform3f(uniforms.sunDirection, ...sunDirection)
-    gl.uniform1f(uniforms.yaw, (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed)
+    gl.uniform1f(uniforms.yaw, ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180)
     gl.uniform1f(uniforms.time, elapsed)
     gl.uniform1f(uniforms.upperHaze, settings.upperHaze)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -771,13 +771,13 @@ export function VenusianOrbEffect({
   cloudContrast = 0.3,
   cloudDetail = 0.22,
   exposure = 1.08,
-  followPointer = true,
   flowSpeed = 0.045,
   flowStrength = 0.7,
   forwardScattering = 0.72,
   gloryStrength = 0.18,
+  lean = true,
   opticalDepth = 0.72,
-  rotationSpeed = -0.026,
+  spin = -1.5,
   source,
   style,
   sulfurTint = 0.72,
@@ -792,13 +792,13 @@ export function VenusianOrbEffect({
     cloudContrast,
     cloudDetail,
     exposure,
-    followPointer,
     flowSpeed,
     flowStrength,
     forwardScattering,
     gloryStrength,
+    lean,
     opticalDepth,
-    rotationSpeed,
+    spin,
     sulfurTint,
     sunAzimuth,
     sunElevation,

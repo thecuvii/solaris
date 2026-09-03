@@ -12,13 +12,13 @@ type LunarFrameSettings = {
   bloomWarmth: number
   earthshineIntensity: number
   exposure: number
-  followPointer: boolean
+  lean: boolean
   normalStrength: number
   oppositionStrength: number
   oppositionWidth: number
   photometricMix: number
   reliefShadowStrength: number
-  rotationSpeed: number
+  spin: number
   sunAzimuth: number
   sunElevation: number
   yaw: number
@@ -49,13 +49,13 @@ export type LunarOrbEffectProps = {
   composition?: LunarOrbComposition
   earthshineIntensity?: number
   exposure?: number
-  followPointer?: boolean
+  lean?: boolean
   normalStrength?: number
   oppositionStrength?: number
   oppositionWidth?: number
   photometricMix?: number
   reliefShadowStrength?: number
-  rotationSpeed?: number
+  spin?: number
   source: LunarOrbSource
   style?: CSSProperties
   sunAzimuth?: number
@@ -573,7 +573,7 @@ function createLunarRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, settings.followPointer)
+    updatePointer(delta, settings.lean)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -611,7 +611,7 @@ function createLunarRenderer(
     gl.uniform1i(gl.getUniformLocation(resources.program, 'uNormalHeightTexture'), 1)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uEarthshineIntensity'),
-      settings.earthshineIntensity,
+      settings.earthshineIntensity / 1000,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uHeightScale'), heightScale)
@@ -650,7 +650,7 @@ function createLunarRenderer(
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uYaw'),
-      (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+      ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uVeilingGlare'), settings.veilingGlare)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -730,15 +730,15 @@ export function LunarOrbEffect({
   bloomWarmth = 0.35,
   className,
   composition,
-  earthshineIntensity = 0.006,
+  earthshineIntensity = 6,
   exposure = 0.72,
-  followPointer = true,
+  lean = true,
   normalStrength = 0.85,
   oppositionStrength = 0.25,
   oppositionWidth = 0.035,
   photometricMix = 0.14,
   reliefShadowStrength = 0.58,
-  rotationSpeed = 0.012,
+  spin = 0.7,
   source,
   style,
   sunAzimuth = -48,
@@ -756,13 +756,13 @@ export function LunarOrbEffect({
     bloomWarmth,
     earthshineIntensity,
     exposure,
-    followPointer,
+    lean,
     normalStrength,
     oppositionStrength,
     oppositionWidth,
     photometricMix,
     reliefShadowStrength,
-    rotationSpeed,
+    spin,
     sunAzimuth,
     sunElevation,
     yaw,

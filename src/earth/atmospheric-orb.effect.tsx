@@ -35,47 +35,43 @@ export type AtmosphericOrbSource = {
 
 export type AtmosphericOrbEffectProps = {
   aerosol?: number
-  atmosphereDensity?: number
   atmosphereThickness?: number
+  cityLights?: number
   className?: string
   cloudDensity?: number
   cloudHeight?: number
   cloudShadowIntensity?: number
-  followPointer?: boolean
-  manualOrbit?: boolean
+  density?: number
+  lean?: boolean
   model: AtmosphericOrbModel
   multipleScattering?: number
-  nightLightIntensity?: number
   oceanGlint?: number
   oceanWaveStrength?: number
-  orbitSpeed?: number
-  rotationSpeed?: number
-  showAtmosphere?: boolean
   source?: AtmosphericOrbSource
+  spin?: number
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
+  sunOrbit?: number
 }
 
 type AtmosphericFrameSettings = {
   aerosol: number
-  atmosphereDensity: number
   atmosphereThickness: number
+  cityLights: number
   cloudDensity: number
   cloudHeight: number
   cloudShadowIntensity: number
-  followPointer: boolean
-  manualOrbit: boolean
+  density: number
+  lean: boolean
   model: AtmosphericOrbModel
   multipleScattering: number
-  nightLightIntensity: number
   oceanGlint: number
   oceanWaveStrength: number
-  orbitSpeed: number
-  rotationSpeed: number
-  showAtmosphere: boolean
+  spin: number
   sunAzimuth: number
   sunElevation: number
+  sunOrbit: number
 }
 
 type AtmosphericRendererInput = {
@@ -102,7 +98,7 @@ precision highp float;
 in vec2 vUv;
 
 uniform float uAerosol;
-uniform float uAtmosphereDensity;
+uniform float uDensity;
 uniform float uAtmosphereRadius;
 uniform vec3 uMieExtinction;
 uniform vec3 uOzoneAbsorption;
@@ -128,7 +124,7 @@ vec3 atmosphereDensity(float height, float thickness) {
   float ozoneCenter = thickness * 0.46;
   float ozoneWidth = max(thickness * 0.18, 0.0001);
   float ozone = exp(-pow((height - ozoneCenter) / ozoneWidth, 2.0));
-  return vec3(rayleigh, mie, ozone) * uAtmosphereDensity;
+  return vec3(rayleigh, mie, ozone) * uDensity;
 }
 
 void main() {
@@ -171,7 +167,7 @@ precision highp sampler2D;
 in vec2 vUv;
 
 uniform float uAerosol;
-uniform float uAtmosphereDensity;
+uniform float uDensity;
 uniform float uAtmosphereRadius;
 uniform vec3 uMieExtinction;
 uniform vec3 uMieScattering;
@@ -190,7 +186,7 @@ vec3 atmosphereDensity(float height, float thickness) {
   float ozoneCenter = thickness * 0.46;
   float ozoneWidth = max(thickness * 0.18, 0.0001);
   float ozone = exp(-pow((height - ozoneCenter) / ozoneWidth, 2.0));
-  return vec3(rayleigh, mie, ozone) * uAtmosphereDensity;
+  return vec3(rayleigh, mie, ozone) * uDensity;
 }
 
 void main() {
@@ -238,7 +234,7 @@ in vec2 vUv;
 
 uniform float uAerosol;
 uniform float uAspect;
-uniform float uAtmosphereDensity;
+uniform float uDensity;
 uniform float uAtmosphereRadius;
 uniform float uCloudDensity;
 uniform float uCloudHeight;
@@ -262,7 +258,7 @@ uniform float uOceanWaveStrength;
 uniform vec3 uOzoneAbsorption;
 uniform float uPlanetRadius;
 uniform vec3 uRayleighScattering;
-uniform float uRotationSpeed;
+uniform float uSpin;
 uniform sampler2D uRoughnessTexture;
 uniform vec3 uSpaceColor;
 uniform vec3 uSunColor;
@@ -353,7 +349,7 @@ vec3 atmosphereDensity(float height, float thickness, vec3 samplePoint) {
   float upperAir = smoothstep(0.08, 0.7, height / max(thickness, 0.0001));
   float shimmer = sin(dot(samplePoint, vec3(13.7, 19.1, 11.3)) + uTime * 0.17) * 0.5 + 0.5;
   rayleigh *= mix(1.0, 0.93 + shimmer * 0.14, upperAir);
-  return vec3(rayleigh, mie, ozone) * uAtmosphereDensity;
+  return vec3(rayleigh, mie, ozone) * uDensity;
 }
 
 vec3 sampleSunTransmittance(vec3 samplePoint) {
@@ -555,7 +551,7 @@ void main() {
   if (hitsSurface) {
     vec3 surfacePoint = rayOrigin + rayDirection * planetHit.x;
     vec3 normal = normalize(surfacePoint);
-    vec3 rotatedNormal = rotateAroundY(normal, uTime * uRotationSpeed + uLongitudeOffset);
+    vec3 rotatedNormal = rotateAroundY(normal, uTime * uSpin + uLongitudeOffset);
     float lightFacing = dot(normal, uSunDirection);
     float directLight = max(lightFacing, 0.0);
     float surfaceVariation = valueNoise(rotatedNormal * 2.8) * 0.65 + valueNoise(rotatedNormal * 7.0) * 0.35;
@@ -622,13 +618,13 @@ void main() {
         cloudNormal = normalize(cloudPoint);
         vec3 rotatedCloudNormal = rotateAroundY(
           cloudNormal,
-          uTime * uRotationSpeed * CLOUD_SPIN_RATIO + uLongitudeOffset
+          uTime * uSpin * CLOUD_SPIN_RATIO + uLongitudeOffset
         );
         float coverage = cloudCoverage(rotatedCloudNormal);
         cloudOpticalDepth = 1.0 - exp(-coverage * 2.6);
         vec3 rotatedSunDirection = rotateAroundY(
           uSunDirection,
-          uTime * uRotationSpeed * CLOUD_SPIN_RATIO + uLongitudeOffset
+          uTime * uSpin * CLOUD_SPIN_RATIO + uLongitudeOffset
         );
         vec3 cloudSunTangent =
           rotatedSunDirection - rotatedCloudNormal * dot(rotatedCloudNormal, rotatedSunDirection);
@@ -644,7 +640,7 @@ void main() {
           vec3 shadowShellNormal = normalize(shadowOrigin + uSunDirection * shadowHit.y);
           vec3 rotatedShadowNormal = rotateAroundY(
             shadowShellNormal,
-            uTime * uRotationSpeed * CLOUD_SPIN_RATIO + uLongitudeOffset
+            uTime * uSpin * CLOUD_SPIN_RATIO + uLongitudeOffset
           );
           cloudShadow = cloudCoverage(rotatedShadowNormal) * directLight;
         }
@@ -1212,10 +1208,7 @@ function createAtmosphericRenderer(
   function setPhysicalUniforms(program: WebGLProgram, current: AtmosphericFrameSettings): void {
     const atmosphereRadius = PLANET_RADIUS + current.atmosphereThickness
     gl.uniform1f(gl.getUniformLocation(program, 'uAerosol'), current.aerosol)
-    gl.uniform1f(
-      gl.getUniformLocation(program, 'uAtmosphereDensity'),
-      current.showAtmosphere ? current.atmosphereDensity : 0,
-    )
+    gl.uniform1f(gl.getUniformLocation(program, 'uDensity'), current.density)
     gl.uniform1f(gl.getUniformLocation(program, 'uAtmosphereRadius'), atmosphereRadius)
     gl.uniform1f(gl.getUniformLocation(program, 'uPlanetRadius'), PLANET_RADIUS)
     setColor(gl, program, 'uMieExtinction', current.model.mieExtinction)
@@ -1226,13 +1219,12 @@ function createAtmosphericRenderer(
   function renderTransmittance(current: AtmosphericFrameSettings): void {
     const nextKey = JSON.stringify([
       current.aerosol,
-      current.atmosphereDensity,
       current.atmosphereThickness,
+      current.density,
       current.model.mieExtinction,
       current.model.mieScattering,
       current.model.ozoneAbsorption,
       current.model.rayleighScattering,
-      current.showAtmosphere,
     ])
     if (nextKey === transmittanceKey) return
     transmittanceKey = nextKey
@@ -1323,13 +1315,13 @@ function createAtmosphericRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, current.followPointer)
+    updatePointer(delta, current.lean)
 
     const baseAzimuth = current.sunAzimuth * (Math.PI / 180)
-    const aimSun = current.manualOrbit || current.orbitSpeed === 0
+    const aimSun = current.sunOrbit === 0
     const orbitAngle = aimSun
       ? baseAzimuth + pointer.currentX * Math.PI
-      : elapsed * current.orbitSpeed + baseAzimuth + pointer.currentX * 0.42
+      : elapsed * ((current.sunOrbit * Math.PI) / 180) + baseAzimuth + pointer.currentX * 0.42
     const elevationOffset = pointer.currentY * (aimSun ? 55 : 20)
     const elevation = (current.sunElevation + elevationOffset) * (Math.PI / 180)
     const elevationCosine = Math.cos(elevation)
@@ -1386,7 +1378,7 @@ function createAtmosphericRenderer(
     )
     gl.uniform1f(
       gl.getUniformLocation(resources.atmosphereProgram, 'uCloudHeight'),
-      current.cloudHeight,
+      current.cloudHeight / 100,
     )
     gl.uniform1f(
       gl.getUniformLocation(resources.atmosphereProgram, 'uCloudShadowIntensity'),
@@ -1418,7 +1410,7 @@ function createAtmosphericRenderer(
     )
     gl.uniform1f(
       gl.getUniformLocation(resources.atmosphereProgram, 'uNightLightIntensity'),
-      current.nightLightIntensity,
+      current.cityLights,
     )
     gl.uniform1f(
       gl.getUniformLocation(resources.atmosphereProgram, 'uOceanGlint'),
@@ -1429,8 +1421,8 @@ function createAtmosphericRenderer(
       current.oceanWaveStrength,
     )
     gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uRotationSpeed'),
-      current.rotationSpeed,
+      gl.getUniformLocation(resources.atmosphereProgram, 'uSpin'),
+      (current.spin * Math.PI) / 180,
     )
     gl.uniform1f(gl.getUniformLocation(resources.atmosphereProgram, 'uTime'), elapsed)
     gl.uniform3f(
@@ -1474,10 +1466,7 @@ function createAtmosphericRenderer(
   }
 
   function handlePointerLeave(): void {
-    if (
-      !getSettings().followPointer ||
-      !(getSettings().manualOrbit || getSettings().orbitSpeed === 0)
-    ) {
+    if (!getSettings().lean || getSettings().sunOrbit !== 0) {
       pointer.targetX = 0
       pointer.targetY = 0
     }
@@ -1532,47 +1521,43 @@ function createAtmosphericRenderer(
 
 export function AtmosphericOrbEffect({
   aerosol = 1,
-  atmosphereDensity = 1,
   atmosphereThickness = 0.16,
+  cityLights = 1,
   className,
   cloudDensity = 1,
-  cloudHeight = 0.012,
+  cloudHeight = 1.2,
   cloudShadowIntensity = 0.48,
-  followPointer = true,
-  manualOrbit = false,
+  density = 1,
+  lean = true,
   model,
   multipleScattering = 1,
-  nightLightIntensity = 1,
   oceanGlint = 0.72,
   oceanWaveStrength = 0.8,
-  orbitSpeed = 0.08,
-  rotationSpeed = 0.024,
-  showAtmosphere = true,
   source,
+  spin = 1.4,
   style,
   sunAzimuth = -41.25,
   sunElevation = 8,
+  sunOrbit = 4.6,
 }: AtmosphericOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: AtmosphericFrameSettings = {
     aerosol,
-    atmosphereDensity,
     atmosphereThickness,
+    cityLights,
     cloudDensity,
     cloudHeight,
     cloudShadowIntensity,
-    followPointer,
-    manualOrbit,
+    density,
+    lean,
     model,
     multipleScattering,
-    nightLightIntensity,
     oceanGlint,
     oceanWaveStrength,
-    orbitSpeed,
-    rotationSpeed,
-    showAtmosphere,
+    spin,
     sunAzimuth,
     sunElevation,
+    sunOrbit,
   }
   const rendererInput = useMemo<AtmosphericRendererInput>(() => ({ source }), [source])
 

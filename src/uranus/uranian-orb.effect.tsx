@@ -27,25 +27,24 @@ export type UranianOrbEffectProps = {
   bandContrast?: number
   className?: string
   cloudContrast?: number
-  epsilonEccentricity?: number
-  epsilonPeriapsis?: number
+  discStretch?: number
   exposure?: number
+  flattening?: number
   forwardScattering?: number
   hazeOpacity?: number
   hoodLatitude?: number
-  hoodPole?: -1 | 1
   hoodSoftness?: number
   limbDarkening?: number
   methaneAbsorption?: number
-  oblateness?: number
+  northHood?: boolean
   phaseFill?: number
   polarHood?: number
   poleAzimuth?: number
   poleElevation?: number
   ringShadow?: number
   ringVisibility?: number
-  /** Display-time rotation in radians per second, not Uranus's physical rotation rate. */
-  rotationSpeed?: number
+  spin?: number
+  stretchAngle?: number
   source: UranianOrbSource
   style?: CSSProperties
   sunAzimuth?: number
@@ -60,9 +59,9 @@ type UranianUniforms = {
   atmosphereThickness: WebGLUniformLocation | null
   bandContrast: WebGLUniformLocation | null
   cloudContrast: WebGLUniformLocation | null
-  epsilonEccentricity: WebGLUniformLocation | null
-  epsilonPeriapsis: WebGLUniformLocation | null
+  discStretch: WebGLUniformLocation | null
   exposure: WebGLUniformLocation | null
+  flattening: WebGLUniformLocation | null
   forwardScattering: WebGLUniformLocation | null
   hazeOpacity: WebGLUniformLocation | null
   hoodLatitude: WebGLUniformLocation | null
@@ -70,7 +69,6 @@ type UranianUniforms = {
   hoodSoftness: WebGLUniformLocation | null
   limbDarkening: WebGLUniformLocation | null
   methaneAbsorption: WebGLUniformLocation | null
-  oblateness: WebGLUniformLocation | null
   phaseFill: WebGLUniformLocation | null
   polarHood: WebGLUniformLocation | null
   poleAzimuth: WebGLUniformLocation | null
@@ -78,7 +76,8 @@ type UranianUniforms = {
   resolution: WebGLUniformLocation | null
   ringShadow: WebGLUniformLocation | null
   ringVisibility: WebGLUniformLocation | null
-  rotationSpeed: WebGLUniformLocation | null
+  spin: WebGLUniformLocation | null
+  stretchAngle: WebGLUniformLocation | null
   sourceReady: WebGLUniformLocation | null
   sunDirectionView: WebGLUniformLocation | null
   yaw: WebGLUniformLocation | null
@@ -98,24 +97,24 @@ type UranianFrameSettings = {
   atmosphereThickness: number
   bandContrast: number
   cloudContrast: number
-  epsilonEccentricity: number
-  epsilonPeriapsis: number
+  discStretch: number
   exposure: number
+  flattening: number
   forwardScattering: number
   hazeOpacity: number
   hoodLatitude: number
-  hoodPole: -1 | 1
   hoodSoftness: number
   limbDarkening: number
   methaneAbsorption: number
-  oblateness: number
+  northHood: boolean
   phaseFill: number
   polarHood: number
   poleAzimuth: number
   poleElevation: number
   ringShadow: number
   ringVisibility: number
-  rotationSpeed: number
+  spin: number
+  stretchAngle: number
   sunAzimuth: number
   sunElevation: number
   yaw: number
@@ -144,8 +143,8 @@ uniform sampler2D uAtmosphereTexture;
 uniform float uAtmosphereThickness;
 uniform float uBandContrast;
 uniform float uCloudContrast;
-uniform float uEpsilonEccentricity;
-uniform float uEpsilonPeriapsis;
+uniform float uDiscStretch;
+uniform float uStretchAngle;
 uniform float uExposure;
 uniform float uForwardScattering;
 uniform float uHazeOpacity;
@@ -154,7 +153,7 @@ uniform float uHoodPole;
 uniform float uHoodSoftness;
 uniform float uLimbDarkening;
 uniform float uMethaneAbsorption;
-uniform float uOblateness;
+uniform float uFlattening;
 uniform float uPhaseFill;
 uniform float uPolarHood;
 uniform float uPoleAzimuth;
@@ -162,7 +161,7 @@ uniform float uPoleElevation;
 uniform vec2 uResolution;
 uniform float uRingShadow;
 uniform float uRingVisibility;
-uniform float uRotationSpeed;
+uniform float uSpin;
 uniform float uSourceReady;
 uniform vec3 uSunDirectionView;
 uniform float uYaw;
@@ -295,8 +294,8 @@ vec4 sampleAtmosphere(vec2 uv, vec2 dx, vec2 dy) {
 }
 
 float ringCenter(int index, float angle) {
-  float eccentricity = index == 9 ? uEpsilonEccentricity : RING_ECCENTRICITY[index];
-  float periapsis = index == 9 ? uEpsilonPeriapsis : 0.0;
+  float eccentricity = index == 9 ? uDiscStretch : RING_ECCENTRICITY[index];
+  float periapsis = index == 9 ? uStretchAngle : 0.0;
   return RING_RADIUS[index] * (1.0 - eccentricity * eccentricity) /
     max(1.0 + eccentricity * cos(angle - periapsis), 0.0001);
 }
@@ -450,7 +449,7 @@ void main() {
   vec3 lightDirection = normalize(viewToBody(uSunDirectionView));
   vec3 radii = vec3(
     URANUS_RADIUS,
-    URANUS_RADIUS * (1.0 - uOblateness),
+    URANUS_RADIUS * (1.0 - uFlattening),
     URANUS_RADIUS
   );
 
@@ -462,7 +461,7 @@ void main() {
   float bodyLatitude = asin(clamp(bodyRadialDirection.y, -1.0, 1.0));
   float bodyWind = sin(bodyLatitude * 2.0) * cos(bodyLatitude * 5.0);
   float bodyLongitude =
-    uYaw + uTime * uRotationSpeed * uWindScale * bodyWind * 0.25;
+    uYaw + uTime * uSpin * uWindScale * bodyWind * 0.25;
   vec3 mappedBodyDirection = rotateY(bodyRadialDirection, bodyLongitude);
   vec2 atmosphereUv;
   vec2 atmosphereDx;
@@ -649,9 +648,9 @@ function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): Uranian
     atmosphereThickness: gl.getUniformLocation(program, 'uAtmosphereThickness'),
     bandContrast: gl.getUniformLocation(program, 'uBandContrast'),
     cloudContrast: gl.getUniformLocation(program, 'uCloudContrast'),
-    epsilonEccentricity: gl.getUniformLocation(program, 'uEpsilonEccentricity'),
-    epsilonPeriapsis: gl.getUniformLocation(program, 'uEpsilonPeriapsis'),
+    discStretch: gl.getUniformLocation(program, 'uDiscStretch'),
     exposure: gl.getUniformLocation(program, 'uExposure'),
+    flattening: gl.getUniformLocation(program, 'uFlattening'),
     forwardScattering: gl.getUniformLocation(program, 'uForwardScattering'),
     hazeOpacity: gl.getUniformLocation(program, 'uHazeOpacity'),
     hoodLatitude: gl.getUniformLocation(program, 'uHoodLatitude'),
@@ -659,7 +658,6 @@ function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): Uranian
     hoodSoftness: gl.getUniformLocation(program, 'uHoodSoftness'),
     limbDarkening: gl.getUniformLocation(program, 'uLimbDarkening'),
     methaneAbsorption: gl.getUniformLocation(program, 'uMethaneAbsorption'),
-    oblateness: gl.getUniformLocation(program, 'uOblateness'),
     phaseFill: gl.getUniformLocation(program, 'uPhaseFill'),
     polarHood: gl.getUniformLocation(program, 'uPolarHood'),
     poleAzimuth: gl.getUniformLocation(program, 'uPoleAzimuth'),
@@ -667,7 +665,8 @@ function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): Uranian
     resolution: gl.getUniformLocation(program, 'uResolution'),
     ringShadow: gl.getUniformLocation(program, 'uRingShadow'),
     ringVisibility: gl.getUniformLocation(program, 'uRingVisibility'),
-    rotationSpeed: gl.getUniformLocation(program, 'uRotationSpeed'),
+    spin: gl.getUniformLocation(program, 'uSpin'),
+    stretchAngle: gl.getUniformLocation(program, 'uStretchAngle'),
     sourceReady: gl.getUniformLocation(program, 'uSourceReady'),
     sunDirectionView: gl.getUniformLocation(program, 'uSunDirectionView'),
     yaw: gl.getUniformLocation(program, 'uYaw'),
@@ -831,14 +830,8 @@ function createUranianRenderer(
     )
     gl.uniform1f(activeResources.uniforms.bandContrast, clamp(current.bandContrast, 0, 0.5))
     gl.uniform1f(activeResources.uniforms.cloudContrast, clamp(current.cloudContrast, 0, 0.5))
-    gl.uniform1f(
-      activeResources.uniforms.epsilonEccentricity,
-      clamp(current.epsilonEccentricity, 0, 0.02),
-    )
-    gl.uniform1f(
-      activeResources.uniforms.epsilonPeriapsis,
-      (current.epsilonPeriapsis * Math.PI) / 180,
-    )
+    gl.uniform1f(activeResources.uniforms.discStretch, clamp(current.discStretch, 0, 0.02))
+    gl.uniform1f(activeResources.uniforms.stretchAngle, (current.stretchAngle * Math.PI) / 180)
     gl.uniform1f(activeResources.uniforms.exposure, clamp(current.exposure, 0, 2))
     gl.uniform1f(activeResources.uniforms.forwardScattering, clamp(current.forwardScattering, 0, 1))
     gl.uniform1f(activeResources.uniforms.hazeOpacity, clamp(current.hazeOpacity, 0, 1))
@@ -846,7 +839,7 @@ function createUranianRenderer(
       activeResources.uniforms.hoodLatitude,
       (clamp(current.hoodLatitude, 25, 75) * Math.PI) / 180,
     )
-    gl.uniform1f(activeResources.uniforms.hoodPole, current.hoodPole < 0 ? -1 : 1)
+    gl.uniform1f(activeResources.uniforms.hoodPole, current.northHood ? 1 : -1)
     gl.uniform1f(
       activeResources.uniforms.hoodSoftness,
       (clamp(current.hoodSoftness, 2, 25) * Math.PI) / 180,
@@ -856,18 +849,18 @@ function createUranianRenderer(
       activeResources.uniforms.methaneAbsorption,
       clamp(current.methaneAbsorption, 0, 1.5),
     )
-    gl.uniform1f(activeResources.uniforms.oblateness, clamp(current.oblateness, 0, 0.08))
+    gl.uniform1f(activeResources.uniforms.flattening, clamp(current.flattening, 0, 8) / 100)
     gl.uniform1f(activeResources.uniforms.phaseFill, clamp(current.phaseFill, 0, 0.35))
     gl.uniform1f(activeResources.uniforms.polarHood, clamp(current.polarHood, 0, 1))
     gl.uniform1f(activeResources.uniforms.poleAzimuth, (current.poleAzimuth * Math.PI) / 180)
     gl.uniform1f(activeResources.uniforms.poleElevation, (current.poleElevation * Math.PI) / 180)
     gl.uniform1f(activeResources.uniforms.ringShadow, clamp(current.ringShadow, 0, 1))
     gl.uniform1f(activeResources.uniforms.ringVisibility, clamp(current.ringVisibility, 0, 6))
-    gl.uniform1f(activeResources.uniforms.rotationSpeed, clamp(current.rotationSpeed, -0.05, 0.05))
+    gl.uniform1f(activeResources.uniforms.spin, (clamp(current.spin, -2.9, 2.9) * Math.PI) / 180)
     gl.uniform1f(activeResources.uniforms.sourceReady, hasSource ? 1 : 0)
     gl.uniform1f(
       activeResources.uniforms.yaw,
-      (current.yaw * Math.PI) / 180 + elapsed * clamp(current.rotationSpeed, -0.05, 0.05),
+      ((current.yaw + elapsed * clamp(current.spin, -2.9, 2.9)) * Math.PI) / 180,
     )
     gl.uniform1f(activeResources.uniforms.time, elapsed)
     gl.uniform1f(activeResources.uniforms.windScale, clamp(current.windScale, 0, 1))
@@ -932,24 +925,24 @@ export function UranianOrbEffect({
   bandContrast = 0.13,
   className,
   cloudContrast = 0.08,
-  epsilonEccentricity = 0.00794,
-  epsilonPeriapsis = 0,
+  discStretch = 0.008,
   exposure = 0.86,
+  flattening = 2.3,
   forwardScattering = 0.15,
   hazeOpacity = 0.34,
   hoodLatitude = 45,
-  hoodPole = 1,
   hoodSoftness = 10,
   limbDarkening = 0.72,
   methaneAbsorption = 0.58,
-  oblateness = 0.022927,
+  northHood = true,
   phaseFill = 0.08,
   polarHood = 0.26,
   poleAzimuth = -26,
   poleElevation = 38,
   ringShadow = 0.75,
   ringVisibility = 4.5,
-  rotationSpeed = -0.008,
+  spin = -0.5,
+  stretchAngle = 0,
   source,
   style,
   sunAzimuth = -28,
@@ -963,24 +956,24 @@ export function UranianOrbEffect({
     atmosphereThickness,
     bandContrast,
     cloudContrast,
-    epsilonEccentricity,
-    epsilonPeriapsis,
+    discStretch,
     exposure,
+    flattening,
     forwardScattering,
     hazeOpacity,
     hoodLatitude,
-    hoodPole,
     hoodSoftness,
     limbDarkening,
     methaneAbsorption,
-    oblateness,
+    northHood,
     phaseFill,
     polarHood,
     poleAzimuth,
     poleElevation,
     ringShadow,
     ringVisibility,
-    rotationSpeed,
+    spin,
+    stretchAngle,
     sunAzimuth,
     sunElevation,
     yaw,

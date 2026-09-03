@@ -20,22 +20,22 @@ export type PlutonianOrbSource = {
 export type PlutonianOrbEffectProps = {
   className?: string
   exposure?: number
-  followPointer?: boolean
   hazeForwardScattering?: number
   hazeIntensity?: number
   hazeThickness?: number
   iceResponse?: number
+  lean?: boolean
   phaseFill?: number
   reliefStrength?: number
-  rotationSpeed?: number
   roughness?: number
   source: PlutonianOrbSource
+  spin?: number
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
-  yaw?: number
   tholinStrength?: number
-  viewTilt?: number
+  tilt?: number
+  yaw?: number
 }
 
 type PlutonianResources = {
@@ -48,20 +48,20 @@ type PlutonianResources = {
 
 type PlutonianFrameSettings = {
   exposure: number
-  followPointer: boolean
   hazeForwardScattering: number
   hazeIntensity: number
   hazeThickness: number
   iceResponse: number
+  lean: boolean
   phaseFill: number
   reliefStrength: number
-  rotationSpeed: number
   roughness: number
+  spin: number
   sunAzimuth: number
   sunElevation: number
-  yaw: number
   tholinStrength: number
-  viewTilt: number
+  tilt: number
+  yaw: number
 }
 
 type AnisotropyExtension = {
@@ -715,7 +715,7 @@ function createPlutonianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, settings.followPointer)
+    updatePointer(delta, settings.lean)
     const azimuth = (clamp(settings.sunAzimuth, -180, 180) * Math.PI) / 180
     const elevation = (clamp(settings.sunElevation, -30, 90) * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -725,7 +725,7 @@ function createPlutonianRenderer(
       Math.cos(azimuth) * elevationCosine,
     ] as const
     const rotation =
-      (wrapDegrees(settings.yaw) * Math.PI) / 180 + elapsed * clamp(settings.rotationSpeed, 0, 0.05)
+      ((wrapDegrees(settings.yaw) + elapsed * clamp(settings.spin, 0, 2.9)) * Math.PI) / 180
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, canvas.width, canvas.height)
@@ -800,7 +800,7 @@ function createPlutonianRenderer(
     )
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uViewTilt'),
-      (clamp(settings.viewTilt, -30, 30) * Math.PI) / 180,
+      (clamp(settings.tilt, -30, 30) * Math.PI) / 180,
     )
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
@@ -863,40 +863,40 @@ function createPlutonianRenderer(
 export function PlutonianOrbEffect({
   className,
   exposure = 1,
-  followPointer = true,
   hazeForwardScattering = 0.78,
   hazeIntensity = 0.28,
   hazeThickness = 0.08,
   iceResponse = 0.6,
+  lean = true,
   phaseFill = 0.035,
   reliefStrength = 0.85,
-  rotationSpeed = 0,
   roughness = 0.78,
   source,
+  spin = 0,
   style,
   sunAzimuth = -38,
   sunElevation = 16,
-  yaw = 0,
   tholinStrength = 1,
-  viewTilt = 25,
+  tilt = 25,
+  yaw = 0,
 }: PlutonianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: PlutonianFrameSettings = {
     exposure,
-    followPointer,
     hazeForwardScattering,
     hazeIntensity,
     hazeThickness,
     iceResponse,
+    lean,
     phaseFill,
     reliefStrength,
-    rotationSpeed,
     roughness,
+    spin,
     sunAzimuth,
     sunElevation,
-    yaw,
     tholinStrength,
-    viewTilt,
+    tilt,
+    yaw,
   }
 
   useCanvasRenderer(canvasRef, frameSettings, source, createPlutonianRenderer)

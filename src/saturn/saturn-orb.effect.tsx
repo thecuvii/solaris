@@ -19,21 +19,21 @@ export type SaturnOrbSource = {
 export type SaturnOrbEffectProps = {
   axialRoll?: number
   bandContrast?: number
+  bandDrift?: number
   className?: string
   cloudPhotometricMix?: number
   detailIntensity?: number
-  detailSpeed?: number
   exposure?: number
-  followPointer?: boolean
+  flattening?: number
   forwardScatter?: number
+  lean?: boolean
   limbHaze?: number
-  oblateness?: number
   polarHexagon?: number
   ringOpacity?: number
   ringShadowStrength?: number
   ringTilt?: number
-  rotationSpeed?: number
   source: SaturnOrbSource
+  spin?: number
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
@@ -56,19 +56,19 @@ type AnisotropyExtension = {
 type SaturnFrameSettings = {
   axialRoll: number
   bandContrast: number
+  bandDrift: number
   cloudPhotometricMix: number
   detailIntensity: number
-  detailSpeed: number
   exposure: number
-  followPointer: boolean
+  flattening: number
   forwardScatter: number
+  lean: boolean
   limbHaze: number
-  oblateness: number
   polarHexagon: number
   ringOpacity: number
   ringShadowStrength: number
   ringTilt: number
-  rotationSpeed: number
+  spin: number
   sunAzimuth: number
   sunElevation: number
   yaw: number
@@ -100,12 +100,12 @@ uniform float uAxialRoll;
 uniform float uBandContrast;
 uniform float uCloudPhotometricMix;
 uniform float uDetailIntensity;
-uniform float uDetailSpeed;
+uniform float uBandDrift;
 uniform float uExposure;
 uniform float uForwardScatter;
 uniform float uLimbHaze;
 uniform float uLongitudeOffset;
-uniform float uOblateness;
+uniform float uFlattening;
 uniform float uPolarHexagon;
 uniform vec2 uPointer;
 uniform vec2 uResolution;
@@ -395,7 +395,7 @@ float saturnCloudDetail(float longitude, float latitude) {
   float latitudeNorm = latitude / (0.5 * PI);
   float wind = 0.38 + 0.24 * cos(latitude * 11.0) +
     0.12 * cos(latitude * 27.0 + 0.8);
-  float advectedLongitude = longitude + uTime * uDetailSpeed * wind;
+  float advectedLongitude = longitude + uTime * uBandDrift * wind;
   vec3 domain = vec3(
     cos(advectedLongitude) * 2.2,
     sin(advectedLongitude) * 2.2,
@@ -664,7 +664,7 @@ void main() {
   vec3 lightDirection = normalize(viewToBody(uSunDirectionView, tilt, roll));
   vec3 radii = vec3(
     SATURN_RADIUS,
-    SATURN_RADIUS * (1.0 - clamp(uOblateness, 0.0, 0.2)),
+    SATURN_RADIUS * (1.0 - clamp(uFlattening, 0.0, 0.2)),
     SATURN_RADIUS
   );
 
@@ -679,7 +679,7 @@ void main() {
   vec3 mappedDirection = rotateY(
     radialDirection,
     uLongitudeOffset + uYaw + uPointer.x * 0.1 +
-      uTime * uDetailSpeed * differentialWind
+      uTime * uBandDrift * differentialWind
   );
   vec3 mappedDirectionDerivativeX = dFdx(mappedDirection);
   vec3 mappedDirectionDerivativeY = dFdy(mappedDirection);
@@ -956,7 +956,7 @@ function createSaturnRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, current.followPointer)
+    updatePointer(delta, current.lean)
     const azimuth = (current.sunAzimuth * Math.PI) / 180
     const elevation = (current.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -993,7 +993,10 @@ function createSaturnRenderer(
       gl.getUniformLocation(resources.program, 'uDetailIntensity'),
       current.detailIntensity,
     )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailSpeed'), current.detailSpeed)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uBandDrift'),
+      (current.bandDrift * Math.PI) / 180,
+    )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), current.exposure)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uForwardScatter'),
@@ -1001,7 +1004,7 @@ function createSaturnRenderer(
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uLimbHaze'), current.limbHaze)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uOblateness'), current.oblateness)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uFlattening'), current.flattening / 100)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uPolarHexagon'), current.polarHexagon)
     gl.uniform2f(
       gl.getUniformLocation(resources.program, 'uPointer'),
@@ -1027,7 +1030,7 @@ function createSaturnRenderer(
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirectionView'), ...sunDirection)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uYaw'),
-      (current.yaw * Math.PI) / 180 + elapsed * current.rotationSpeed,
+      ((current.yaw + elapsed * current.spin) * Math.PI) / 180,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uTime'), elapsed)
     gl.uniform1f(
@@ -1090,21 +1093,21 @@ function createSaturnRenderer(
 export function SaturnOrbEffect({
   axialRoll = -8,
   bandContrast = 0.12,
+  bandDrift = 1,
   className,
   cloudPhotometricMix = 0.42,
   detailIntensity = 0.06,
-  detailSpeed = 0.018,
   exposure = 0.96,
-  followPointer = true,
+  flattening = 9.8,
   forwardScatter = 0.35,
+  lean = true,
   limbHaze = 0.1,
-  oblateness = 0.09796,
   polarHexagon = 0.14,
   ringOpacity = 1,
   ringShadowStrength = 0.82,
   ringTilt = 26,
-  rotationSpeed = 0.018,
   source,
+  spin = 1,
   style,
   sunAzimuth = -38,
   sunElevation = -8,
@@ -1115,19 +1118,19 @@ export function SaturnOrbEffect({
   const frameSettings: SaturnFrameSettings = {
     axialRoll,
     bandContrast,
+    bandDrift,
     cloudPhotometricMix,
     detailIntensity,
-    detailSpeed,
     exposure,
-    followPointer,
+    flattening,
     forwardScatter,
+    lean,
     limbHaze,
-    oblateness,
     polarHexagon,
     ringOpacity,
     ringShadowStrength,
     ringTilt,
-    rotationSpeed,
+    spin,
     sunAzimuth,
     sunElevation,
     yaw,

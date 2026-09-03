@@ -29,14 +29,14 @@ export type TitanianOrbEffectProps = {
   forwardScatteringStrength?: number
   hazeDensity?: number
   hazeThickness?: number
-  yaw?: number
+  latitude?: number
   polarHood?: number
-  rotationSpeed?: number
   source: TitanianOrbSource
+  spin?: number
   style?: CSSProperties
-  sunAzimuthDegrees?: number
-  sunElevationDegrees?: number
-  viewLatitudeDegrees?: number
+  sunAzimuth?: number
+  sunElevation?: number
+  yaw?: number
 }
 
 type TitanianResources = {
@@ -53,11 +53,11 @@ type TitanianFrameSettings = {
   hazeDensity: number
   hazeThickness: number
   yaw: number
+  latitude: number
   polarHood: number
-  rotationSpeed: number
-  sunAzimuthDegrees: number
-  sunElevationDegrees: number
-  viewLatitudeDegrees: number
+  spin: number
+  sunAzimuth: number
+  sunElevation: number
 }
 
 const ATMOSPHERE_WIDTH = 1024
@@ -89,11 +89,11 @@ uniform float uYaw;
 uniform float uMainEnabled;
 uniform float uPolarHood;
 uniform vec2 uResolution;
-uniform float uRotationSpeed;
+uniform float uSpin;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
 uniform float uTime;
-uniform float uViewLatitude;
+uniform float uLatitude;
 
 out vec4 fragColor;
 
@@ -137,8 +137,8 @@ vec2 sphereUv(vec3 direction) {
 }
 
 vec3 atmosphereDirection(vec3 point) {
-  vec3 bodyDirection = rotateX(normalize(point), -uViewLatitude);
-  return rotateY(bodyDirection, uYaw + uTime * uRotationSpeed);
+  vec3 bodyDirection = rotateX(normalize(point), -uLatitude);
+  return rotateY(bodyDirection, uYaw + uTime * uSpin);
 }
 
 vec4 sampleAtmosphere(vec3 point) {
@@ -631,8 +631,8 @@ function createTitanianRenderer(
     const hazeDensityValue = clamp(current.hazeDensity, 0, 2.5)
     const hazeThicknessValue = clamp(current.hazeThickness, 0, 1.6)
     const detachedHazeValue = clamp(current.detachedHaze, 0, 1.8)
-    const azimuth = (clamp(current.sunAzimuthDegrees, -180, 180) * Math.PI) / 180
-    const elevation = (clamp(current.sunElevationDegrees, -80, 80) * Math.PI) / 180
+    const azimuth = (clamp(current.sunAzimuth, -180, 180) * Math.PI) / 180
+    const elevation = (clamp(current.sunElevation, -80, 80) * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
     const sunDirection = [
       Math.sin(azimuth) * elevationCosine,
@@ -666,10 +666,10 @@ function createTitanianRenderer(
     uniform1f('uYaw', (clamp(current.yaw, -180, 180) * Math.PI) / 180)
     uniform1f('uMainEnabled', hazeDensityValue > 0 && hazeThicknessValue > 0 ? 1 : 0)
     uniform1f('uPolarHood', clamp(current.polarHood, 0, 1.5))
-    uniform1f('uRotationSpeed', clamp(current.rotationSpeed, 0, 0.08))
+    uniform1f('uSpin', (clamp(current.spin, 0, 4.6) * Math.PI) / 180)
     uniform1f('uSourceReady', hasSource ? 1 : 0)
     uniform1f('uTime', elapsed)
-    uniform1f('uViewLatitude', (clamp(current.viewLatitudeDegrees, -55, 55) * Math.PI) / 180)
+    uniform1f('uLatitude', (clamp(current.latitude, -55, 55) * Math.PI) / 180)
     gl.uniform2f(
       gl.getUniformLocation(activeResources.program, 'uResolution'),
       canvas!.width,
@@ -738,13 +738,13 @@ export function TitanianOrbEffect({
   hazeDensity = 1,
   hazeThickness = 1,
   yaw = 0,
+  latitude = 8,
   polarHood = 0.34,
-  rotationSpeed = 0.012,
   source,
+  spin = 0.7,
   style,
-  sunAzimuthDegrees = -58,
-  sunElevationDegrees = 18,
-  viewLatitudeDegrees = 8,
+  sunAzimuth = -58,
+  sunElevation = 18,
 }: TitanianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: TitanianFrameSettings = {
@@ -754,12 +754,12 @@ export function TitanianOrbEffect({
     forwardScatteringStrength,
     hazeDensity,
     hazeThickness,
+    latitude,
     yaw,
     polarHood,
-    rotationSpeed,
-    sunAzimuthDegrees,
-    sunElevationDegrees,
-    viewLatitudeDegrees,
+    spin,
+    sunAzimuth,
+    sunElevation,
   }
   useCanvasRenderer(canvasRef, frameSettings, source, createTitanianRenderer)
 

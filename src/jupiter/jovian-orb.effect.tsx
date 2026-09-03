@@ -17,18 +17,18 @@ export type JovianOrbSource = {
 }
 
 export type JovianOrbEffectProps = {
+  bandDrift?: number
   className?: string
   cloudPhotometricMix?: number
   detailIntensity?: number
   detailScale?: number
-  detailSpeed?: number
   exposure?: number
-  followPointer?: boolean
+  flattening?: number
   jetStrength?: number
+  lean?: boolean
   limbHaze?: number
-  oblateness?: number
-  rotationSpeed?: number
   source: JovianOrbSource
+  spin?: number
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
@@ -48,16 +48,16 @@ type AnisotropyExtension = {
 }
 
 type JovianFrameSettings = {
+  bandDrift: number
   cloudPhotometricMix: number
   detailIntensity: number
   detailScale: number
-  detailSpeed: number
   exposure: number
-  followPointer: boolean
+  flattening: number
   jetStrength: number
+  lean: boolean
   limbHaze: number
-  oblateness: number
-  rotationSpeed: number
+  spin: number
   sunAzimuth: number
   sunElevation: number
   yaw: number
@@ -88,14 +88,14 @@ uniform sampler2D uAlbedoTexture;
 uniform float uCloudPhotometricMix;
 uniform float uDetailIntensity;
 uniform float uDetailScale;
-uniform float uDetailSpeed;
+uniform float uBandDrift;
 uniform float uExposure;
 uniform vec2 uGrsCenter;
 uniform vec2 uGrsRadii;
 uniform float uJetStrength;
 uniform float uLimbHaze;
 uniform float uLongitudeOffset;
-uniform float uOblateness;
+uniform float uFlattening;
 uniform vec2 uPointer;
 uniform vec2 uResolution;
 uniform float uSourceReady;
@@ -205,7 +205,7 @@ vec2 vortexCoordinates(float longitude, float latitude) {
   vec2 local = delta / radii;
   float radius = length(local);
   float influence = 1.0 - smoothstep(0.25, 1.65, radius);
-  float angle = -uTime * uDetailSpeed * 4.8 * uVortexStrength * influence;
+  float angle = -uTime * uBandDrift * 4.8 * uVortexStrength * influence;
   vec2 warpedDelta = rotate2d(local, angle) * radii;
   return vec2(
     uGrsCenter.x + warpedDelta.x / centerCosine,
@@ -216,7 +216,7 @@ vec2 vortexCoordinates(float longitude, float latitude) {
 float weatherDetail(float longitude, float latitude) {
   vec2 weather = vortexCoordinates(longitude, latitude);
   float advectedLongitude = weather.x +
-    uTime * uDetailSpeed * uJetStrength * zonalWind(weather.y);
+    uTime * uBandDrift * uJetStrength * zonalWind(weather.y);
   float scale = max(uDetailScale, 0.05);
 
   vec3 broadDomain = vec3(
@@ -265,7 +265,7 @@ void main() {
 
   float aspect = uResolution.x / max(uResolution.y, 1.0);
   vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
-  float polarRadius = JUPITER_RADIUS * (1.0 - clamp(uOblateness, 0.0, 0.2));
+  float polarRadius = JUPITER_RADIUS * (1.0 - clamp(uFlattening, 0.0, 0.2));
   vec2 ellipsoidPosition = vec2(position.x / JUPITER_RADIUS, position.y / polarRadius);
   float radialDistance = length(ellipsoidPosition);
   float edgeWidth = max(fwidth(radialDistance), 0.0005);
@@ -499,7 +499,7 @@ function createJovianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, settings.followPointer)
+    updatePointer(delta, settings.lean)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -529,14 +529,17 @@ function createJovianRenderer(
       settings.detailIntensity,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailScale'), settings.detailScale)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailSpeed'), settings.detailSpeed)
+    gl.uniform1f(
+      gl.getUniformLocation(resources.program, 'uBandDrift'),
+      (settings.bandDrift * Math.PI) / 180,
+    )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
     gl.uniform2f(gl.getUniformLocation(resources.program, 'uGrsCenter'), ...grsCenter)
     gl.uniform2f(gl.getUniformLocation(resources.program, 'uGrsRadii'), ...grsRadii)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uJetStrength'), settings.jetStrength)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uLimbHaze'), settings.limbHaze)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uOblateness'), settings.oblateness)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uFlattening'), settings.flattening / 100)
     gl.uniform2f(
       gl.getUniformLocation(resources.program, 'uPointer'),
       pointer.currentX,
@@ -551,7 +554,7 @@ function createJovianRenderer(
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uYaw'),
-      (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+      ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uTime'), elapsed)
     gl.uniform1f(
@@ -616,18 +619,18 @@ function createJovianRenderer(
 }
 
 export function JovianOrbEffect({
+  bandDrift = 3.2,
   className,
   cloudPhotometricMix = 0.35,
   detailIntensity = 0.11,
   detailScale = 1,
-  detailSpeed = 0.055,
   exposure = 1.05,
-  followPointer = true,
+  flattening = 6.5,
   jetStrength = 0.65,
+  lean = true,
   limbHaze = 0.16,
-  oblateness = 0.0649,
-  rotationSpeed = 0.025,
   source,
+  spin = 1.4,
   style,
   sunAzimuth = -32,
   sunElevation = 12,
@@ -636,16 +639,16 @@ export function JovianOrbEffect({
 }: JovianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: JovianFrameSettings = {
+    bandDrift,
     cloudPhotometricMix,
     detailIntensity,
     detailScale,
-    detailSpeed,
     exposure,
-    followPointer,
+    flattening,
     jetStrength,
+    lean,
     limbHaze,
-    oblateness,
-    rotationSpeed,
+    spin,
     sunAzimuth,
     sunElevation,
     yaw,

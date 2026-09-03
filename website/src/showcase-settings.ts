@@ -2,7 +2,7 @@ import { atom } from 'jotai'
 import { atomFamily } from 'jotai/utils'
 
 import type { PlanetId } from './showcase-data'
-import { effectSettingValue, initialSettings, parameterDefinitions } from './showcase-params'
+import { initialSettings, parameterDefinitions } from './showcase-params'
 import type { PlanetSettings } from './showcase-params'
 
 type SettingId = {
@@ -36,22 +36,15 @@ export const isDefaultPlanetAtom = atomFamily((planetId: PlanetId) =>
 export const eclipseHaloAtom = atom((get) => ({
   haloIntensity: Number(get(settingAtom({ name: 'haloIntensity', planetId: 'lunar-eclipse' }))),
   haloWidth: Number(get(settingAtom({ name: 'haloWidth', planetId: 'lunar-eclipse' }))),
-  shadowOffsetX: Number(get(settingAtom({ name: 'shadowOffsetX', planetId: 'lunar-eclipse' }))),
-  shadowOffsetY: Number(get(settingAtom({ name: 'shadowOffsetY', planetId: 'lunar-eclipse' }))),
+  offsetX: Number(get(settingAtom({ name: 'offsetX', planetId: 'lunar-eclipse' }))),
+  offsetY: Number(get(settingAtom({ name: 'offsetY', planetId: 'lunar-eclipse' }))),
 }))
 
-export const moonLightingAtom = atom((get) => {
-  const earthshine = parameterDefinitions.moon.find((item) => item.name === 'earthshineIntensity')
-  const rawEarthshine = get(settingAtom({ name: 'earthshineIntensity', planetId: 'moon' }))
-
-  return {
-    earthshineIntensity: Number(
-      earthshine ? effectSettingValue(earthshine, rawEarthshine) : rawEarthshine,
-    ),
-    sunAzimuth: Number(get(settingAtom({ name: 'sunAzimuth', planetId: 'moon' }))),
-    sunElevation: Number(get(settingAtom({ name: 'sunElevation', planetId: 'moon' }))),
-  }
-})
+export const moonLightingAtom = atom((get) => ({
+  earthshineIntensity: Number(get(settingAtom({ name: 'earthshineIntensity', planetId: 'moon' }))),
+  sunAzimuth: Number(get(settingAtom({ name: 'sunAzimuth', planetId: 'moon' }))),
+  sunElevation: Number(get(settingAtom({ name: 'sunElevation', planetId: 'moon' }))),
+}))
 
 export const applyPlanetSettingsAtom = atom(
   null,

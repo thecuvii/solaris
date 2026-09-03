@@ -17,19 +17,19 @@ export type MartianOrbSource = {
 }
 
 export type MartianOrbEffectProps = {
-  atmosphereDensity?: number
   axialTilt?: number
   blueAureole?: number
   className?: string
+  density?: number
   dustAerosol?: number
   dustDetail?: number
   exposure?: number
-  followPointer?: boolean
+  lean?: boolean
   normalStrength?: number
   photometricMix?: number
-  rotationSpeed?: number
   selfShadowStrength?: number
   source: MartianOrbSource
+  spin?: number
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
@@ -45,17 +45,17 @@ type MartianResources = {
 }
 
 type MartianFrameSettings = {
-  atmosphereDensity: number
   axialTilt: number
   blueAureole: number
+  density: number
   dustAerosol: number
   dustDetail: number
   exposure: number
-  followPointer: boolean
+  lean: boolean
   normalStrength: number
   photometricMix: number
-  rotationSpeed: number
   selfShadowStrength: number
+  spin: number
   sunAzimuth: number
   sunElevation: number
   yaw: number
@@ -88,7 +88,7 @@ precision highp sampler2D;
 in vec2 vUv;
 
 uniform sampler2D uAlbedoTexture;
-uniform float uAtmosphereDensity;
+uniform float uDensity;
 uniform float uAxialTilt;
 uniform float uBlueAureole;
 uniform float uDustAerosol;
@@ -321,7 +321,7 @@ void integrateAtmosphere(
   inScattering = vec3(0.0);
   viewTransmission = 1.0;
   atmosphereAlpha = 0.0;
-  if (uAtmosphereDensity <= 0.0) return;
+  if (uDensity <= 0.0) return;
 
   float atmosphereRadius = MARS_RADIUS * (1.0 + ATMOSPHERE_THICKNESS);
   float radialSquared = dot(position, position);
@@ -357,14 +357,14 @@ void integrateAtmosphere(
     vec3 molecular = vec3(0.15, 0.19, 0.24) * 0.018;
     vec3 blueAureole = vec3(0.16, 0.34, 0.68) * blueGeometry * 0.55;
     float accumulatedTransmission = exp(
-      -opticalDepth * uAtmosphereDensity * (0.28 + 1.65 * uDustAerosol)
+      -opticalDepth * uDensity * (0.28 + 1.65 * uDustAerosol)
     );
     inScattering += (
       warmDust + molecular + blueAureole
-    ) * sampleDepth * sunlight * accumulatedTransmission * uAtmosphereDensity;
+    ) * sampleDepth * sunlight * accumulatedTransmission * uDensity;
   }
 
-  float extinction = opticalDepth * uAtmosphereDensity * (0.28 + 1.65 * uDustAerosol);
+  float extinction = opticalDepth * uDensity * (0.28 + 1.65 * uDustAerosol);
   viewTransmission = exp(-extinction);
   atmosphereAlpha = 1.0 - exp(-extinction * 0.72);
 }
@@ -669,7 +669,7 @@ function createMartianRenderer(
     const elapsed = (timestamp - startTime) / 1000
     const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
     lastTime = timestamp
-    updatePointer(delta, settings.followPointer)
+    updatePointer(delta, settings.lean)
     const azimuth = (settings.sunAzimuth * Math.PI) / 180
     const elevation = (settings.sunElevation * Math.PI) / 180
     const elevationCosine = Math.cos(elevation)
@@ -696,10 +696,7 @@ function createMartianRenderer(
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.heightTexture)
     gl.uniform1i(gl.getUniformLocation(resources.program, 'uHeightTexture'), 2)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uAtmosphereDensity'),
-      settings.atmosphereDensity,
-    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDensity'), settings.density)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uAxialTilt'),
       (settings.axialTilt * Math.PI) / 180,
@@ -736,7 +733,7 @@ function createMartianRenderer(
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uYaw'),
-      (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+      ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
     )
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
@@ -795,19 +792,19 @@ function createMartianRenderer(
 }
 
 export function MartianOrbEffect({
-  atmosphereDensity = 0.22,
   axialTilt = 8,
   blueAureole = 0.12,
   className,
+  density = 0.22,
   dustAerosol = 0.36,
   dustDetail = 0.1,
   exposure = 1.06,
-  followPointer = true,
+  lean = true,
   normalStrength = 1.6,
   photometricMix = 0.45,
-  rotationSpeed = 0.021,
   selfShadowStrength = 1,
   source,
+  spin = 1.2,
   style,
   sunAzimuth = -48,
   sunElevation = 9,
@@ -815,17 +812,17 @@ export function MartianOrbEffect({
 }: MartianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: MartianFrameSettings = {
-    atmosphereDensity,
     axialTilt,
     blueAureole,
+    density,
     dustAerosol,
     dustDetail,
     exposure,
-    followPointer,
+    lean,
     normalStrength,
     photometricMix,
-    rotationSpeed,
     selfShadowStrength,
+    spin,
     sunAzimuth,
     sunElevation,
     yaw,

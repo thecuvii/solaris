@@ -54,8 +54,6 @@ import { TextMorph } from 'torph/react'
 import { getPlanetTextureDocs, isPlanetId, planets, textures } from './showcase-data'
 import type { Planet, PlanetId, TextureDoc, TexturedPlanetId } from './showcase-data'
 import {
-  effectSettingValue,
-  effectSettings,
   initialSettings,
   parameterDefinitions,
   parameterGroupsByPlanet,
@@ -222,14 +220,14 @@ function noneTextLighting(): EclipseTextLightingProperties {
 
 function buildTextLighting({
   haloEnergy,
+  offsetX,
+  offsetY,
   rimHue,
-  shadowOffsetX,
-  shadowOffsetY,
 }: {
   haloEnergy: number
+  offsetX: number
+  offsetY: number
   rimHue: number
-  shadowOffsetX: number
-  shadowOffsetY: number
 }): EclipseTextLightingProperties {
   if (haloEnergy === 0) return noneTextLighting()
 
@@ -241,8 +239,8 @@ function buildTextLighting({
   const rimScale = (0.25 + visibleHaloResponse * 0.35) / shadowDistance
   const detailShadowScale = 0.65
   const navigationShadowScale = 0.75
-  const horizontalBias = Math.min(Math.max(shadowOffsetX / 2.5, -1), 1)
-  const verticalBias = Math.min(Math.max(-shadowOffsetY / 2.5, -1), 1)
+  const horizontalBias = Math.min(Math.max(offsetX / 2.5, -1), 1)
+  const verticalBias = Math.min(Math.max(-offsetY / 2.5, -1), 1)
   const introductionShadowX = -shadowDistance * (0.28 + horizontalBias * 0.22)
   const introductionShadowY = -shadowDistance * (0.72 + verticalBias * 0.28)
   const navigationShadowX = -shadowDistance * (0.72 + horizontalBias * 0.28)
@@ -274,24 +272,24 @@ function EclipseLightingPage({
             Math.max((eclipse.haloIntensity / 3) * Math.sqrt(eclipse.haloWidth), 0),
             1,
           ),
+          offsetX: eclipse.offsetX,
+          offsetY: eclipse.offsetY,
           rimHue: 220,
-          shadowOffsetX: eclipse.shadowOffsetX,
-          shadowOffsetY: eclipse.shadowOffsetY,
         })
       : previewPlanet === 'moon'
         ? buildTextLighting({
             haloEnergy: Math.min(
               0.12 +
                 Math.min(Math.max(1 - moon.sunElevation / 70, 0), 1) * 0.18 +
-                Math.min(Math.max(moon.earthshineIntensity / 0.04, 0), 1) * 0.4,
+                Math.min(Math.max(moon.earthshineIntensity / 40, 0), 1) * 0.4,
               1,
             ),
-            rimHue: 75,
-            shadowOffsetX:
+            offsetX:
               -Math.sin((moon.sunAzimuth * Math.PI) / 180) *
               Math.cos((moon.sunElevation * Math.PI) / 180) *
               2.2,
-            shadowOffsetY: -Math.sin((moon.sunElevation * Math.PI) / 180) * 2.2,
+            offsetY: -Math.sin((moon.sunElevation * Math.PI) / 180) * 2.2,
+            rimHue: 75,
           })
         : noneTextLighting()
 
@@ -750,7 +748,7 @@ function PlanetPreviewWithSettings({ id }: { id: PlanetId }) {
 
 function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSettings }) {
   const shared = {
-    ...effectSettings(id, settings),
+    ...settings,
     style: { height: '100%', position: 'relative' as const, width: '100%' },
   }
 
@@ -1462,11 +1460,8 @@ function ResetIcon() {
 }
 
 function formatSettingValue(definition: ParameterDefinition, value: boolean | number): string {
-  const effectValue = effectSettingValue(definition, value)
-  if (typeof effectValue === 'boolean') return String(effectValue)
-  if (definition.kind === 'boolean') return String(effectValue)
-  const precision = definition.toEffect === undefined ? getPrecision(definition.step) : 3
-  return Number(effectValue).toFixed(precision)
+  if (typeof value === 'boolean' || definition.kind === 'boolean') return String(value)
+  return Number(value).toFixed(getPrecision(definition.step))
 }
 
 function buildExampleCode(planet: Planet, settings: PlanetSettings): string {
@@ -1526,14 +1521,14 @@ function AnimatedCodeValue({
     return (
       <span style={{ color }}>
         <TextMorph as="span" duration={400} scale style={{ verticalAlign: 'baseline' }}>
-          {String(effectSettingValue(definition, setting))}
+          {String(setting)}
         </TextMorph>
       </span>
     )
   }
 
-  const effectValue = Number(effectSettingValue(definition, setting))
-  const precision = definition.toEffect === undefined ? getPrecision(definition.step) : 3
+  const effectValue = Number(setting)
+  const precision = getPrecision(definition.step)
 
   return (
     <NumberFlow
