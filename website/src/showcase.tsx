@@ -2207,7 +2207,11 @@ const styles = stylex.create({
     minWidth: '1ch',
     padding: 0,
     textAlign: 'right',
+    userSelect: 'none',
     width: 'auto',
+    '::selection': {
+      backgroundColor: 'transparent',
+    },
     ':focus-visible': {
       color: 'oklch(96% 0.003 84.6)',
       outline: 'none',
@@ -2260,10 +2264,11 @@ const styles = stylex.create({
     height: 32,
     justifyContent: 'center',
     minWidth: 0,
-    position: 'absolute',
     pointerEvents: 'auto',
+    position: 'absolute',
     right: 10,
     top: 0,
+    userSelect: 'none',
     zIndex: 3,
   },
   parameterGroup: {
