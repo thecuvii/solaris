@@ -3,7 +3,7 @@ import type { PlanetId } from './showcase-data'
 
 export type PlanetSettings = Record<string, boolean | number>
 
-export type ParameterGroupId = 'atmosphere' | 'lighting' | 'motion' | 'rings' | 'surface' | 'view'
+export type ParameterGroupId = 'atmosphere' | 'lighting' | 'motion' | 'pose' | 'rings' | 'surface'
 
 export type ParameterDefinition =
   | {
@@ -40,11 +40,11 @@ type ParamMeta = {
 }
 
 const parameterGroups: readonly { id: ParameterGroupId; label: string }[] = [
+  { id: 'motion', label: 'Motion' },
+  { id: 'pose', label: 'Pose' },
   { id: 'surface', label: 'Surface' },
   { id: 'atmosphere', label: 'Atmosphere' },
   { id: 'lighting', label: 'Light' },
-  { id: 'motion', label: 'Motion' },
-  { id: 'view', label: 'View' },
   { id: 'rings', label: 'Rings' },
 ]
 
@@ -146,8 +146,8 @@ const rotation = (initial: number): ParameterDefinition =>
     toEffect: (degreesPerSecond) => (degreesPerSecond * Math.PI) / 180,
   })
 
-const longitude = (initial: number, name = 'surfaceRotation'): ParameterDefinition =>
-  angle(name, initial, { group: 'view', label: 'Longitude' })
+const yaw = (initial: number, name = 'yaw'): ParameterDefinition =>
+  angle(name, initial, { group: 'pose', label: 'Yaw' })
 
 export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition[]> = {
   earth: [
@@ -158,14 +158,12 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     percent('cloudHeight', 0.012, { group: 'atmosphere', label: 'Cloud height', max: 5 }),
     unit('cloudShadowIntensity', 0.48, { group: 'atmosphere', label: 'Cloud shadow' }),
     followPointer,
-    toggle('manualOrbit', false, { group: 'motion', label: 'Manual orbit' }),
     amount('multipleScattering', 1, { group: 'atmosphere', label: 'Multiple scatter' }),
     number('nightLightIntensity', 1, 0, 3, 0.01, { group: 'lighting', label: 'City lights' }),
     amount('oceanGlint', 0.72, { group: 'surface', label: 'Ocean glint' }),
     amount('oceanWaveStrength', 0.8, { group: 'surface', label: 'Waves' }),
-    angularSpeed('orbitSpeed', 0.08, { group: 'motion', label: 'Orbit speed' }),
+    angularSpeed('orbitSpeed', 0.08, { group: 'motion', label: 'Sun orbit' }),
     rotation(0.024),
-    toggle('showAtmosphere', true, { group: 'atmosphere', label: 'Show atmosphere' }),
     sunAzimuth(-41),
     sunElevation(8),
   ],
@@ -178,16 +176,16 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     followPointer,
     unit('jetStrength', 0.65, { group: 'atmosphere', label: 'Jets' }),
     unit('limbHaze', 0.16, { group: 'atmosphere', label: 'Limb haze' }),
-    percent('oblateness', 0.0649, { group: 'view', label: 'Flattening', max: 20 }),
+    percent('oblateness', 0.0649, { group: 'pose', label: 'Flattening', max: 20 }),
     rotation(0.025),
     sunAzimuth(-32),
     sunElevation(12),
-    longitude(0),
+    yaw(0),
     unit('vortexStrength', 0.42, { group: 'atmosphere', label: 'Vortices' }),
   ],
   mars: [
     unit('atmosphereDensity', 0.22, { group: 'atmosphere', label: 'Density' }),
-    tilt('axialTilt', 8, 40, { group: 'view', label: 'Axial tilt' }),
+    tilt('axialTilt', 8, 40, { group: 'pose', label: 'Axial tilt' }),
     unit('blueAureole', 0.12, { group: 'atmosphere', label: 'Blue aureole' }),
     unit('dustAerosol', 0.36, { group: 'atmosphere', label: 'Dust' }),
     unit('dustDetail', 0.1, { group: 'surface', label: 'Dust grain' }),
@@ -199,7 +197,7 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     amount('selfShadowStrength', 1, { group: 'surface', label: 'Self shadow' }),
     sunAzimuth(-48),
     sunElevation(9),
-    longitude(0),
+    yaw(0),
   ],
   mercury: [
     exposure(0.92),
@@ -211,8 +209,8 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     rotation(0.01),
     sunAzimuth(-12),
     sunElevation(14),
-    longitude(0),
-    tilt('viewTilt', 0, 30, { group: 'view', label: 'Tilt' }),
+    yaw(0),
+    tilt('viewTilt', 0, 30, { group: 'pose', label: 'Tilt' }),
   ],
   moon: [
     amount('bloomIntensity', 0, { group: 'lighting', label: 'Bloom' }),
@@ -236,7 +234,7 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     rotation(0.012),
     sunAzimuth(-48),
     sunElevation(16),
-    longitude(0),
+    yaw(0),
     amount('veilingGlare', 0, { group: 'lighting', label: 'Veiling glare' }),
   ],
   'lunar-eclipse': [
@@ -257,7 +255,7 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     unit('reliefShadowStrength', 0.36, { group: 'surface', label: 'Relief shadow' }),
     number('shadowOffsetX', 0.55, -3, 3, 0.01, { group: 'lighting', label: 'Offset X' }),
     number('shadowOffsetY', -1.55, -3, 3, 0.01, { group: 'lighting', label: 'Offset Y' }),
-    longitude(0),
+    yaw(0),
     number('umbraRadius', 2.2, 0.5, 4, 0.01, { group: 'lighting', label: 'Umbra' }),
   ],
   neptune: [
@@ -270,16 +268,16 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     unit('forwardScattering', 0.28, { group: 'atmosphere', label: 'Forward scatter' }),
     unit('hazeOpticalDepth', 0.48, { group: 'atmosphere', label: 'Haze' }),
     unit('methaneAbsorption', 0.78, { group: 'atmosphere', label: 'Methane' }),
-    percent('oblateness', 0.017, { group: 'view', label: 'Flattening', max: 12 }),
+    percent('oblateness', 0.017, { group: 'pose', label: 'Flattening', max: 12 }),
     rotation(0.022),
     sunAzimuth(-10),
     sunElevation(5),
-    longitude(0),
+    yaw(0),
     unit('upperClouds', 0.68, { group: 'atmosphere', label: 'Upper clouds' }),
     unit('upperHaze', 0.3, { group: 'atmosphere', label: 'Upper haze' }),
     unit('vortexCirculation', 0.48, { group: 'atmosphere', label: 'Vortex flow' }),
     unit('vortexDarkness', 0.5, { group: 'atmosphere', label: 'Vortex dark' }),
-    tilt('weatherTilt', 18, 40, { group: 'view', label: 'Weather tilt' }),
+    tilt('weatherTilt', 18, 40, { group: 'pose', label: 'Weather tilt' }),
     unit('windScale', 0.62, { group: 'atmosphere', label: 'Wind' }),
   ],
   pluto: [
@@ -295,12 +293,12 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     unit('roughness', 0.78, { group: 'surface', label: 'Roughness' }),
     sunAzimuth(-38),
     sunElevation(16, 'sunElevation', { min: -30 }),
-    longitude(0),
+    yaw(0),
     amount('tholinStrength', 1, { group: 'surface', label: 'Tholins' }),
-    tilt('viewTilt', 25, 30, { group: 'view', label: 'Tilt' }),
+    tilt('viewTilt', 25, 30, { group: 'pose', label: 'Tilt' }),
   ],
   saturn: [
-    tilt('axialRoll', -8, 30, { group: 'view', label: 'Roll' }),
+    tilt('axialRoll', -8, 30, { group: 'pose', label: 'Roll' }),
     unit('bandContrast', 0.12, { group: 'surface', label: 'Bands' }),
     unit('cloudPhotometricMix', 0.42, { group: 'surface', label: 'Photometric mix' }),
     unit('detailIntensity', 0.06, { group: 'surface', label: 'Detail' }),
@@ -309,7 +307,7 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     followPointer,
     unit('forwardScatter', 0.35, { group: 'atmosphere', label: 'Forward scatter' }),
     unit('limbHaze', 0.1, { group: 'atmosphere', label: 'Limb haze' }),
-    percent('oblateness', 0.09796, { group: 'view', label: 'Flattening', max: 20 }),
+    percent('oblateness', 0.09796, { group: 'pose', label: 'Flattening', max: 20 }),
     unit('polarHexagon', 0.14, { group: 'surface', label: 'Hexagon' }),
     unit('ringOpacity', 1, { group: 'rings', label: 'Opacity' }),
     unit('ringShadowStrength', 0.82, { group: 'rings', label: 'Shadow' }),
@@ -317,7 +315,7 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     rotation(0.018),
     sunAzimuth(-38),
     sunElevation(-8),
-    longitude(0),
+    yaw(0),
     unit('unlitRingBrightness', 0.08, { group: 'rings', label: 'Unlit side' }),
   ],
   sun: [
@@ -337,13 +335,13 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     amount('forwardScatteringStrength', 1, { group: 'atmosphere', label: 'Forward scatter' }),
     amount('hazeDensity', 1, { group: 'atmosphere', label: 'Haze' }),
     amount('hazeThickness', 1, { group: 'atmosphere', label: 'Haze depth' }),
-    longitude(0, 'longitudeOffsetDegrees'),
+    yaw(0),
     unit('polarHood', 0.34, { group: 'atmosphere', label: 'Polar hood' }),
     rotation(0.012),
     sunAzimuth(-58, 'sunAzimuthDegrees'),
     sunElevation(18, 'sunElevationDegrees', { max: 80, min: -80 }),
     number('viewLatitudeDegrees', 8, -55, 55, 1, {
-      group: 'view',
+      group: 'pose',
       label: 'Latitude',
       suffix: '°',
     }),
@@ -357,10 +355,10 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     unit('bandContrast', 0.13, { group: 'surface', label: 'Bands' }),
     unit('cloudContrast', 0.08, { group: 'atmosphere', label: 'Clouds' }),
     number('epsilonEccentricity', 0.008, 0, 0.02, 0.001, {
-      group: 'view',
+      group: 'pose',
       label: 'Disc stretch',
     }),
-    angle('epsilonPeriapsis', 0, { group: 'view', label: 'Stretch angle' }),
+    angle('epsilonPeriapsis', 0, { group: 'pose', label: 'Stretch angle' }),
     exposure(0.86),
     unit('forwardScattering', 0.15, { group: 'atmosphere', label: 'Forward scatter' }),
     unit('hazeOpacity', 0.34, { group: 'atmosphere', label: 'Haze' }),
@@ -381,12 +379,12 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     }),
     unit('limbDarkening', 0.72, { group: 'lighting', label: 'Limb darkening' }),
     unit('methaneAbsorption', 0.58, { group: 'atmosphere', label: 'Methane' }),
-    percent('oblateness', 0.022927, { group: 'view', label: 'Flattening', max: 8 }),
+    percent('oblateness', 0.022927, { group: 'pose', label: 'Flattening', max: 8 }),
     number('phaseFill', 0.08, 0, 0.35, 0.01, { group: 'lighting', label: 'Phase fill' }),
     unit('polarHood', 0.26, { group: 'atmosphere', label: 'Polar hood' }),
-    angle('poleAzimuth', -26, { group: 'view', label: 'Pole azimuth' }),
+    angle('poleAzimuth', -26, { group: 'pose', label: 'Pole azimuth' }),
     number('poleElevation', 38, -90, 90, 1, {
-      group: 'view',
+      group: 'pose',
       label: 'Pole elevation',
       suffix: '°',
     }),
@@ -395,11 +393,11 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     rotation(-0.008),
     sunAzimuth(-28),
     sunElevation(55),
-    longitude(18),
+    yaw(18),
     unit('windScale', 0.2, { group: 'atmosphere', label: 'Wind' }),
   ],
   venus: [
-    tilt('axialTilt', -3, 30, { group: 'view', label: 'Axial tilt' }),
+    tilt('axialTilt', -3, 30, { group: 'pose', label: 'Axial tilt' }),
     unit('cloudContrast', 0.3, { group: 'atmosphere', label: 'Contrast' }),
     unit('cloudDetail', 0.22, { group: 'atmosphere', label: 'Detail' }),
     exposure(1.08),
@@ -413,7 +411,7 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     unit('sulfurTint', 0.72, { group: 'atmosphere', label: 'Sulfur' }),
     sunAzimuth(-52),
     sunElevation(9),
-    longitude(0),
+    yaw(0),
     unit('upperHaze', 0.46, { group: 'atmosphere', label: 'Upper haze' }),
   ],
 }
@@ -618,15 +616,6 @@ export const parameterGroupsByPlanet = new Map(
       ] as const,
   ),
 )
-
-export function matchPlanetPreset(planetId: PlanetId, settings: PlanetSettings): string | null {
-  for (const preset of planetPresets[planetId]) {
-    if (Object.entries(preset.values).every(([name, value]) => settings[name] === value)) {
-      return preset.id
-    }
-  }
-  return null
-}
 
 export function effectSettingValue(
   definition: ParameterDefinition,

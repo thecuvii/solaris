@@ -63,7 +63,6 @@ import {
 } from './showcase-params'
 import type { ParameterDefinition, PlanetSettings } from './showcase-params'
 import {
-  activePresetIdAtom,
   applyPlanetSettingsAtom,
   eclipseHaloAtom,
   isDefaultPlanetAtom,
@@ -865,37 +864,31 @@ function PlanetIntroduction({
 function PresetGrid({ planetId }: { planetId: PlanetId }) {
   const applyPlanetSettings = useSetAtom(applyPlanetSettingsAtom)
   const presets = planetPresets[planetId]
-  const activeId = useAtomValue(activePresetIdAtom(planetId))
 
   return (
     <section {...stylex.props(styles.parameterGroup)}>
-      <h2 {...stylex.props(styles.groupTitle)}>Looks</h2>
-      <div aria-label="Looks" role="radiogroup" {...stylex.props(styles.presetGrid)}>
-        {presets.map((preset) => {
-          const selected = activeId === preset.id
-          return (
-            <button
-              key={preset.id}
-              aria-checked={selected}
-              onClick={() => applyPlanetSettings({ planetId, values: preset.values })}
-              role="radio"
-              type="button"
-              {...stylex.props(styles.presetCard, selected && styles.presetCardSelected)}
-            >
-              <span {...stylex.props(styles.presetFrame, selected && styles.presetFrameSelected)}>
-                <img
-                  alt=""
-                  draggable={false}
-                  height={64}
-                  src={preset.image}
-                  width={64}
-                  {...stylex.props(styles.presetImage)}
-                />
-              </span>
-              <span {...stylex.props(styles.presetLabel)}>{preset.label}</span>
-            </button>
-          )
-        })}
+      <h2 {...stylex.props(styles.groupTitle)}>Preset</h2>
+      <div aria-label="Preset" {...stylex.props(styles.presetGrid)}>
+        {presets.map((preset) => (
+          <button
+            key={preset.id}
+            onClick={() => applyPlanetSettings({ planetId, values: preset.values })}
+            type="button"
+            {...stylex.props(styles.presetCard)}
+          >
+            <span {...stylex.props(styles.presetFrame)}>
+              <img
+                alt=""
+                draggable={false}
+                height={64}
+                src={preset.image}
+                width={64}
+                {...stylex.props(styles.presetImage)}
+              />
+            </span>
+            <span {...stylex.props(styles.presetLabel)}>{preset.label}</span>
+          </button>
+        ))}
       </div>
     </section>
   )
@@ -2376,9 +2369,6 @@ const styles = stylex.create({
       outlineOffset: 2,
     },
   },
-  presetCardSelected: {
-    color: '#f2e8d0',
-  },
   presetFrame: {
     backgroundColor: 'rgba(255, 255, 255, 0.028)',
     backgroundImage:
@@ -2392,9 +2382,6 @@ const styles = stylex.create({
     padding: 8,
     position: 'relative',
     width: 64,
-  },
-  presetFrameSelected: {
-    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(255, 255, 255, 0.1)',
   },
   presetGrid: {
     display: 'grid',

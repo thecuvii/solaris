@@ -37,7 +37,7 @@ export type SaturnOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
-  surfaceRotation?: number
+  yaw?: number
   unlitRingBrightness?: number
 }
 
@@ -71,7 +71,7 @@ type SaturnFrameSettings = {
   rotationSpeed: number
   sunAzimuth: number
   sunElevation: number
-  surfaceRotation: number
+  yaw: number
   unlitRingBrightness: number
 }
 
@@ -116,7 +116,7 @@ uniform sampler2D uRingTexture;
 uniform float uRingTilt;
 uniform float uSourceReady;
 uniform vec3 uSunDirectionView;
-uniform float uSurfaceRotation;
+uniform float uYaw;
 uniform float uTime;
 uniform float uUnlitRingBrightness;
 
@@ -678,7 +678,7 @@ void main() {
     0.08 * cos(baseLatitude * 24.0 + 0.7);
   vec3 mappedDirection = rotateY(
     radialDirection,
-    uLongitudeOffset + uSurfaceRotation + uPointer.x * 0.1 +
+    uLongitudeOffset + uYaw + uPointer.x * 0.1 +
       uTime * uDetailSpeed * differentialWind
   );
   vec3 mappedDirectionDerivativeX = dFdx(mappedDirection);
@@ -1026,8 +1026,8 @@ function createSaturnRenderer(
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirectionView'), ...sunDirection)
     gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
-      (current.surfaceRotation * Math.PI) / 180 + elapsed * current.rotationSpeed,
+      gl.getUniformLocation(resources.program, 'uYaw'),
+      (current.yaw * Math.PI) / 180 + elapsed * current.rotationSpeed,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uTime'), elapsed)
     gl.uniform1f(
@@ -1108,7 +1108,7 @@ export function SaturnOrbEffect({
   style,
   sunAzimuth = -38,
   sunElevation = -8,
-  surfaceRotation = 0,
+  yaw = 0,
   unlitRingBrightness = 0.08,
 }: SaturnOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -1130,7 +1130,7 @@ export function SaturnOrbEffect({
     rotationSpeed,
     sunAzimuth,
     sunElevation,
-    surfaceRotation,
+    yaw,
     unlitRingBrightness,
   }
   useCanvasRenderer(canvasRef, frameSettings, source, createSaturnRenderer)

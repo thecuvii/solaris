@@ -33,7 +33,7 @@ export type MartianOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
-  surfaceRotation?: number
+  yaw?: number
 }
 
 type MartianResources = {
@@ -58,7 +58,7 @@ type MartianFrameSettings = {
   selfShadowStrength: number
   sunAzimuth: number
   sunElevation: number
-  surfaceRotation: number
+  yaw: number
 }
 
 type AnisotropyExtension = {
@@ -105,7 +105,7 @@ uniform vec2 uResolution;
 uniform float uSelfShadowStrength;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
-uniform float uSurfaceRotation;
+uniform float uYaw;
 
 out vec4 fragColor;
 
@@ -138,14 +138,14 @@ vec3 textureDirection(vec3 direction) {
   vec3 tilted = rotateX(direction, uAxialTilt + uPointer.y * 0.07);
   return rotateY(
     tilted,
-    uLongitudeOffset + uSurfaceRotation + uPointer.x * 0.14
+    uLongitudeOffset + uYaw + uPointer.x * 0.14
   );
 }
 
 vec3 inverseTextureDirection(vec3 direction) {
   vec3 unrotated = rotateY(
     direction,
-    -(uLongitudeOffset + uSurfaceRotation + uPointer.x * 0.14)
+    -(uLongitudeOffset + uYaw + uPointer.x * 0.14)
   );
   return rotateX(unrotated, -(uAxialTilt + uPointer.y * 0.07));
 }
@@ -735,8 +735,8 @@ function createMartianRenderer(
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
     gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
-      (settings.surfaceRotation * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+      gl.getUniformLocation(resources.program, 'uYaw'),
+      (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed,
     )
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
@@ -811,7 +811,7 @@ export function MartianOrbEffect({
   style,
   sunAzimuth = -48,
   sunElevation = 9,
-  surfaceRotation = 0,
+  yaw = 0,
 }: MartianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: MartianFrameSettings = {
@@ -828,7 +828,7 @@ export function MartianOrbEffect({
     selfShadowStrength,
     sunAzimuth,
     sunElevation,
-    surfaceRotation,
+    yaw,
   }
 
   useCanvasRenderer(canvasRef, frameSettings, source, createMartianRenderer)

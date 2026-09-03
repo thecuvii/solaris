@@ -42,7 +42,7 @@ export type MercurialOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
-  surfaceRotation?: number
+  yaw?: number
   viewTilt?: number
 }
 
@@ -63,7 +63,7 @@ type MercurialFrameSettings = {
   rotationSpeed: number
   sunAzimuth: number
   sunElevation: number
-  surfaceRotation: number
+  yaw: number
   viewTilt: number
 }
 
@@ -108,7 +108,7 @@ uniform float uReliefShadowStrength;
 uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
-uniform float uSurfaceRotation;
+uniform float uYaw;
 uniform float uViewTilt;
 
 out vec4 fragColor;
@@ -148,7 +148,7 @@ float poseAngle() {
 }
 
 float longitudeAngle() {
-  return uLongitudeOffset + uSurfaceRotation + uPointer.x * 0.13;
+  return uLongitudeOffset + uYaw + uPointer.x * 0.13;
 }
 
 vec3 textureDirection(vec3 direction) {
@@ -687,8 +687,8 @@ function createMercurialRenderer(
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
     gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
-      (settings.surfaceRotation * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+      gl.getUniformLocation(resources.program, 'uYaw'),
+      (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed,
     )
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uViewTilt'),
@@ -766,7 +766,7 @@ export function MercurialOrbEffect({
   style,
   sunAzimuth = -12,
   sunElevation = 14,
-  surfaceRotation = 0,
+  yaw = 0,
   viewTilt = 0,
 }: MercurialOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -780,7 +780,7 @@ export function MercurialOrbEffect({
     rotationSpeed,
     sunAzimuth,
     sunElevation,
-    surfaceRotation,
+    yaw,
     viewTilt,
   }
 

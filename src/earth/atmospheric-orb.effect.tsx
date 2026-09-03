@@ -1326,10 +1326,11 @@ function createAtmosphericRenderer(
     updatePointer(delta, current.followPointer)
 
     const baseAzimuth = current.sunAzimuth * (Math.PI / 180)
-    const orbitAngle = current.manualOrbit
+    const aimSun = current.manualOrbit || current.orbitSpeed === 0
+    const orbitAngle = aimSun
       ? baseAzimuth + pointer.currentX * Math.PI
       : elapsed * current.orbitSpeed + baseAzimuth + pointer.currentX * 0.42
-    const elevationOffset = pointer.currentY * (current.manualOrbit ? 55 : 20)
+    const elevationOffset = pointer.currentY * (aimSun ? 55 : 20)
     const elevation = (current.sunElevation + elevationOffset) * (Math.PI / 180)
     const elevationCosine = Math.cos(elevation)
     const sunDirection: AtmosphericOrbColor = [
@@ -1473,7 +1474,10 @@ function createAtmosphericRenderer(
   }
 
   function handlePointerLeave(): void {
-    if (!getSettings().followPointer || !getSettings().manualOrbit) {
+    if (
+      !getSettings().followPointer ||
+      !(getSettings().manualOrbit || getSettings().orbitSpeed === 0)
+    ) {
       pointer.targetX = 0
       pointer.targetY = 0
     }

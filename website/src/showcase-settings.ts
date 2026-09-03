@@ -2,12 +2,7 @@ import { atom } from 'jotai'
 import { atomFamily } from 'jotai/utils'
 
 import type { PlanetId } from './showcase-data'
-import {
-  effectSettingValue,
-  initialSettings,
-  matchPlanetPreset,
-  parameterDefinitions,
-} from './showcase-params'
+import { effectSettingValue, initialSettings, parameterDefinitions } from './showcase-params'
 import type { PlanetSettings } from './showcase-params'
 
 type SettingId = {
@@ -28,10 +23,6 @@ export const planetSettingsAtom = atomFamily((planetId: PlanetId) =>
     }
     return settings
   }),
-)
-
-export const activePresetIdAtom = atomFamily((planetId: PlanetId) =>
-  atom((get) => matchPlanetPreset(planetId, get(planetSettingsAtom(planetId)))),
 )
 
 export const isDefaultPlanetAtom = atomFamily((planetId: PlanetId) =>

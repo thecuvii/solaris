@@ -21,7 +21,7 @@ type VenusianFrameSettings = {
   sulfurTint: number
   sunAzimuth: number
   sunElevation: number
-  surfaceRotation: number
+  yaw: number
   upperHaze: number
 }
 
@@ -51,7 +51,7 @@ export type VenusianOrbEffectProps = {
   sulfurTint?: number
   sunAzimuth?: number
   sunElevation?: number
-  surfaceRotation?: number
+  yaw?: number
   upperHaze?: number
 }
 
@@ -75,7 +75,7 @@ type VenusianResources = {
     sourceReady: WebGLUniformLocation
     sulfurTint: WebGLUniformLocation
     sunDirection: WebGLUniformLocation
-    surfaceRotation: WebGLUniformLocation
+    yaw: WebGLUniformLocation
     time: WebGLUniformLocation
     upperHaze: WebGLUniformLocation
   }
@@ -124,7 +124,7 @@ uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform float uSulfurTint;
 uniform vec3 uSunDirection;
-uniform float uSurfaceRotation;
+uniform float uYaw;
 uniform float uTime;
 uniform float uUpperHaze;
 
@@ -223,7 +223,7 @@ float fbm(vec3 point) {
 
 vec3 orientedCloudDirection(vec3 radialDirection) {
   vec3 tilted = rotateX(radialDirection, uAxialTilt + uPointer.y * 0.1);
-  return rotateY(tilted, uLongitudeOffset + uSurfaceRotation + uPointer.x * 0.16);
+  return rotateY(tilted, uLongitudeOffset + uYaw + uPointer.x * 0.16);
 }
 
 vec3 advectedCloudDirection(vec3 direction) {
@@ -537,7 +537,7 @@ function createResources(gl: WebGL2RenderingContext): VenusianResources {
       sourceReady: getUniformLocation(gl, program, 'uSourceReady'),
       sulfurTint: getUniformLocation(gl, program, 'uSulfurTint'),
       sunDirection: getUniformLocation(gl, program, 'uSunDirection'),
-      surfaceRotation: getUniformLocation(gl, program, 'uSurfaceRotation'),
+      yaw: getUniformLocation(gl, program, 'uYaw'),
       time: getUniformLocation(gl, program, 'uTime'),
       upperHaze: getUniformLocation(gl, program, 'uUpperHaze'),
     },
@@ -691,10 +691,7 @@ function createVenusianRenderer(
     gl.uniform1f(uniforms.sourceReady, hasSource ? 1 : 0)
     gl.uniform1f(uniforms.sulfurTint, settings.sulfurTint)
     gl.uniform3f(uniforms.sunDirection, ...sunDirection)
-    gl.uniform1f(
-      uniforms.surfaceRotation,
-      (settings.surfaceRotation * Math.PI) / 180 + elapsed * settings.rotationSpeed,
-    )
+    gl.uniform1f(uniforms.yaw, (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed)
     gl.uniform1f(uniforms.time, elapsed)
     gl.uniform1f(uniforms.upperHaze, settings.upperHaze)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -786,7 +783,7 @@ export function VenusianOrbEffect({
   sulfurTint = 0.72,
   sunAzimuth = -52,
   sunElevation = 9,
-  surfaceRotation = 0,
+  yaw = 0,
   upperHaze = 0.46,
 }: VenusianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -805,7 +802,7 @@ export function VenusianOrbEffect({
     sulfurTint,
     sunAzimuth,
     sunElevation,
-    surfaceRotation,
+    yaw,
     upperHaze,
   }
 

@@ -18,7 +18,7 @@ type LunarEclipseFrameSettings = {
   reliefShadowStrength: number
   shadowOffsetX: number
   shadowOffsetY: number
-  surfaceRotation: number
+  yaw: number
   umbraRadius: number
 }
 
@@ -54,7 +54,7 @@ export type LunarEclipseEffectProps = {
   shadowOffsetY?: number
   source: LunarEclipseSource
   style?: CSSProperties
-  surfaceRotation?: number
+  yaw?: number
   umbraRadius?: number
   viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
@@ -110,7 +110,7 @@ uniform float uReliefShadowStrength;
 uniform vec2 uResolution;
 uniform vec2 uShadowOffset;
 uniform float uSourceReady;
-uniform float uSurfaceRotation;
+uniform float uYaw;
 uniform float uUmbraRadius;
 
 out vec4 fragColor;
@@ -134,7 +134,7 @@ vec3 rotateY(vec3 value, float angle) {
 
 vec3 textureDirection(vec3 surfaceNormal) {
   vec3 tilted = rotateX(surfaceNormal, uPointer.y * 0.1);
-  return rotateY(tilted, uLongitudeOffset + uSurfaceRotation + uPointer.x * 0.16);
+  return rotateY(tilted, uLongitudeOffset + uYaw + uPointer.x * 0.16);
 }
 
 vec2 sphereUv(vec3 direction) {
@@ -635,10 +635,7 @@ function createLunarEclipseRenderer(
       settings.shadowOffsetY,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
-      (settings.surfaceRotation * Math.PI) / 180,
-    )
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uYaw'), (settings.yaw * Math.PI) / 180)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uUmbraRadius'), settings.umbraRadius)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
@@ -726,7 +723,7 @@ export function LunarEclipseEffect({
   shadowOffsetY = -1.55,
   source,
   style,
-  surfaceRotation = 0,
+  yaw = 0,
   umbraRadius = 2.2,
   viewport,
 }: LunarEclipseEffectProps) {
@@ -745,7 +742,7 @@ export function LunarEclipseEffect({
     reliefShadowStrength,
     shadowOffsetX,
     shadowOffsetY,
-    surfaceRotation,
+    yaw,
     umbraRadius,
   }
 

@@ -21,7 +21,7 @@ type LunarFrameSettings = {
   rotationSpeed: number
   sunAzimuth: number
   sunElevation: number
-  surfaceRotation: number
+  yaw: number
   veilingGlare: number
 }
 
@@ -60,7 +60,7 @@ export type LunarOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
-  surfaceRotation?: number
+  yaw?: number
   veilingGlare?: number
   viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
@@ -118,7 +118,7 @@ uniform float uReliefShadowStrength;
 uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
-uniform float uSurfaceRotation;
+uniform float uYaw;
 uniform float uVeilingGlare;
 
 out vec4 fragColor;
@@ -141,7 +141,7 @@ vec3 rotateY(vec3 value, float angle) {
 
 vec3 textureDirection(vec3 surfaceNormal) {
   vec3 tilted = rotateX(surfaceNormal, uPointer.y * 0.1);
-  return rotateY(tilted, uLongitudeOffset + uSurfaceRotation + uPointer.x * 0.16);
+  return rotateY(tilted, uLongitudeOffset + uYaw + uPointer.x * 0.16);
 }
 
 vec2 sphereUv(vec3 direction) {
@@ -649,8 +649,8 @@ function createLunarRenderer(
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
     gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uSurfaceRotation'),
-      (settings.surfaceRotation * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+      gl.getUniformLocation(resources.program, 'uYaw'),
+      (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uVeilingGlare'), settings.veilingGlare)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -743,7 +743,7 @@ export function LunarOrbEffect({
   style,
   sunAzimuth = -48,
   sunElevation = 16,
-  surfaceRotation = 0,
+  yaw = 0,
   veilingGlare = 0,
   viewport,
 }: LunarOrbEffectProps) {
@@ -765,7 +765,7 @@ export function LunarOrbEffect({
     rotationSpeed,
     sunAzimuth,
     sunElevation,
-    surfaceRotation,
+    yaw,
     veilingGlare,
   }
 

@@ -32,7 +32,7 @@ type NeptunianFrameSettings = {
   rotationSpeed: number
   sunAzimuth: number
   sunElevation: number
-  surfaceRotation: number
+  yaw: number
   upperClouds: number
   upperHaze: number
   vortexCirculation: number
@@ -69,7 +69,7 @@ export type NeptunianOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
-  surfaceRotation?: number
+  yaw?: number
   upperClouds?: number
   upperHaze?: number
   vortexCirculation?: number
@@ -95,7 +95,7 @@ type NeptunianUniforms = {
   resolution: WebGLUniformLocation | null
   sourceReady: WebGLUniformLocation | null
   sunDirection: WebGLUniformLocation | null
-  surfaceRotation: WebGLUniformLocation | null
+  yaw: WebGLUniformLocation | null
   time: WebGLUniformLocation | null
   upperClouds: WebGLUniformLocation | null
   upperHaze: WebGLUniformLocation | null
@@ -153,7 +153,7 @@ uniform vec2 uPointer;
 uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
-uniform float uSurfaceRotation;
+uniform float uYaw;
 uniform float uTime;
 uniform float uUpperClouds;
 uniform float uUpperHaze;
@@ -281,7 +281,7 @@ float fbm(vec3 point) {
 
 vec3 orientedDirection(vec3 radialDirection) {
   vec3 tilted = rotateX(radialDirection, uWeatherTilt + uPointer.y * 0.1);
-  return rotateY(tilted, uSurfaceRotation + uPointer.x * 0.16);
+  return rotateY(tilted, uYaw + uPointer.x * 0.16);
 }
 
 vec2 vortexMetric(float longitude, float latitude) {
@@ -619,7 +619,7 @@ function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): Neptuni
     resolution: gl.getUniformLocation(program, 'uResolution'),
     sourceReady: gl.getUniformLocation(program, 'uSourceReady'),
     sunDirection: gl.getUniformLocation(program, 'uSunDirection'),
-    surfaceRotation: gl.getUniformLocation(program, 'uSurfaceRotation'),
+    yaw: gl.getUniformLocation(program, 'uYaw'),
     time: gl.getUniformLocation(program, 'uTime'),
     upperClouds: gl.getUniformLocation(program, 'uUpperClouds'),
     upperHaze: gl.getUniformLocation(program, 'uUpperHaze'),
@@ -833,8 +833,8 @@ function createNeptunianRenderer(
     gl.uniform1f(resources.uniforms.sourceReady, hasSource ? 1 : 0)
     gl.uniform3f(resources.uniforms.sunDirection, ...sunDirection)
     gl.uniform1f(
-      resources.uniforms.surfaceRotation,
-      (settings.surfaceRotation * Math.PI) / 180 + elapsed * settings.rotationSpeed,
+      resources.uniforms.yaw,
+      (settings.yaw * Math.PI) / 180 + elapsed * settings.rotationSpeed,
     )
     gl.uniform1f(resources.uniforms.time, elapsed)
     gl.uniform1f(resources.uniforms.upperClouds, settings.upperClouds)
@@ -931,7 +931,7 @@ export function NeptunianOrbEffect({
   style,
   sunAzimuth = -10,
   sunElevation = 5,
-  surfaceRotation = 0,
+  yaw = 0,
   upperClouds = 0.68,
   upperHaze = 0.3,
   vortexCirculation = 0.48,
@@ -954,7 +954,7 @@ export function NeptunianOrbEffect({
     rotationSpeed,
     sunAzimuth,
     sunElevation,
-    surfaceRotation,
+    yaw,
     upperClouds,
     upperHaze,
     vortexCirculation,

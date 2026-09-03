@@ -50,7 +50,7 @@ export type UranianOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
-  surfaceRotation?: number
+  yaw?: number
   windScale?: number
 }
 
@@ -81,7 +81,7 @@ type UranianUniforms = {
   rotationSpeed: WebGLUniformLocation | null
   sourceReady: WebGLUniformLocation | null
   sunDirectionView: WebGLUniformLocation | null
-  surfaceRotation: WebGLUniformLocation | null
+  yaw: WebGLUniformLocation | null
   time: WebGLUniformLocation | null
   windScale: WebGLUniformLocation | null
 }
@@ -118,7 +118,7 @@ type UranianFrameSettings = {
   rotationSpeed: number
   sunAzimuth: number
   sunElevation: number
-  surfaceRotation: number
+  yaw: number
   windScale: number
 }
 
@@ -165,7 +165,7 @@ uniform float uRingVisibility;
 uniform float uRotationSpeed;
 uniform float uSourceReady;
 uniform vec3 uSunDirectionView;
-uniform float uSurfaceRotation;
+uniform float uYaw;
 uniform float uTime;
 uniform float uWindScale;
 
@@ -462,7 +462,7 @@ void main() {
   float bodyLatitude = asin(clamp(bodyRadialDirection.y, -1.0, 1.0));
   float bodyWind = sin(bodyLatitude * 2.0) * cos(bodyLatitude * 5.0);
   float bodyLongitude =
-    uSurfaceRotation + uTime * uRotationSpeed * uWindScale * bodyWind * 0.25;
+    uYaw + uTime * uRotationSpeed * uWindScale * bodyWind * 0.25;
   vec3 mappedBodyDirection = rotateY(bodyRadialDirection, bodyLongitude);
   vec2 atmosphereUv;
   vec2 atmosphereDx;
@@ -670,7 +670,7 @@ function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): Uranian
     rotationSpeed: gl.getUniformLocation(program, 'uRotationSpeed'),
     sourceReady: gl.getUniformLocation(program, 'uSourceReady'),
     sunDirectionView: gl.getUniformLocation(program, 'uSunDirectionView'),
-    surfaceRotation: gl.getUniformLocation(program, 'uSurfaceRotation'),
+    yaw: gl.getUniformLocation(program, 'uYaw'),
     time: gl.getUniformLocation(program, 'uTime'),
     windScale: gl.getUniformLocation(program, 'uWindScale'),
   }
@@ -866,9 +866,8 @@ function createUranianRenderer(
     gl.uniform1f(activeResources.uniforms.rotationSpeed, clamp(current.rotationSpeed, -0.05, 0.05))
     gl.uniform1f(activeResources.uniforms.sourceReady, hasSource ? 1 : 0)
     gl.uniform1f(
-      activeResources.uniforms.surfaceRotation,
-      (current.surfaceRotation * Math.PI) / 180 +
-        elapsed * clamp(current.rotationSpeed, -0.05, 0.05),
+      activeResources.uniforms.yaw,
+      (current.yaw * Math.PI) / 180 + elapsed * clamp(current.rotationSpeed, -0.05, 0.05),
     )
     gl.uniform1f(activeResources.uniforms.time, elapsed)
     gl.uniform1f(activeResources.uniforms.windScale, clamp(current.windScale, 0, 1))
@@ -955,7 +954,7 @@ export function UranianOrbEffect({
   style,
   sunAzimuth = -28,
   sunElevation = 55,
-  surfaceRotation = 18,
+  yaw = 18,
   windScale = 0.2,
 }: UranianOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -984,7 +983,7 @@ export function UranianOrbEffect({
     rotationSpeed,
     sunAzimuth,
     sunElevation,
-    surfaceRotation,
+    yaw,
     windScale,
   }
   useCanvasRenderer(canvasRef, frameSettings, source, createUranianRenderer)

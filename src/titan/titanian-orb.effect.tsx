@@ -29,7 +29,7 @@ export type TitanianOrbEffectProps = {
   forwardScatteringStrength?: number
   hazeDensity?: number
   hazeThickness?: number
-  longitudeOffsetDegrees?: number
+  yaw?: number
   polarHood?: number
   rotationSpeed?: number
   source: TitanianOrbSource
@@ -52,7 +52,7 @@ type TitanianFrameSettings = {
   forwardScatteringStrength: number
   hazeDensity: number
   hazeThickness: number
-  longitudeOffsetDegrees: number
+  yaw: number
   polarHood: number
   rotationSpeed: number
   sunAzimuthDegrees: number
@@ -85,7 +85,7 @@ uniform float uExposure;
 uniform float uForwardScatteringStrength;
 uniform float uHazeDensity;
 uniform float uHazeThickness;
-uniform float uLongitudeOffset;
+uniform float uYaw;
 uniform float uMainEnabled;
 uniform float uPolarHood;
 uniform vec2 uResolution;
@@ -138,7 +138,7 @@ vec2 sphereUv(vec3 direction) {
 
 vec3 atmosphereDirection(vec3 point) {
   vec3 bodyDirection = rotateX(normalize(point), -uViewLatitude);
-  return rotateY(bodyDirection, uLongitudeOffset + uTime * uRotationSpeed);
+  return rotateY(bodyDirection, uYaw + uTime * uRotationSpeed);
 }
 
 vec4 sampleAtmosphere(vec3 point) {
@@ -663,10 +663,7 @@ function createTitanianRenderer(
     uniform1f('uForwardScatteringStrength', clamp(current.forwardScatteringStrength, 0, 1.8))
     uniform1f('uHazeDensity', hazeDensityValue)
     uniform1f('uHazeThickness', hazeThicknessValue)
-    uniform1f(
-      'uLongitudeOffset',
-      (clamp(current.longitudeOffsetDegrees, -180, 180) * Math.PI) / 180,
-    )
+    uniform1f('uYaw', (clamp(current.yaw, -180, 180) * Math.PI) / 180)
     uniform1f('uMainEnabled', hazeDensityValue > 0 && hazeThicknessValue > 0 ? 1 : 0)
     uniform1f('uPolarHood', clamp(current.polarHood, 0, 1.5))
     uniform1f('uRotationSpeed', clamp(current.rotationSpeed, 0, 0.08))
@@ -740,7 +737,7 @@ export function TitanianOrbEffect({
   forwardScatteringStrength = 1,
   hazeDensity = 1,
   hazeThickness = 1,
-  longitudeOffsetDegrees = 0,
+  yaw = 0,
   polarHood = 0.34,
   rotationSpeed = 0.012,
   source,
@@ -757,7 +754,7 @@ export function TitanianOrbEffect({
     forwardScatteringStrength,
     hazeDensity,
     hazeThickness,
-    longitudeOffsetDegrees,
+    yaw,
     polarHood,
     rotationSpeed,
     sunAzimuthDegrees,

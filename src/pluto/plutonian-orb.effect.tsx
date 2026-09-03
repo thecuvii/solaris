@@ -33,7 +33,7 @@ export type PlutonianOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
-  surfaceRotation?: number
+  yaw?: number
   tholinStrength?: number
   viewTilt?: number
 }
@@ -59,7 +59,7 @@ type PlutonianFrameSettings = {
   roughness: number
   sunAzimuth: number
   sunElevation: number
-  surfaceRotation: number
+  yaw: number
   tholinStrength: number
   viewTilt: number
 }
@@ -107,7 +107,7 @@ uniform vec2 uResolution;
 uniform float uRoughness;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
-uniform float uSurfaceRotation;
+uniform float uYaw;
 uniform float uTholinStrength;
 uniform float uViewTilt;
 
@@ -144,7 +144,7 @@ float poseAngle() {
 }
 
 float longitudeAngle() {
-  return uSurfaceRotation + uPointer.x * 0.13;
+  return uYaw + uPointer.x * 0.13;
 }
 
 vec3 textureDirection(vec3 direction) {
@@ -725,8 +725,7 @@ function createPlutonianRenderer(
       Math.cos(azimuth) * elevationCosine,
     ] as const
     const rotation =
-      (wrapDegrees(settings.surfaceRotation) * Math.PI) / 180 +
-      elapsed * clamp(settings.rotationSpeed, 0, 0.05)
+      (wrapDegrees(settings.yaw) * Math.PI) / 180 + elapsed * clamp(settings.rotationSpeed, 0, 0.05)
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, canvas.width, canvas.height)
@@ -794,7 +793,7 @@ function createPlutonianRenderer(
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSurfaceRotation'), rotation)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uYaw'), rotation)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uTholinStrength'),
       clamp(settings.tholinStrength, 0, 1.5),
@@ -877,7 +876,7 @@ export function PlutonianOrbEffect({
   style,
   sunAzimuth = -38,
   sunElevation = 16,
-  surfaceRotation = 0,
+  yaw = 0,
   tholinStrength = 1,
   viewTilt = 25,
 }: PlutonianOrbEffectProps) {
@@ -895,7 +894,7 @@ export function PlutonianOrbEffect({
     roughness,
     sunAzimuth,
     sunElevation,
-    surfaceRotation,
+    yaw,
     tholinStrength,
     viewTilt,
   }
