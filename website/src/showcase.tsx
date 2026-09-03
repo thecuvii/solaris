@@ -90,12 +90,6 @@ type EclipseTextLightingProperties = CSSProperties & {
   '--eclipse-introduction-filter': string
   '--eclipse-introduction-shadow': string
   '--eclipse-navigation-filter': string
-  // Unit light vector (CSS px space, +y down) consumed by control box-shadows.
-  '--eclipse-light-x': string
-  '--eclipse-light-y': string
-  // Extra rim highlight / shade layers for control materials; transparent when unlit.
-  '--eclipse-rim-color': string
-  '--eclipse-shade-color': string
 }
 
 const earthModel = {
@@ -222,11 +216,6 @@ function noneTextLighting(): EclipseTextLightingProperties {
     '--eclipse-introduction-filter': 'none',
     '--eclipse-introduction-shadow': 'none',
     '--eclipse-navigation-filter': 'none',
-    // Top-lit defaults reproduce the static material look on unlit planets.
-    '--eclipse-light-x': '0',
-    '--eclipse-light-y': '-1',
-    '--eclipse-rim-color': 'oklch(100% 0 0 / 0)',
-    '--eclipse-shade-color': 'oklch(0% 0 0 / 0)',
   }
 }
 
@@ -260,18 +249,8 @@ function buildTextLighting({
   const shadowBlur = 0.35 + haloEnergy * 0.45
   const rimBlur = 0.15 + haloEnergy * 0.2
   const rim = `oklch(86% 0.08 ${rimHue}`
-  // Controls are lit from the side opposite the introduction shadow.
-  const lightLength = Math.hypot(introductionShadowX, introductionShadowY) || 1
-  const lightX = -introductionShadowX / lightLength
-  const lightY = -introductionShadowY / lightLength
-  const controlRimAlpha = visibleHaloResponse * 0.09
-  const controlShadeAlpha = visibleHaloResponse * 0.14
 
   return {
-    '--eclipse-light-x': lightX.toFixed(3),
-    '--eclipse-light-y': lightY.toFixed(3),
-    '--eclipse-rim-color': `${rim} / ${controlRimAlpha.toFixed(3)})`,
-    '--eclipse-shade-color': `oklch(0% 0 0 / ${controlShadeAlpha.toFixed(3)})`,
     '--eclipse-introduction-filter': `drop-shadow(${introductionShadowX.toFixed(2)}px ${introductionShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-introductionShadowX * rimScale).toFixed(2)}px ${(-introductionShadowY * rimScale).toFixed(2)}px ${rimBlur.toFixed(2)}px ${rim} / ${rimAlpha.toFixed(3)}))`,
     '--eclipse-introduction-shadow': `${(introductionShadowX * detailShadowScale).toFixed(2)}px ${(introductionShadowY * detailShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-introductionShadowX * rimScale * detailShadowScale).toFixed(2)}px ${(-introductionShadowY * rimScale * detailShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px ${rim} / ${rimAlpha.toFixed(3)})`,
     '--eclipse-navigation-filter': `drop-shadow(${(navigationShadowX * navigationShadowScale).toFixed(2)}px ${(navigationShadowY * navigationShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-navigationShadowX * rimScale * navigationShadowScale).toFixed(2)}px ${(-navigationShadowY * rimScale * navigationShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px ${rim} / ${navigationRimAlpha.toFixed(3)}))`,
@@ -303,14 +282,10 @@ function EclipseLightingPage({
             haloEnergy: Math.min(
               0.12 +
                 Math.min(Math.max(1 - moon.sunElevation / 70, 0), 1) * 0.18 +
-                Math.min(Math.max(moon.earthshineIntensity / 0.04, 0), 1) * 0.4 +
-                Math.min(Math.max(moon.bloomIntensity / 2, 0), 1) *
-                  Math.sqrt(Math.min(Math.max(moon.bloomRadius, 0), 1)) *
-                  0.5,
+                Math.min(Math.max(moon.earthshineIntensity / 0.04, 0), 1) * 0.4,
               1,
             ),
-            // Bloom warmth slides the rim from pale gold toward amber.
-            rimHue: 60 + Math.min(Math.max(moon.bloomWarmth, 0), 1) * 30,
+            rimHue: 75,
             shadowOffsetX:
               -Math.sin((moon.sunAzimuth * Math.PI) / 180) *
               Math.cos((moon.sunElevation * Math.PI) / 180) *
@@ -843,11 +818,9 @@ function PresetCarousel({ planetId }: { planetId: PlanetId }) {
   return (
     <section {...stylex.props(styles.parameterGroup)}>
       <div {...stylex.props(styles.presetHeader)}>
-        <h2 {...stylex.props(styles.groupTitle, styles.presetHeading, styles.eclipseTitleLighting)}>
-          Looks
-        </h2>
+        <h2 {...stylex.props(styles.groupTitle, styles.presetHeading)}>Looks</h2>
         {presets.length > 1 ? (
-          <div {...stylex.props(styles.presetControls, styles.eclipseTitleLighting)}>
+          <div {...stylex.props(styles.presetControls)}>
             <button
               aria-label="Previous look"
               onClick={() => scrollByCard(-1)}
@@ -961,7 +934,7 @@ function ParameterGroup({
 }) {
   return (
     <section {...stylex.props(styles.parameterGroup)}>
-      <h2 {...stylex.props(styles.groupTitle, styles.eclipseTitleLighting)}>{label}</h2>
+      <h2 {...stylex.props(styles.groupTitle)}>{label}</h2>
       <div {...stylex.props(styles.controlGroup)}>
         {definitions.map((definition) => (
           <ParameterControl key={definition.name} definition={definition} planetId={planetId} />
@@ -2745,10 +2718,9 @@ const styles = stylex.create({
     borderRadius: 8,
     borderWidth: 0,
     boxShadow: {
-      default:
-        'inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 oklch(85.45% 0 0 / 0.2118), inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 var(--eclipse-rim-color), calc(var(--eclipse-light-x) * -2px) calc(var(--eclipse-light-y) * -2px) 6px var(--eclipse-shade-color)',
+      default: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
       ':focus-visible':
-        'inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 oklch(85.45% 0 0 / 0.2118), inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 var(--eclipse-rim-color), calc(var(--eclipse-light-x) * -2px) calc(var(--eclipse-light-y) * -2px) 6px var(--eclipse-shade-color), 0 0 0 3px color-mix(in oklch, var(--control-accent) 22%, transparent)',
+        'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset, 0 0 0 3px color-mix(in oklch, var(--control-accent) 22%, transparent)',
     },
     boxSizing: 'border-box',
     color: 'oklch(86.4% 0.003 84.6)',
@@ -2766,7 +2738,6 @@ const styles = stylex.create({
     paddingBlock: 8,
     paddingInline: 28,
     textAlign: 'center',
-    transition: 'box-shadow 100ms cubic-bezier(0.23, 1, 0.32, 1)',
     width: '100%',
     ':focus-visible': {
       outline: 'none',
@@ -2796,7 +2767,7 @@ const styles = stylex.create({
     borderRadius: 8,
     boxSizing: 'content-box',
     boxShadow:
-      'calc(2px - var(--eclipse-light-x) * 1px) calc(var(--eclipse-light-y) * -1px - 1px) 3px oklch(0% 0 0 / 0.18), inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 oklch(100% 0 0 / 0.035), inset calc(var(--eclipse-light-x) * 1px) calc(var(--eclipse-light-y) * 1px) 1px oklch(0% 0 0 / 0.13), inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 var(--eclipse-rim-color)',
+      '2px 0 3px oklch(0% 0 0 / 0.18), inset 0 1px 0 oklch(100% 0 0 / 0.035), inset 0 -1px 1px oklch(0% 0 0 / 0.13)',
     height: '100%',
     left: 0,
     paddingRight: 10,
@@ -2808,7 +2779,7 @@ const styles = stylex.create({
     backgroundImage:
       'linear-gradient(90deg, transparent, color-mix(in oklch, var(--control-accent) 12%, transparent)), linear-gradient(180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 96%, white) 45%, color-mix(in oklch, var(--control-accent) 99%, black) 100%)',
     boxShadow:
-      'inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 oklch(100% 0 0 / 0.12), inset 1px 0 0 oklch(100% 0 0 / 0.08), inset calc(var(--eclipse-light-x) * 1px) calc(var(--eclipse-light-y) * 1px) 1px oklch(0% 0 0 / 0.22), 0 3px 4px color-mix(in oklch, var(--control-accent) 16%, transparent), 0 1px 2px color-mix(in oklch, var(--control-accent) 8%, transparent)',
+      'inset 0 1px 0 oklch(100% 0 0 / 0.12), inset 1px 0 0 oklch(100% 0 0 / 0.08), inset 0 -1px 1px oklch(0% 0 0 / 0.22), 0 3px 4px color-mix(in oklch, var(--control-accent) 16%, transparent), 0 1px 2px color-mix(in oklch, var(--control-accent) 8%, transparent)',
   },
   sliderIndicatorAtMaximum: {
     paddingRight: 0,
@@ -2845,8 +2816,7 @@ const styles = stylex.create({
   sliderThumb: {
     backgroundColor: 'oklch(52.46% 0 0)',
     borderRadius: 2,
-    boxShadow:
-      'inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 oklch(100% 0 0 / 0.07), inset calc(var(--eclipse-light-x) * 1px) calc(var(--eclipse-light-y) * 1px) 1px oklch(0% 0 0 / 0.1), inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 var(--eclipse-rim-color)',
+    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.07), inset 0 -1px 1px oklch(0% 0 0 / 0.1)',
     height: 20,
     pointerEvents: 'none',
     position: 'absolute',
@@ -2867,12 +2837,11 @@ const styles = stylex.create({
     backgroundColor: 'oklch(20.07% 0 0)',
     borderRadius: 8,
     boxShadow:
-      'calc(var(--eclipse-light-x) * -3px) calc(var(--eclipse-light-y) * -3px) 7px oklch(0% 0 0 / 0.27), calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 3px oklch(0% 0 0 / 0.2), calc(var(--eclipse-light-x) * -4px) calc(var(--eclipse-light-y) * -4px) 10px var(--eclipse-shade-color), inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 oklch(100% 0 0 / 0.045), inset calc(var(--eclipse-light-x) * 1px) calc(var(--eclipse-light-y) * 1px) 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025), inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 var(--eclipse-rim-color)',
+      '0 3px 7px oklch(0% 0 0 / 0.27), 0 1px 3px oklch(0% 0 0 / 0.2), inset 0 1px 0 oklch(100% 0 0 / 0.045), inset 0 -1px 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025)',
     height: 32,
     overflow: 'hidden',
     position: 'relative',
     touchAction: 'none',
-    transition: 'box-shadow 100ms cubic-bezier(0.23, 1, 0.32, 1)',
     userSelect: 'none',
     width: '100%',
   },
@@ -2915,8 +2884,7 @@ const styles = stylex.create({
     backgroundColor: 'oklch(75.04% 0 0 / 0.32)',
     borderRadius: 999,
     borderWidth: 0,
-    boxShadow:
-      'inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 oklch(100% 0 0 / 0.12), calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 2px oklch(0% 0 0 / 0.28), inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 var(--eclipse-rim-color)',
+    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.12), 0 1px 2px oklch(0% 0 0 / 0.28)',
     cursor: 'pointer',
     display: 'block',
     flex: '0 0 auto',
@@ -2933,21 +2901,19 @@ const styles = stylex.create({
   switchRootChecked: {
     backgroundColor: 'var(--control-accent)',
     boxShadow:
-      'inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 oklch(100% 0 0 / 0.18), 0 0 12px color-mix(in oklch, var(--control-accent) 30%, transparent), inset calc(var(--eclipse-light-x) * -1px) calc(var(--eclipse-light-y) * -1px) 0 var(--eclipse-rim-color)',
+      'inset 0 1px 0 oklch(100% 0 0 / 0.18), 0 0 12px color-mix(in oklch, var(--control-accent) 30%, transparent)',
   },
   switchThumb: {
     backgroundColor: 'oklch(96% 0.004 84.6)',
     borderRadius: '50%',
-    boxShadow:
-      'calc(var(--eclipse-light-x) * -2px) calc(var(--eclipse-light-y) * -2px) 4px oklch(0% 0 0 / 0.28), calc(var(--eclipse-light-x) * -2px) calc(var(--eclipse-light-y) * -2px) 5px var(--eclipse-shade-color)',
+    boxShadow: '0 2px 4px oklch(0% 0 0 / 0.28)',
     display: 'block',
     height: 14,
     left: 2,
     position: 'absolute',
     top: 2,
     transform: 'translateX(0)',
-    transition:
-      'transform 300ms cubic-bezier(0.4, 0, 0.2, 1), box-shadow 100ms cubic-bezier(0.23, 1, 0.32, 1)',
+    transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1)',
     width: 14,
   },
   switchThumbChecked: {

@@ -45,9 +45,6 @@ export const eclipseHaloAtom = atom((get) => ({
 }))
 
 export const moonLightingAtom = atom((get) => ({
-  bloomIntensity: Number(get(settingAtom({ name: 'bloomIntensity', planetId: 'moon' }))),
-  bloomRadius: Number(get(settingAtom({ name: 'bloomRadius', planetId: 'moon' }))),
-  bloomWarmth: Number(get(settingAtom({ name: 'bloomWarmth', planetId: 'moon' }))),
   earthshineIntensity: Number(get(settingAtom({ name: 'earthshineIntensity', planetId: 'moon' }))),
   sunAzimuth: Number(get(settingAtom({ name: 'sunAzimuth', planetId: 'moon' }))),
   sunElevation: Number(get(settingAtom({ name: 'sunElevation', planetId: 'moon' }))),
