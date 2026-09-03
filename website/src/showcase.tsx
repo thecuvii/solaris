@@ -79,6 +79,11 @@ type PlanetTransitionContext = {
   reducedMotion: boolean
 }
 
+type ChromeTransitionContext = {
+  direction: -1 | 1
+  reducedMotion: boolean
+}
+
 type PlanetTransitionPlan = {
   duration: number
 }
@@ -496,27 +501,30 @@ const planetPreviewVariants: Variants = {
   },
 }
 
-const inspectorVariants: Variants = {
-  center: (reducedMotion: boolean) => ({
-    filter: 'blur(0px)',
+const chromeTravel = 12
+
+const chromeVariants: Variants = {
+  center: ({ reducedMotion }: ChromeTransitionContext) => ({
     opacity: 1,
-    transform: 'translate3d(0, 0, 0)',
+    transform: 'translate3d(0px, 0, 0)',
     transition: reducedMotion
       ? { duration: 0.14, ease: linear }
-      : { duration: 0.24, ease: [0.32, 0.72, 0, 1] },
+      : { delay: 0.04, duration: 0.2, ease: [0.22, 1, 0.36, 1] },
   }),
-  enter: (reducedMotion: boolean) => ({
-    filter: reducedMotion ? 'blur(0px)' : 'blur(2px)',
+  enter: ({ direction, reducedMotion }: ChromeTransitionContext) => ({
     opacity: 0,
-    transform: reducedMotion ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 14px), 0, 0)',
+    transform: reducedMotion
+      ? 'translate3d(0px, 0, 0)'
+      : `translate3d(${direction * chromeTravel}px, 0, 0)`,
   }),
-  exit: (reducedMotion: boolean) => ({
-    filter: reducedMotion ? 'blur(0px)' : 'blur(2px)',
+  exit: ({ direction, reducedMotion }: ChromeTransitionContext) => ({
     opacity: 0,
-    transform: reducedMotion ? 'translate3d(0, 0, 0)' : 'translate3d(calc(100% + 14px), 0, 0)',
+    transform: reducedMotion
+      ? 'translate3d(0px, 0, 0)'
+      : `translate3d(${direction * -chromeTravel}px, 0, 0)`,
     transition: reducedMotion
       ? { duration: 0.14, ease: linear }
-      : { duration: 0.18, ease: [0.32, 0.72, 0, 1] },
+      : { duration: 0.14, ease: [0.22, 1, 0.36, 1] },
   }),
 }
 
@@ -600,30 +608,19 @@ export function ShowcaseLayout() {
   const [settingsStore] = useState(createSettingsStore)
   const [presentedPlanet, setPresentedPlanet] = useState<PlanetId>(selectedPlanet)
   const selectedPlanetRef = useRef<PlanetId>(selectedPlanet)
-  const presentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const transitionInFlightRef = useRef(false)
   const queuedPlanetRef = useRef<PlanetId | null>(null)
   const reduceMotion = useReducedMotion()
+  const chromeTransition: ChromeTransitionContext = {
+    direction: transitionDirection,
+    reducedMotion: Boolean(reduceMotion),
+  }
   const expandedPreviewActive =
     previewPlanet === 'moon' ||
     previewPlanet === 'lunar-eclipse' ||
     departingPlanet === 'moon' ||
     departingPlanet === 'lunar-eclipse'
   const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
-
-  const presentAtHandoff = useCallback(
-    (nextPlanet: PlanetId, nextPlan: PlanetTransitionPlan): void => {
-      if (presentationTimerRef.current) clearTimeout(presentationTimerRef.current)
-      presentationTimerRef.current = setTimeout(
-        () => {
-          setPresentedPlanet(nextPlanet)
-          presentationTimerRef.current = null
-        },
-        (reduceMotion ? 0.07 : nextPlan.duration * 0.5) * 1000,
-      )
-    },
-    [reduceMotion],
-  )
 
   const startPlanetTransition = useCallback(
     (nextPlanet: PlanetId, updateRoute = true): void => {
@@ -639,12 +636,12 @@ export function ShowcaseLayout() {
       setPreviewPlanet(nextPlanet)
       setTransitionDirection(nextIndex > currentIndex ? 1 : -1)
       setPlan(nextPlan)
-      presentAtHandoff(nextPlanet, nextPlan)
+      setPresentedPlanet(nextPlanet)
       if (updateRoute) {
         void navigate({ params: { planet: nextPlanet }, resetScroll: false, to: '/$planet' })
       }
     },
-    [navigate, presentAtHandoff],
+    [navigate],
   )
 
   const selectPlanet = useCallback(
@@ -668,8 +665,6 @@ export function ShowcaseLayout() {
   )
 
   const completePlanetTransition = useCallback((): void => {
-    if (presentationTimerRef.current) clearTimeout(presentationTimerRef.current)
-    presentationTimerRef.current = null
     setPresentedPlanet(selectedPlanetRef.current)
     setDepartingPlanet(null)
     transitionInFlightRef.current = false
@@ -693,13 +688,6 @@ export function ShowcaseLayout() {
   useEffect(() => {
     syncRoutePlanet(selectedPlanet)
   }, [selectedPlanet])
-
-  useEffect(
-    () => () => {
-      if (presentationTimerRef.current) clearTimeout(presentationTimerRef.current)
-    },
-    [],
-  )
 
   const showcaseContext = useMemo<ShowcaseContextValue>(
     () => ({
@@ -737,13 +725,18 @@ export function ShowcaseLayout() {
           <Outlet />
         </main>
 
-        <AnimatePresence custom={Boolean(reduceMotion)} initial={false}>
-          <Inspector
+        <AnimatePresence custom={chromeTransition} initial={false}>
+          <motion.aside
             key={presentedPlanet}
-            planetId={presentedPlanet}
-            reducedMotion={Boolean(reduceMotion)}
-            settingsStore={settingsStore}
-          />
+            animate="center"
+            custom={chromeTransition}
+            exit="exit"
+            initial="enter"
+            variants={chromeVariants}
+            {...stylex.props(styles.inspector)}
+          >
+            <Inspector planetId={presentedPlanet} settingsStore={settingsStore} />
+          </motion.aside>
         </AnimatePresence>
 
         {showGrid && <LayoutGridOverlay />}
@@ -766,24 +759,16 @@ export function ShowcasePlanetPage() {
     settingsStore,
     transitionDirection,
   } = context
-  const componentName = planet.componentName ?? planet.name
-  const titleProps = stylex.props(styles.title, styles.eclipseTitleLighting)
+  const chromeTransition: ChromeTransitionContext = {
+    direction: transitionDirection,
+    reducedMotion: Boolean(reduceMotion),
+  }
 
   return (
     <div {...stylex.props(styles.panel)}>
       <div {...stylex.props(styles.previewRegion)}>
         <div {...stylex.props(styles.introduction, styles.eclipseIntroductionLighting)}>
-          <div {...stylex.props(styles.titleRow)}>
-            <TextMorph
-              as="h1"
-              className={`showcase-title-morph ${titleProps.className}`}
-              duration={400}
-            >
-              {planet.name}
-            </TextMorph>
-            <span {...stylex.props(styles.componentName)}>&lt;{componentName} /&gt;</span>
-          </div>
-          <p {...stylex.props(styles.summary)}>{planet.summary}</p>
+          <PlanetIntroduction chrome={chromeTransition} planet={planet} />
         </div>
 
         <div {...stylex.props(styles.previewStageSpace)} />
@@ -1061,26 +1046,60 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
   }
 }
 
+function PlanetIntroduction({
+  chrome,
+  planet,
+}: {
+  chrome: ChromeTransitionContext
+  planet: Planet
+}) {
+  const componentName = planet.componentName ?? planet.name
+  const badgeProps = stylex.props(styles.componentName)
+
+  return (
+    <>
+      <div {...stylex.props(styles.titleRow)}>
+        <h1 {...stylex.props(styles.title, styles.eclipseTitleLighting)}>{planet.name}</h1>
+        <TextMorph
+          as="span"
+          className={badgeProps.className}
+          disabled={chrome.reducedMotion}
+          duration={220}
+          ease="cubic-bezier(0.22, 1, 0.36, 1)"
+          scale={false}
+          style={badgeProps.style}
+        >
+          {`<${componentName} />`}
+        </TextMorph>
+      </div>
+      <AnimatePresence custom={chrome} initial={false} mode="popLayout">
+        <motion.p
+          key={planet.id}
+          animate="center"
+          custom={chrome}
+          exit="exit"
+          initial="enter"
+          variants={chromeVariants}
+          {...stylex.props(styles.summary)}
+        >
+          {planet.summary}
+        </motion.p>
+      </AnimatePresence>
+    </>
+  )
+}
+
 function Inspector({
   planetId,
-  reducedMotion,
   settingsStore,
 }: {
   planetId: PlanetId
-  reducedMotion: boolean
   settingsStore: SettingsStore
 }) {
   const groups = parameterGroupsByPlanet.get(planetId) ?? []
 
   return (
-    <motion.aside
-      animate="center"
-      custom={reducedMotion}
-      exit="exit"
-      initial="enter"
-      variants={inspectorVariants}
-      {...stylex.props(styles.inspector)}
-    >
+    <>
       <div {...stylex.props(styles.inspectorGroups)}>
         {groups.map((group) => (
           <ParameterGroup
@@ -1094,7 +1113,7 @@ function Inspector({
       </div>
 
       <ResetSettingsButton planetId={planetId} settingsStore={settingsStore} />
-    </motion.aside>
+    </>
   )
 }
 
@@ -1703,7 +1722,7 @@ function CodeBlock({ planet, settingsStore }: { planet: Planet; settingsStore: S
       <div {...stylex.props(styles.codeHeader)}>
         <div {...stylex.props(styles.codeFile)}>
           <CodeFileIcon />
-          <span>example.tsx</span>
+          <span>{`${planet.componentName ?? planet.name}.tsx`}</span>
         </div>
         <Button
           aria-label={copied ? 'Code copied' : 'Copy code'}
@@ -1974,6 +1993,7 @@ const styles = stylex.create({
     fontSize: 13,
     fontWeight: 600,
     height: 36,
+    lineHeight: 1,
     margin: 0,
     paddingInline: 8,
     textAlign: 'left',
@@ -2034,11 +2054,14 @@ const styles = stylex.create({
     height: '100dvh',
     minWidth: 0,
     overflowY: 'auto',
-    padding: 12,
+    paddingBottom: 12,
+    paddingInline: 12,
+    paddingTop: 'calc(var(--showcase-preview-top) - (36px - 13px) / 2)',
     position: 'fixed',
     right: 0,
     top: 0,
     width: 280,
+    willChange: 'opacity, transform',
     '@media (max-width: 960px)': {
       height: 'auto',
       overflowY: 'visible',
@@ -2054,7 +2077,7 @@ const styles = stylex.create({
     display: 'flex',
     flexDirection: 'column',
     gap: 10,
-    paddingTop: 12,
+    paddingTop: 0,
   },
   eclipseIntroductionLighting: {
     textShadow: 'var(--eclipse-introduction-shadow)',
@@ -2144,7 +2167,8 @@ const styles = stylex.create({
   page: {
     '--showcase-inspector-width': '280px',
     '--showcase-picker-width': '300px',
-    '--showcase-preview-top': 'calc(70px + clamp(24px, 4vh, 52px))',
+    '--showcase-preview-top': 'round(calc(70px + clamp(24px, 4vh, 52px)), 8px)',
+    '--showcase-title-size': 'clamp(36px, 4vw, 52px)',
     backgroundColor: '#07080d',
     display: 'grid',
     gridTemplateColumns: '300px minmax(400px, 1fr) 280px',
@@ -2169,7 +2193,7 @@ const styles = stylex.create({
     marginInline: 'auto',
     maxWidth: 820,
     paddingBottom: 44,
-    paddingTop: 'calc(70px + clamp(24px, 4vh, 52px))',
+    paddingTop: 'var(--showcase-preview-top)',
     position: 'relative',
     '@media (max-width: 1279px)': {
       columnGap: 16,
@@ -2237,9 +2261,6 @@ const styles = stylex.create({
   },
   pickerMeta: {
     alignSelf: 'flex-end',
-    borderTopColor: 'oklch(86.4% 0.003 84.6 / 0.1)',
-    borderTopStyle: 'dashed',
-    borderTopWidth: 1,
     color: 'rgba(242, 232, 208, 0.38)',
     display: 'flex',
     flex: '0 0 auto',
@@ -2279,7 +2300,7 @@ const styles = stylex.create({
     flexDirection: 'column',
     position: 'absolute',
     right: 0,
-    top: 'calc(78px + clamp(24px, 4vh, 52px))',
+    top: 'var(--showcase-preview-top)',
     width: 204,
     '@media (max-width: 960px)': {
       bottom: 'auto',
@@ -2293,7 +2314,6 @@ const styles = stylex.create({
     alignSelf: 'flex-end',
     flex: '0 0 auto',
     marginRight: 26,
-    transform: 'translateY(2px)',
     '@media (max-width: 960px)': {
       alignSelf: 'flex-start',
       marginLeft: 16,
@@ -2348,7 +2368,7 @@ const styles = stylex.create({
     flexShrink: 1,
     flexDirection: 'column',
     gap: 2,
-    marginTop: 32,
+    marginTop: 'calc(var(--showcase-title-size) * 0.88 + 1.5px + 8px - 17px)',
     minHeight: 0,
     overflowY: 'auto',
     paddingRight: 24,
@@ -2414,7 +2434,7 @@ const styles = stylex.create({
     borderRadius: '50%',
     height: 4,
     position: 'absolute',
-    right: 'calc(100% + 4px)',
+    right: 'calc(100% + 6px)',
     top: 'calc(50% - 2px)',
     width: 4,
   },
@@ -2636,17 +2656,18 @@ const styles = stylex.create({
       'linear-gradient(180deg, color(display-p3 1 1 1) 0%, color(display-p3 0.8787 0.8708 0.8589) 100%)',
     color: 'transparent',
     fontFamily: '"Inter Variable", Inter, sans-serif',
-    fontSize: 'clamp(36px, 4vw, 52px)',
+    fontSize: 'var(--showcase-title-size)',
     fontWeight: 590,
     letterSpacing: '-0.045em',
-    lineHeight: 1.1,
-    margin: 0,
+    lineHeight: 1,
+    marginBottom: 0,
+    marginInline: 0,
+    marginTop: '-0.12em',
   },
   titleRow: {
     alignItems: 'baseline',
     display: 'flex',
     gap: 13,
-    marginTop: 8,
   },
   wordmark: {
     alignItems: 'center',
@@ -2656,6 +2677,7 @@ const styles = stylex.create({
     fontWeight: 620,
     gap: 9,
     letterSpacing: '-0.02em',
+    lineHeight: 1,
     textDecoration: 'none',
     ':focus-visible': {
       boxShadow: '0 2px 0 rgba(242,232,208,0.62)',

@@ -46,8 +46,3 @@
     outline: none;
   }
 }
-
-.showcase-title-morph > [torph-item] {
-  background: inherit;
-  background-clip: text;
-}
