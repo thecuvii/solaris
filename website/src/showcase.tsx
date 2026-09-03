@@ -2548,6 +2548,11 @@ const styles = stylex.create({
   },
   pickerAlsoLink: {
     alignSelf: 'flex-end',
+    color: {
+      default: 'rgba(242, 232, 208, 0.62)',
+      ':hover': 'rgba(242, 232, 208, 0.88)',
+      ':focus-visible': '#ffffff',
+    },
     position: 'relative',
   },
   pickerMeta: {
