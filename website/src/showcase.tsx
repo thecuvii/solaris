@@ -723,14 +723,10 @@ const PlanetPicker = memo(function PlanetPicker({
             <a href="https://github.com/thecuvii/solaris" {...stylex.props(styles.pickerMetaLink)}>
               GitHub
             </a>
-            <div {...stylex.props(styles.pickerMetaCredit)}>
-              <span {...stylex.props(styles.pickerMetaCreditLabel)}>Made by</span>
-              <a
-                href="https://github.com/thecuvii"
-                {...stylex.props(styles.pickerMetaLink, styles.pickerMetaAuthor)}
-              >
-                <CuviiAvatar />
-                <span {...stylex.props(styles.pickerMetaAuthorName)}>Cuvii</span>
+            <div>
+              Made by{' '}
+              <a href="https://github.com/thecuvii" {...stylex.props(styles.pickerMetaLink)}>
+                Cuvii
               </a>
             </div>
           </div>
@@ -1453,10 +1449,6 @@ function SliderValueMorph({
       {...stylex.props(styles.numberFieldMorph, active && styles.numberFieldMorphActive)}
     />
   )
-}
-
-function CuviiAvatar() {
-  return <span aria-hidden="true" {...stylex.props(styles.cuviiAvatar)} />
 }
 
 function ResetIcon() {
@@ -2537,7 +2529,7 @@ const styles = stylex.create({
   pickerAlsoItem: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 2,
+    gap: 4,
   },
   pickerAlsoLabel: {
     color: 'rgba(242, 232, 208, 0.38)',
@@ -2597,43 +2589,6 @@ const styles = stylex.create({
     ':focus-visible': {
       outline: 'none',
     },
-  },
-  pickerMetaCredit: {
-    alignItems: 'flex-end',
-    display: 'flex',
-    gap: 4,
-    justifyContent: 'flex-end',
-    lineHeight: 1,
-  },
-  pickerMetaCreditLabel: {
-    paddingBottom: 4,
-  },
-  pickerMetaAuthor: {
-    alignItems: 'flex-end',
-    display: 'inline-flex',
-    gap: 4,
-    textDecorationLine: 'none',
-  },
-  pickerMetaAuthorName: {
-    paddingBottom: 4,
-    textDecorationLine: 'underline',
-    textDecorationThickness: 1,
-    textUnderlineOffset: 3,
-  },
-  cuviiAvatar: {
-    backgroundColor: 'currentColor',
-    flexShrink: 0,
-    height: 12,
-    maskImage: 'url(/cuvii-avatar.svg)',
-    maskMode: 'alpha',
-    maskPosition: 'center',
-    maskRepeat: 'no-repeat',
-    maskSize: 'contain',
-    width: 12,
-    WebkitMaskImage: 'url(/cuvii-avatar.svg)',
-    WebkitMaskPosition: 'center',
-    WebkitMaskRepeat: 'no-repeat',
-    WebkitMaskSize: 'contain',
   },
   pickerNavigation: {
     bottom: 16,
