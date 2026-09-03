@@ -36,15 +36,19 @@ import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
+  ReactNode,
 } from 'react'
 import {
   createContext,
+  memo,
   useCallback,
   useContext,
   useEffect,
   useEffectEvent,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
 import { TextMorph } from 'torph/react'
 
@@ -318,6 +322,80 @@ const initialSettings = Object.fromEntries(
   ]),
 ) as Record<PlanetId, PlanetSettings>
 
+type SettingsStore = ReturnType<typeof createSettingsStore>
+
+function createSettingsStore() {
+  let current = initialSettings
+  const planetListeners = new Map<PlanetId, Set<() => void>>()
+  const settingListeners = new Map<string, Set<() => void>>()
+
+  function subscribe(listeners: Map<string, Set<() => void>>, key: string, listener: () => void) {
+    const entries = listeners.get(key) ?? new Set()
+    entries.add(listener)
+    listeners.set(key, entries)
+    return () => {
+      entries.delete(listener)
+      if (entries.size === 0) listeners.delete(key)
+    }
+  }
+
+  function notify(planetId: PlanetId, names: readonly string[]) {
+    for (const listener of planetListeners.get(planetId) ?? []) listener()
+    for (const name of names) {
+      for (const listener of settingListeners.get(`${planetId}:${name}`) ?? []) listener()
+    }
+  }
+
+  return {
+    getPlanet: (planetId: PlanetId) => current[planetId],
+    getSetting: (planetId: PlanetId, name: string) => current[planetId][name],
+    reset(planetId: PlanetId) {
+      const changedNames: string[] = []
+      for (const { initial, name } of parameterDefinitions[planetId]) {
+        if (current[planetId][name] !== initial) changedNames.push(name)
+      }
+      if (changedNames.length === 0) return
+
+      current = { ...current, [planetId]: { ...initialSettings[planetId] } }
+      notify(planetId, changedNames)
+    },
+    subscribePlanet: (planetId: PlanetId, listener: () => void) => {
+      const entries = planetListeners.get(planetId) ?? new Set()
+      entries.add(listener)
+      planetListeners.set(planetId, entries)
+      return () => {
+        entries.delete(listener)
+        if (entries.size === 0) planetListeners.delete(planetId)
+      }
+    },
+    subscribeSetting: (planetId: PlanetId, name: string, listener: () => void) =>
+      subscribe(settingListeners, `${planetId}:${name}`, listener),
+    update(planetId: PlanetId, name: string, value: boolean | number) {
+      if (current[planetId][name] === value) return
+      current = { ...current, [planetId]: { ...current[planetId], [name]: value } }
+      notify(planetId, [name])
+    },
+  }
+}
+
+function usePlanetSettings(store: SettingsStore, planetId: PlanetId): PlanetSettings {
+  const subscribe = useCallback(
+    (listener: () => void) => store.subscribePlanet(planetId, listener),
+    [planetId, store],
+  )
+  const getSnapshot = useCallback(() => store.getPlanet(planetId), [planetId, store])
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
+function useSetting(store: SettingsStore, planetId: PlanetId, name: string): boolean | number {
+  const subscribe = useCallback(
+    (listener: () => void) => store.subscribeSetting(planetId, name, listener),
+    [name, planetId, store],
+  )
+  const getSnapshot = useCallback(() => store.getSetting(planetId, name), [name, planetId, store])
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
 const parameterGroups: readonly { id: ParameterGroupId; label: string }[] = [
   { id: 'surface', label: 'Surface & material' },
   { id: 'atmosphere', label: 'Atmosphere' },
@@ -326,6 +404,23 @@ const parameterGroups: readonly { id: ParameterGroupId; label: string }[] = [
   { id: 'rings', label: 'Rings' },
   { id: 'features', label: 'Features' },
 ]
+
+const parameterGroupsByPlanet = new Map(
+  planets.map(
+    ({ id }) =>
+      [
+        id,
+        parameterGroups
+          .map((group) => ({
+            ...group,
+            definitions: parameterDefinitions[id].filter(
+              (definition) => getParameterGroup(definition) === group.id,
+            ),
+          }))
+          .filter((group) => group.definitions.length > 0),
+      ] as const,
+  ),
+)
 
 const earthModel = {
   mieExtinction: [8, 8, 8],
@@ -537,45 +632,27 @@ type ShowcaseContextValue = {
   plan: PlanetTransitionPlan
   planet: Planet
   previewPlanet: PlanetId
-  previewSettings: PlanetSettings
-  resetSettings: () => void
-  settings: PlanetSettings
+  settingsStore: SettingsStore
   transitionActive: boolean
   transitionDirection: -1 | 1
-  updateSetting: (name: string, value: boolean | number) => void
 }
 
 const ShowcaseContext = createContext<ShowcaseContextValue | null>(null)
 
-export function ShowcaseLayout() {
-  const routePlanet = useParams({ strict: false, select: (params) => params.planet })
-  const selectedPlanet = isPlanetId(routePlanet) ? routePlanet : 'earth'
-  const navigate = useNavigate()
-  const [showGrid, setShowGrid] = useState(false)
-  const [transitionDirection, setTransitionDirection] = useState<-1 | 1>(1)
-  const [plan, setPlan] = useState(() => getPlanetTransitionPlan(selectedPlanet, selectedPlanet))
-  const [previewPlanet, setPreviewPlanet] = useState<PlanetId>(selectedPlanet)
-  const [departingPlanet, setDepartingPlanet] = useState<PlanetId | null>(null)
-  const [settingsByPlanet, setSettingsByPlanet] = useState(initialSettings)
-  const [presentedPlanet, setPresentedPlanet] = useState<PlanetId>(selectedPlanet)
-  const selectedPlanetRef = useRef<PlanetId>(selectedPlanet)
-  const presentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const transitionInFlightRef = useRef(false)
-  const queuedPlanetRef = useRef<PlanetId | null>(null)
-  const reduceMotion = useReducedMotion()
-  const expandedPreviewActive =
-    previewPlanet === 'moon' ||
-    previewPlanet === 'lunar-eclipse' ||
-    departingPlanet === 'moon' ||
-    departingPlanet === 'lunar-eclipse'
-  const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
-  const previewSettings = settingsByPlanet[previewPlanet]
-  const settings = settingsByPlanet[presentedPlanet]
-  const eclipseSettings = settingsByPlanet['lunar-eclipse']
-  const haloIntensity = Number(eclipseSettings.haloIntensity)
-  const haloWidth = Number(eclipseSettings.haloWidth)
-  const shadowOffsetX = Number(eclipseSettings.shadowOffsetX)
-  const shadowOffsetY = Number(eclipseSettings.shadowOffsetY)
+function EclipseLightingPage({
+  children,
+  previewPlanet,
+  settingsStore,
+}: {
+  children: ReactNode
+  previewPlanet: PlanetId
+  settingsStore: SettingsStore
+}) {
+  const settings = usePlanetSettings(settingsStore, 'lunar-eclipse')
+  const haloIntensity = Number(settings.haloIntensity)
+  const haloWidth = Number(settings.haloWidth)
+  const shadowOffsetX = Number(settings.shadowOffsetX)
+  const shadowOffsetY = Number(settings.shadowOffsetY)
   const haloEnergy =
     previewPlanet === 'lunar-eclipse'
       ? Math.min(Math.max((haloIntensity / 3) * Math.sqrt(haloWidth), 0), 1)
@@ -596,7 +673,7 @@ export function ShowcaseLayout() {
   const navigationShadowY = shadowDistance * 0.08
   const shadowBlur = 0.35 + haloEnergy * 0.45
   const rimBlur = 0.15 + haloEnergy * 0.2
-  const eclipseTextLighting: EclipseTextLightingProperties = {
+  const lighting: EclipseTextLightingProperties = {
     '--eclipse-introduction-filter':
       haloEnergy === 0
         ? 'none'
@@ -610,6 +687,36 @@ export function ShowcaseLayout() {
         ? 'none'
         : `${(navigationShadowX * navigationShadowScale).toFixed(2)}px ${(navigationShadowY * navigationShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-navigationShadowX * rimScale * navigationShadowScale).toFixed(2)}px ${(-navigationShadowY * rimScale * navigationShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${navigationRimAlpha.toFixed(3)})`,
   }
+
+  return (
+    <div {...stylex.props(styles.page)} style={lighting}>
+      {children}
+    </div>
+  )
+}
+
+export function ShowcaseLayout() {
+  const routePlanet = useParams({ strict: false, select: (params) => params.planet })
+  const selectedPlanet = isPlanetId(routePlanet) ? routePlanet : 'earth'
+  const navigate = useNavigate()
+  const [showGrid, setShowGrid] = useState(false)
+  const [transitionDirection, setTransitionDirection] = useState<-1 | 1>(1)
+  const [plan, setPlan] = useState(() => getPlanetTransitionPlan(selectedPlanet, selectedPlanet))
+  const [previewPlanet, setPreviewPlanet] = useState<PlanetId>(selectedPlanet)
+  const [departingPlanet, setDepartingPlanet] = useState<PlanetId | null>(null)
+  const [settingsStore] = useState(createSettingsStore)
+  const [presentedPlanet, setPresentedPlanet] = useState<PlanetId>(selectedPlanet)
+  const selectedPlanetRef = useRef<PlanetId>(selectedPlanet)
+  const presentationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const transitionInFlightRef = useRef(false)
+  const queuedPlanetRef = useRef<PlanetId | null>(null)
+  const reduceMotion = useReducedMotion()
+  const expandedPreviewActive =
+    previewPlanet === 'moon' ||
+    previewPlanet === 'lunar-eclipse' ||
+    departingPlanet === 'moon' ||
+    departingPlanet === 'lunar-eclipse'
+  const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
 
   const presentAtHandoff = useCallback(
     (nextPlanet: PlanetId, nextPlan: PlanetTransitionPlan): void => {
@@ -625,43 +732,49 @@ export function ShowcaseLayout() {
     [reduceMotion],
   )
 
-  function startPlanetTransition(nextPlanet: PlanetId, updateRoute = true): void {
-    const currentPlanet = selectedPlanetRef.current
-    if (nextPlanet === currentPlanet) return
+  const startPlanetTransition = useCallback(
+    (nextPlanet: PlanetId, updateRoute = true): void => {
+      const currentPlanet = selectedPlanetRef.current
+      if (nextPlanet === currentPlanet) return
 
-    const currentIndex = planets.findIndex(({ id }) => id === currentPlanet)
-    const nextIndex = planets.findIndex(({ id }) => id === nextPlanet)
-    const nextPlan = getPlanetTransitionPlan(currentPlanet, nextPlanet)
-    transitionInFlightRef.current = true
-    selectedPlanetRef.current = nextPlanet
-    setDepartingPlanet(currentPlanet)
-    setPreviewPlanet(nextPlanet)
-    setTransitionDirection(nextIndex > currentIndex ? 1 : -1)
-    setPlan(nextPlan)
-    presentAtHandoff(nextPlanet, nextPlan)
-    if (updateRoute) {
-      void navigate({ params: { planet: nextPlanet }, resetScroll: false, to: '/$planet' })
-    }
-  }
-
-  function selectPlanet(nextPlanet: PlanetId): void {
-    if (nextPlanet === selectedPlanetRef.current) {
-      queuedPlanetRef.current = null
-      if (nextPlanet !== selectedPlanet) {
+      const currentIndex = planets.findIndex(({ id }) => id === currentPlanet)
+      const nextIndex = planets.findIndex(({ id }) => id === nextPlanet)
+      const nextPlan = getPlanetTransitionPlan(currentPlanet, nextPlanet)
+      transitionInFlightRef.current = true
+      selectedPlanetRef.current = nextPlanet
+      setDepartingPlanet(currentPlanet)
+      setPreviewPlanet(nextPlanet)
+      setTransitionDirection(nextIndex > currentIndex ? 1 : -1)
+      setPlan(nextPlan)
+      presentAtHandoff(nextPlanet, nextPlan)
+      if (updateRoute) {
         void navigate({ params: { planet: nextPlanet }, resetScroll: false, to: '/$planet' })
       }
-      return
-    }
+    },
+    [navigate, presentAtHandoff],
+  )
 
-    if (transitionInFlightRef.current) {
-      queuedPlanetRef.current = nextPlanet
-      return
-    }
+  const selectPlanet = useCallback(
+    (nextPlanet: PlanetId): void => {
+      if (nextPlanet === selectedPlanetRef.current) {
+        queuedPlanetRef.current = null
+        if (nextPlanet !== selectedPlanet) {
+          void navigate({ params: { planet: nextPlanet }, resetScroll: false, to: '/$planet' })
+        }
+        return
+      }
 
-    startPlanetTransition(nextPlanet)
-  }
+      if (transitionInFlightRef.current) {
+        queuedPlanetRef.current = nextPlanet
+        return
+      }
 
-  function completePlanetTransition(): void {
+      startPlanetTransition(nextPlanet)
+    },
+    [navigate, selectedPlanet, startPlanetTransition],
+  )
+
+  const completePlanetTransition = useCallback((): void => {
     if (presentationTimerRef.current) clearTimeout(presentationTimerRef.current)
     presentationTimerRef.current = null
     setPresentedPlanet(selectedPlanetRef.current)
@@ -670,21 +783,7 @@ export function ShowcaseLayout() {
     const queuedPlanet = queuedPlanetRef.current
     queuedPlanetRef.current = null
     if (queuedPlanet) startPlanetTransition(queuedPlanet, queuedPlanet !== selectedPlanet)
-  }
-
-  function updateSetting(name: string, value: boolean | number): void {
-    setSettingsByPlanet((current) => ({
-      ...current,
-      [presentedPlanet]: { ...current[presentedPlanet], [name]: value },
-    }))
-  }
-
-  function resetSettings(): void {
-    setSettingsByPlanet((current) => ({
-      ...current,
-      [presentedPlanet]: { ...initialSettings[presentedPlanet] },
-    }))
-  }
+  }, [selectedPlanet, startPlanetTransition])
 
   const syncRoutePlanet = useEffectEvent((nextPlanet: PlanetId) => {
     const previousPlanet = selectedPlanetRef.current
@@ -709,23 +808,32 @@ export function ShowcaseLayout() {
     [],
   )
 
+  const showcaseContext = useMemo<ShowcaseContextValue>(
+    () => ({
+      completePlanetTransition,
+      expandedPreviewActive,
+      plan,
+      planet,
+      previewPlanet,
+      settingsStore,
+      transitionActive: departingPlanet !== null,
+      transitionDirection,
+    }),
+    [
+      completePlanetTransition,
+      departingPlanet,
+      expandedPreviewActive,
+      plan,
+      planet,
+      previewPlanet,
+      settingsStore,
+      transitionDirection,
+    ],
+  )
+
   return (
-    <ShowcaseContext.Provider
-      value={{
-        completePlanetTransition,
-        expandedPreviewActive,
-        plan,
-        planet,
-        previewPlanet,
-        previewSettings,
-        resetSettings,
-        settings,
-        transitionActive: departingPlanet !== null,
-        transitionDirection,
-        updateSetting,
-      }}
-    >
-      <div {...stylex.props(styles.page)} style={eclipseTextLighting}>
+    <ShowcaseContext.Provider value={showcaseContext}>
+      <EclipseLightingPage previewPlanet={previewPlanet} settingsStore={settingsStore}>
         <PlanetPicker
           gridVisible={showGrid}
           onGridVisibleChange={setShowGrid}
@@ -738,15 +846,10 @@ export function ShowcaseLayout() {
           <Outlet />
         </main>
 
-        <Inspector
-          planetId={presentedPlanet}
-          resetSettings={resetSettings}
-          settings={settings}
-          updateSetting={updateSetting}
-        />
+        <Inspector planetId={presentedPlanet} settingsStore={settingsStore} />
 
         {showGrid && <LayoutGridOverlay />}
-      </div>
+      </EclipseLightingPage>
     </ShowcaseContext.Provider>
   )
 }
@@ -762,8 +865,7 @@ export function ShowcasePlanetPage() {
     plan,
     planet,
     previewPlanet,
-    previewSettings,
-    settings,
+    settingsStore,
     transitionActive,
     transitionDirection,
   } = context
@@ -815,11 +917,11 @@ export function ShowcasePlanetPage() {
                     styles.planetPreviewTransitionExpanded,
                 )}
               >
-                <TravelingPlanetPreview
+                <TravelingPlanetPreviewWithSettings
                   id={previewPlanet}
                   plan={plan}
                   reducedMotion={Boolean(reduceMotion)}
-                  settings={previewSettings}
+                  settingsStore={settingsStore}
                   transitionActive={transitionActive}
                 />
               </div>
@@ -828,7 +930,7 @@ export function ShowcasePlanetPage() {
         </div>
       </div>
 
-      <CodeBlock planet={planet} settings={settings} />
+      <CodeBlock planet={planet} settingsStore={settingsStore} />
     </div>
   )
 }
@@ -855,7 +957,7 @@ function LayoutGridOverlay() {
   )
 }
 
-function PlanetPicker({
+const PlanetPicker = memo(function PlanetPicker({
   gridVisible,
   onGridVisibleChange,
   onSelectPlanet,
@@ -980,7 +1082,7 @@ function PlanetPicker({
       </div>
     </aside>
   )
-}
+})
 
 function getRotationDirection(id: PlanetId, settings: PlanetSettings): -1 | 1 {
   const rotationSpeed = Number(settings.rotationSpeed)
@@ -1058,6 +1160,31 @@ function TravelingPlanetPreview({
   return <PlanetPreview id={id} settings={applySurfaceTravel(id, settings, visibleOffset)} />
 }
 
+function TravelingPlanetPreviewWithSettings({
+  id,
+  plan,
+  reducedMotion,
+  settingsStore,
+  transitionActive,
+}: {
+  id: PlanetId
+  plan: PlanetTransitionPlan
+  reducedMotion: boolean
+  settingsStore: SettingsStore
+  transitionActive: boolean
+}) {
+  const settings = usePlanetSettings(settingsStore, id)
+  return (
+    <TravelingPlanetPreview
+      id={id}
+      plan={plan}
+      reducedMotion={reducedMotion}
+      settings={settings}
+      transitionActive={transitionActive}
+    />
+  )
+}
+
 function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSettings }) {
   const shared = {
     ...settings,
@@ -1128,25 +1255,12 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
 
 function Inspector({
   planetId,
-  resetSettings,
-  settings,
-  updateSetting,
+  settingsStore,
 }: {
   planetId: PlanetId
-  resetSettings: () => void
-  settings: PlanetSettings
-  updateSetting: (name: string, value: boolean | number) => void
+  settingsStore: SettingsStore
 }) {
-  const definitions = parameterDefinitions[planetId]
-  const groups = parameterGroups
-    .map((group) => ({
-      ...group,
-      definitions: definitions.filter((definition) => getParameterGroup(definition) === group.id),
-    }))
-    .filter((group) => group.definitions.length > 0)
-  const isDefault = definitions.every(
-    (definition) => settings[definition.name] === definition.initial,
-  )
+  const groups = parameterGroupsByPlanet.get(planetId) ?? []
 
   return (
     <aside {...stylex.props(styles.inspector)}>
@@ -1156,66 +1270,115 @@ function Inspector({
             key={group.id}
             definitions={group.definitions}
             label={group.label}
-            settings={settings}
-            updateSetting={updateSetting}
+            planetId={planetId}
+            settingsStore={settingsStore}
           />
         ))}
       </div>
 
-      <Button
-        disabled={isDefault}
-        onClick={resetSettings}
-        {...stylex.props(styles.resetButton, isDefault && styles.resetButtonDisabled)}
-      >
-        <ResetIcon />
-        Reset
-      </Button>
+      <ResetSettingsButton planetId={planetId} settingsStore={settingsStore} />
     </aside>
+  )
+}
+
+function ResetSettingsButton({
+  planetId,
+  settingsStore,
+}: {
+  planetId: PlanetId
+  settingsStore: SettingsStore
+}) {
+  const settings = usePlanetSettings(settingsStore, planetId)
+  const isDefault = parameterDefinitions[planetId].every(
+    (definition) => settings[definition.name] === definition.initial,
+  )
+
+  return (
+    <Button
+      disabled={isDefault}
+      onClick={() => settingsStore.reset(planetId)}
+      {...stylex.props(styles.resetButton, isDefault && styles.resetButtonDisabled)}
+    >
+      <ResetIcon />
+      Reset
+    </Button>
   )
 }
 
 function ParameterGroup({
   definitions,
   label,
-  settings,
-  updateSetting,
+  planetId,
+  settingsStore,
 }: {
   definitions: readonly ParameterDefinition[]
   label: string
-  settings: PlanetSettings
-  updateSetting: (name: string, value: boolean | number) => void
+  planetId: PlanetId
+  settingsStore: SettingsStore
 }) {
   return (
     <section {...stylex.props(styles.parameterGroup)}>
       <h2 {...stylex.props(styles.groupTitle)}>{label}</h2>
       <div {...stylex.props(styles.controlGroup)}>
-        {definitions.map((definition) =>
-          definition.kind === 'number' ? (
-            <ParameterSlider
-              key={definition.name}
-              label={formatParameterName(definition.name)}
-              max={definition.max}
-              min={definition.min}
-              onValueChange={(value) => updateSetting(definition.name, value)}
-              step={definition.step}
-              suffix={definition.suffix}
-              value={Number(settings[definition.name])}
-            />
-          ) : (
-            <ParameterSwitch
-              key={definition.name}
-              checked={Boolean(settings[definition.name])}
-              label={formatParameterName(definition.name)}
-              onCheckedChange={(checked) => updateSetting(definition.name, checked)}
-            />
-          ),
-        )}
+        {definitions.map((definition) => (
+          <ParameterControl
+            key={definition.name}
+            definition={definition}
+            planetId={planetId}
+            settingsStore={settingsStore}
+          />
+        ))}
       </div>
     </section>
   )
 }
 
-function ParameterSwitch({
+const ParameterControl = memo(function ParameterControl({
+  definition,
+  planetId,
+  settingsStore,
+}: {
+  definition: ParameterDefinition
+  planetId: PlanetId
+  settingsStore: SettingsStore
+}) {
+  const value = useSetting(settingsStore, planetId, definition.name)
+  const updateValue = useCallback(
+    (nextValue: boolean | number) => {
+      if (definition.kind === 'boolean') {
+        settingsStore.update(planetId, definition.name, nextValue)
+        return
+      }
+
+      const clampedValue = Math.min(Math.max(Number(nextValue), definition.min), definition.max)
+      const quantizedValue =
+        definition.min +
+        Math.round((clampedValue - definition.min) / definition.step) * definition.step
+      settingsStore.update(planetId, definition.name, Number(quantizedValue.toFixed(12)))
+    },
+    [definition, planetId, settingsStore],
+  )
+
+  return definition.kind === 'number' ? (
+    <ParameterSlider
+      label={formatParameterName(definition.name)}
+      max={definition.max}
+      min={definition.min}
+      onValueChange={updateValue}
+      step={definition.step}
+      suffix={definition.suffix}
+      value={Number(value)}
+    />
+  ) : (
+    <ParameterSwitch
+      checked={Boolean(value)}
+      label={formatParameterName(definition.name)}
+      onCheckedChange={updateValue}
+    />
+  )
+})
+
+const ParameterSwitch = memo(function ParameterSwitch({
   checked,
   label,
   onCheckedChange,
@@ -1236,9 +1399,9 @@ function ParameterSwitch({
       </Switch.Root>
     </label>
   )
-}
+})
 
-function ParameterSlider({
+const ParameterSlider = memo(function ParameterSlider({
   label,
   max,
   min,
@@ -1612,7 +1775,7 @@ function ParameterSlider({
       </Slider.Root>
     </NumberField.Root>
   )
-}
+})
 
 function ResetIcon() {
   return (
@@ -1622,8 +1785,13 @@ function ResetIcon() {
   )
 }
 
-function CodeBlock({ planet, settings }: { planet: Planet; settings: PlanetSettings }) {
-  const { copied, copy } = useClipboard({ timeout: 1500 })
+function formatSettingValue(definition: ParameterDefinition, value: boolean | number): string {
+  return definition.kind === 'boolean'
+    ? String(value)
+    : Number(value).toFixed(getPrecision(definition.step))
+}
+
+function buildExampleCode(planet: Planet, settings: PlanetSettings): string {
   const componentName = planet.componentName ?? planet.name
   const planetTextures = hasTextures(planet.id) ? textures[planet.id] : undefined
   const textureDeclaration = planetTextures
@@ -1655,32 +1823,63 @@ ${Object.entries(planetTextures)
     planetTextures && '  textures={textures}',
     planet.id === 'earth' && '  model={earthModel}',
     ...parameterDefinitions[planet.id].map((definition) => {
-      const value = settings[definition.name]
-      return definition.kind === 'boolean'
-        ? `  ${definition.name}={${String(value)}}`
-        : `  ${definition.name}={${Number(value).toFixed(getPrecision(definition.step))}}`
+      return `  ${definition.name}={${formatSettingValue(definition, settings[definition.name])}}`
     }),
   ].filter(Boolean)
-  const code = `import { ${componentName} } from '@thecuvii/solaris/${planet.packageName}'
+  return `import { ${componentName} } from '@thecuvii/solaris/${planet.packageName}'
 
 ${textureDeclaration}${modelDeclaration}<${componentName}
 ${propLines.join('\n')}
 />`
-  const animatedValueTokens = new Map<number, ParameterDefinition>()
-  for (const definition of parameterDefinitions[planet.id]) {
-    const propertyPrefix = `  ${definition.name}=`
-    const propertyOffset = code.indexOf(propertyPrefix)
-    const renderedValue =
-      definition.kind === 'boolean'
-        ? String(settings[definition.name])
-        : Number(settings[definition.name]).toFixed(getPrecision(definition.step))
-    const signOffset = renderedValue.startsWith('-') ? 1 : 0
-    animatedValueTokens.set(propertyOffset + propertyPrefix.length + 1 + signOffset, definition)
-  }
-  const lines = highlighter.codeToTokensBase(code, {
-    lang: 'tsx',
-    theme: 'github-dark-default',
-  })
+}
+
+function AnimatedCodeValue({
+  color,
+  definition,
+  planetId,
+  settingsStore,
+}: {
+  color: string | undefined
+  definition: ParameterDefinition
+  planetId: PlanetId
+  settingsStore: SettingsStore
+}) {
+  const setting = useSetting(settingsStore, planetId, definition.name)
+  const value = formatSettingValue(definition, setting)
+  const negative = definition.kind === 'number' && value.startsWith('-')
+
+  return (
+    <span style={{ color }}>
+      {negative && '-'}
+      <TextMorph
+        as="span"
+        duration={definition.kind === 'number' ? 140 : 400}
+        scale={definition.kind === 'boolean'}
+        style={{ verticalAlign: 'baseline' }}
+      >
+        {negative ? value.slice(1) : value}
+      </TextMorph>
+    </span>
+  )
+}
+
+function CodeBlock({ planet, settingsStore }: { planet: Planet; settingsStore: SettingsStore }) {
+  const { copied, copy } = useClipboard({ timeout: 1500 })
+  const highlightedCode = useMemo(() => {
+    const staticCode = buildExampleCode(planet, initialSettings[planet.id])
+    const ranges = parameterDefinitions[planet.id].map((definition) => {
+      const propertyPrefix = `  ${definition.name}=`
+      const value = formatSettingValue(definition, initialSettings[planet.id][definition.name])
+      const start = staticCode.indexOf(propertyPrefix) + propertyPrefix.length + 1
+      return { definition, end: start + value.length, start }
+    })
+    const lines = highlighter.codeToTokensBase(staticCode, {
+      lang: 'tsx',
+      theme: 'github-dark-default',
+    })
+
+    return { lines, ranges }
+  }, [planet])
 
   return (
     <section {...stylex.props(styles.codeSection)}>
@@ -1691,7 +1890,7 @@ ${propLines.join('\n')}
         </div>
         <Button
           aria-label={copied ? 'Code copied' : 'Copy code'}
-          onClick={() => void copy(code)}
+          onClick={() => void copy(buildExampleCode(planet, settingsStore.getPlanet(planet.id)))}
           type="button"
           {...stylex.props(styles.codeFile, styles.codeCopy, copied && styles.codeCopyCopied)}
         >
@@ -1701,23 +1900,42 @@ ${propLines.join('\n')}
       </div>
       <pre {...stylex.props(styles.code)}>
         <code>
-          {lines.map((line, lineIndex) => (
+          {highlightedCode.lines.map((line, lineIndex) => (
             <span key={line[0]?.offset ?? `blank-${lineIndex}`}>
               {line.map((token) => {
-                const animatedValue = animatedValueTokens.get(token.offset)
-                return animatedValue ? (
-                  <TextMorph
-                    as="span"
-                    duration={animatedValue.kind === 'number' ? 140 : 400}
-                    key={`${planet.id}-${animatedValue.name}`}
-                    scale={animatedValue.kind === 'boolean'}
-                    style={{ color: token.color, verticalAlign: 'baseline' }}
-                  >
-                    {token.content}
-                  </TextMorph>
-                ) : (
+                const animatedValue = highlightedCode.ranges.find(
+                  ({ end, start }) =>
+                    token.offset < end && token.offset + token.content.length > start,
+                )
+                if (!animatedValue) {
+                  return (
+                    <span key={token.offset} style={{ color: token.color }}>
+                      {token.content}
+                    </span>
+                  )
+                }
+                if (
+                  token.offset > animatedValue.start ||
+                  token.offset + token.content.length <= animatedValue.start
+                ) {
+                  return null
+                }
+
+                const before = token.content.slice(0, animatedValue.start - token.offset)
+                const after = token.content.slice(animatedValue.end - token.offset)
+                const valueToken = line.find(
+                  ({ offset }) => offset >= animatedValue.start && offset < animatedValue.end,
+                )
+                return (
                   <span key={token.offset} style={{ color: token.color }}>
-                    {token.content}
+                    {before}
+                    <AnimatedCodeValue
+                      color={valueToken?.color ?? token.color}
+                      definition={animatedValue.definition}
+                      planetId={planet.id}
+                      settingsStore={settingsStore}
+                    />
+                    {after}
                   </span>
                 )
               })}
