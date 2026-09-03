@@ -2879,7 +2879,7 @@ const styles = stylex.create({
   stage: {
     borderRadius: 14,
     inset: 0,
-    overflow: 'hidden',
+    overflow: 'visible',
     position: 'absolute',
   },
   stageExpanded: {
