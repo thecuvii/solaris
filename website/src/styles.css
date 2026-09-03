@@ -8,7 +8,7 @@
 }
 
 :root {
-  --control-accent: oklch(51.92% 0.2726 277.19);
+  --control-accent: oklch(31.32% 0 0);
 }
 
 @layer reset, priority1, priority2, priority3;

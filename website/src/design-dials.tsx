@@ -2,7 +2,7 @@ import { DialRoot, useDialKit } from 'dialkit'
 import 'dialkit/styles.css'
 
 const accentPalettes = {
-  github: 'oklch(31.5% 0 0)',
+  github: 'oklch(31.32% 0 0)',
   neptune: 'oklch(54.8% 0.134 253)',
   solar: 'oklch(56% 0.112 55)',
   lunar: 'oklch(58% 0.035 262)',
@@ -26,13 +26,13 @@ export function DesignDials() {
             { label: 'Paper Violet', value: 'paper' },
             { label: 'Custom', value: 'custom' },
           ],
-          default: 'paper',
+          default: 'github',
         },
-        customAccent: { type: 'color', default: '#593cff' },
+        customAccent: { type: 'color', default: '#313131' },
       },
     },
     {
-      id: 'solaris-interface-accent',
+      id: 'solaris-interface-accent-v2',
       persist: true,
     },
   )

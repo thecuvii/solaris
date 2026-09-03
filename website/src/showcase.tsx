@@ -65,6 +65,7 @@ import {
   applyPlanetSettingsAtom,
   eclipseHaloAtom,
   isDefaultPlanetAtom,
+  moonLightingAtom,
   planetSettingsAtom,
   resetPlanetSettingsAtom,
   settingAtom,
@@ -210,18 +211,27 @@ type ShowcaseContextValue = {
 
 const ShowcaseContext = createContext<ShowcaseContextValue | null>(null)
 
-function EclipseLightingPage({
-  children,
-  previewPlanet,
+function noneTextLighting(): EclipseTextLightingProperties {
+  return {
+    '--eclipse-introduction-filter': 'none',
+    '--eclipse-introduction-shadow': 'none',
+    '--eclipse-navigation-filter': 'none',
+  }
+}
+
+function buildTextLighting({
+  haloEnergy,
+  rimHue,
+  shadowOffsetX,
+  shadowOffsetY,
 }: {
-  children: ReactNode
-  previewPlanet: PlanetId
-}) {
-  const { haloIntensity, haloWidth, shadowOffsetX, shadowOffsetY } = useAtomValue(eclipseHaloAtom)
-  const haloEnergy =
-    previewPlanet === 'lunar-eclipse'
-      ? Math.min(Math.max((haloIntensity / 3) * Math.sqrt(haloWidth), 0), 1)
-      : 0
+  haloEnergy: number
+  rimHue: number
+  shadowOffsetX: number
+  shadowOffsetY: number
+}): EclipseTextLightingProperties {
+  if (haloEnergy === 0) return noneTextLighting()
+
   const visibleHaloResponse = (1 - Math.exp(-6 * haloEnergy)) / (1 - Math.exp(-6))
   const shadowDistance = 0.6 + haloEnergy * 1.3
   const shadowAlpha = visibleHaloResponse * (0.3 + haloEnergy * 0.22)
@@ -238,20 +248,51 @@ function EclipseLightingPage({
   const navigationShadowY = shadowDistance * 0.08
   const shadowBlur = 0.35 + haloEnergy * 0.45
   const rimBlur = 0.15 + haloEnergy * 0.2
-  const lighting: EclipseTextLightingProperties = {
-    '--eclipse-introduction-filter':
-      haloEnergy === 0
-        ? 'none'
-        : `drop-shadow(${introductionShadowX.toFixed(2)}px ${introductionShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-introductionShadowX * rimScale).toFixed(2)}px ${(-introductionShadowY * rimScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${rimAlpha.toFixed(3)}))`,
-    '--eclipse-introduction-shadow':
-      haloEnergy === 0
-        ? 'none'
-        : `${(introductionShadowX * detailShadowScale).toFixed(2)}px ${(introductionShadowY * detailShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-introductionShadowX * rimScale * detailShadowScale).toFixed(2)}px ${(-introductionShadowY * rimScale * detailShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${rimAlpha.toFixed(3)})`,
-    '--eclipse-navigation-filter':
-      haloEnergy === 0
-        ? 'none'
-        : `drop-shadow(${(navigationShadowX * navigationShadowScale).toFixed(2)}px ${(navigationShadowY * navigationShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-navigationShadowX * rimScale * navigationShadowScale).toFixed(2)}px ${(-navigationShadowY * rimScale * navigationShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${navigationRimAlpha.toFixed(3)}))`,
+  const rim = `oklch(86% 0.08 ${rimHue}`
+
+  return {
+    '--eclipse-introduction-filter': `drop-shadow(${introductionShadowX.toFixed(2)}px ${introductionShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-introductionShadowX * rimScale).toFixed(2)}px ${(-introductionShadowY * rimScale).toFixed(2)}px ${rimBlur.toFixed(2)}px ${rim} / ${rimAlpha.toFixed(3)}))`,
+    '--eclipse-introduction-shadow': `${(introductionShadowX * detailShadowScale).toFixed(2)}px ${(introductionShadowY * detailShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-introductionShadowX * rimScale * detailShadowScale).toFixed(2)}px ${(-introductionShadowY * rimScale * detailShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px ${rim} / ${rimAlpha.toFixed(3)})`,
+    '--eclipse-navigation-filter': `drop-shadow(${(navigationShadowX * navigationShadowScale).toFixed(2)}px ${(navigationShadowY * navigationShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-navigationShadowX * rimScale * navigationShadowScale).toFixed(2)}px ${(-navigationShadowY * rimScale * navigationShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px ${rim} / ${navigationRimAlpha.toFixed(3)}))`,
   }
+}
+
+function EclipseLightingPage({
+  children,
+  previewPlanet,
+}: {
+  children: ReactNode
+  previewPlanet: PlanetId
+}) {
+  const eclipse = useAtomValue(eclipseHaloAtom)
+  const moon = useAtomValue(moonLightingAtom)
+  const lighting =
+    previewPlanet === 'lunar-eclipse'
+      ? buildTextLighting({
+          haloEnergy: Math.min(
+            Math.max((eclipse.haloIntensity / 3) * Math.sqrt(eclipse.haloWidth), 0),
+            1,
+          ),
+          rimHue: 220,
+          shadowOffsetX: eclipse.shadowOffsetX,
+          shadowOffsetY: eclipse.shadowOffsetY,
+        })
+      : previewPlanet === 'moon'
+        ? buildTextLighting({
+            haloEnergy: Math.min(
+              0.12 +
+                Math.min(Math.max(1 - moon.sunElevation / 70, 0), 1) * 0.18 +
+                Math.min(Math.max(moon.earthshineIntensity / 0.04, 0), 1) * 0.4,
+              1,
+            ),
+            rimHue: 75,
+            shadowOffsetX:
+              -Math.sin((moon.sunAzimuth * Math.PI) / 180) *
+              Math.cos((moon.sunElevation * Math.PI) / 180) *
+              2.2,
+            shadowOffsetY: -Math.sin((moon.sunElevation * Math.PI) / 180) * 2.2,
+          })
+        : noneTextLighting()
 
   return (
     <div {...stylex.props(styles.page)} style={lighting}>
@@ -664,7 +705,8 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
           viewport={{
             bottom: 0,
             left: 'calc(50% - 50vw - (var(--showcase-picker-width) - var(--showcase-inspector-width)) / 2)',
-            right: 0,
+            right:
+              'calc(50% - 50vw + (var(--showcase-picker-width) - var(--showcase-inspector-width)) / 2)',
             top: 'calc(var(--showcase-preview-top) * -1)',
           }}
         />
@@ -686,7 +728,8 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
           viewport={{
             bottom: 'calc(var(--showcase-preview-top) + 100% - 100vh)',
             left: 'calc(50% - 50vw - (var(--showcase-picker-width) - var(--showcase-inspector-width)) / 2)',
-            right: 0,
+            right:
+              'calc(50% - 50vw + (var(--showcase-picker-width) - var(--showcase-inspector-width)) / 2)',
             top: 'calc(var(--showcase-preview-top) * -1)',
           }}
         />
@@ -742,7 +785,7 @@ function PlanetIntroduction({
           exit="exit"
           initial="enter"
           variants={chromeVariants}
-          {...stylex.props(styles.summary)}
+          {...stylex.props(styles.summary, styles.eclipseTitleLighting)}
         >
           {planet.summary}
         </motion.p>
@@ -775,9 +818,11 @@ function PresetCarousel({ planetId }: { planetId: PlanetId }) {
   return (
     <section {...stylex.props(styles.parameterGroup)}>
       <div {...stylex.props(styles.presetHeader)}>
-        <h2 {...stylex.props(styles.groupTitle, styles.presetHeading)}>Looks</h2>
+        <h2 {...stylex.props(styles.groupTitle, styles.presetHeading, styles.eclipseTitleLighting)}>
+          Looks
+        </h2>
         {presets.length > 1 ? (
-          <div {...stylex.props(styles.presetControls)}>
+          <div {...stylex.props(styles.presetControls, styles.eclipseTitleLighting)}>
             <button
               aria-label="Previous look"
               onClick={() => scrollByCard(-1)}
@@ -813,7 +858,11 @@ function PresetCarousel({ planetId }: { planetId: PlanetId }) {
               onClick={() => applyPlanetSettings({ planetId, values: preset.values })}
               role="radio"
               type="button"
-              {...stylex.props(styles.presetCard, selected && styles.presetCardSelected)}
+              {...stylex.props(
+                styles.presetCard,
+                selected && styles.presetCardSelected,
+                styles.eclipseTitleLighting,
+              )}
             >
               <span {...stylex.props(styles.presetFrame, selected && styles.presetFrameSelected)}>
                 <img
@@ -872,7 +921,11 @@ function ResetSettingsButton({ planetId }: { planetId: PlanetId }) {
     <Button
       disabled={isDefault}
       onClick={() => resetPlanetSettings(planetId)}
-      {...stylex.props(styles.resetButton, isDefault && styles.resetButtonDisabled)}
+      {...stylex.props(
+        styles.resetButton,
+        isDefault && styles.resetButtonDisabled,
+        styles.eclipseTitleLighting,
+      )}
     >
       <ResetIcon />
       Reset
@@ -891,7 +944,7 @@ function ParameterGroup({
 }) {
   return (
     <section {...stylex.props(styles.parameterGroup)}>
-      <h2 {...stylex.props(styles.groupTitle)}>{label}</h2>
+      <h2 {...stylex.props(styles.groupTitle, styles.eclipseTitleLighting)}>{label}</h2>
       <div {...stylex.props(styles.controlGroup)}>
         {definitions.map((definition) => (
           <ParameterControl key={definition.name} definition={definition} planetId={planetId} />
@@ -954,7 +1007,7 @@ const ParameterSwitch = memo(function ParameterSwitch({
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <label {...stylex.props(styles.switchLabel)}>
+    <label {...stylex.props(styles.switchLabel, styles.eclipseTitleLighting)}>
       <span>{label}</span>
       <Switch.Root
         checked={checked}
@@ -2058,7 +2111,7 @@ const styles = stylex.create({
     flexDirection: 'column',
     gap: 4,
     paddingBlock: 4,
-    paddingInline: 4,
+    paddingInline: 0,
   },
   groupTitle: {
     alignItems: 'center',
@@ -2069,7 +2122,7 @@ const styles = stylex.create({
     height: 36,
     lineHeight: 1,
     margin: 0,
-    paddingInline: 8,
+    paddingInline: 0,
     textAlign: 'left',
     width: '100%',
   },
@@ -2136,6 +2189,7 @@ const styles = stylex.create({
     top: 0,
     width: 280,
     willChange: 'opacity, transform',
+    zIndex: 2,
     '@media (max-width: 960px)': {
       height: 'auto',
       overflowY: 'visible',
@@ -2247,7 +2301,8 @@ const styles = stylex.create({
   numberFieldRoot: {
     display: 'block',
     height: 48,
-    padding: 4,
+    paddingBlock: 4,
+    paddingInline: 0,
   },
   numberFieldSuffix: {
     color: 'oklch(86.4% 0.003 84.6 / 0.42)',
@@ -2328,12 +2383,14 @@ const styles = stylex.create({
     display: 'flex',
     flex: '0 0 auto',
     gap: 2,
-    marginRight: 4,
+    marginRight: 0,
   },
   presetFrame: {
-    backgroundColor: 'rgba(242, 232, 208, 0.04)',
-    borderRadius: 10,
-    boxShadow: 'inset 0 0 0 1px oklch(86.4% 0.003 84.6 / 0.08)',
+    backgroundColor: 'rgba(255, 255, 255, 0.028)',
+    backgroundImage:
+      'linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.012))',
+    borderRadius: 12,
+    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.04)',
     boxSizing: 'border-box',
     display: 'block',
     height: 64,
@@ -2343,7 +2400,7 @@ const styles = stylex.create({
     width: 64,
   },
   presetFrameSelected: {
-    boxShadow: 'inset 0 0 0 1px color-mix(in oklch, var(--control-accent) 18%, transparent)',
+    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 1px rgba(255, 255, 255, 0.1)',
   },
   presetHeading: {
     flex: 1,
@@ -2356,7 +2413,7 @@ const styles = stylex.create({
     width: '100%',
   },
   presetImage: {
-    borderRadius: 2,
+    borderRadius: 4,
     display: 'block',
     height: '100%',
     objectFit: 'cover',
@@ -2370,18 +2427,18 @@ const styles = stylex.create({
     letterSpacing: '-0.01em',
     lineHeight: 1.2,
     overflow: 'hidden',
-    paddingInline: 2,
+    paddingInline: 0,
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
   presetScroller: {
     display: 'flex',
     gap: 8,
-    marginInline: -4,
+    marginInline: 0,
     overflowX: 'auto',
     paddingBlock: 4,
-    paddingInline: 4,
-    scrollPaddingInline: 4,
+    paddingInline: 0,
+    scrollPaddingInline: 0,
     scrollSnapType: 'x mandatory',
     scrollbarWidth: 'none',
   },
@@ -2716,7 +2773,7 @@ const styles = stylex.create({
     position: 'absolute',
   },
   sliderIndicator: {
-    backgroundColor: 'oklch(32.86% 0.0158 285.5)',
+    backgroundColor: 'oklch(32.86% 0 0)',
     borderRadius: 8,
     boxSizing: 'content-box',
     boxShadow:
@@ -2767,7 +2824,7 @@ const styles = stylex.create({
     width: '100%',
   },
   sliderThumb: {
-    backgroundColor: 'oklch(52.46% 0.0171 285.8)',
+    backgroundColor: 'oklch(52.46% 0 0)',
     borderRadius: 2,
     boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.07), inset 0 -1px 1px oklch(0% 0 0 / 0.1)',
     height: 20,
@@ -2782,12 +2839,12 @@ const styles = stylex.create({
   sliderThumbActive: {
     backgroundColor: 'transparent',
     backgroundImage:
-      'linear-gradient(180deg, oklch(100% 0.004 293.76) 0%, oklch(98.5% 0.006 293.76) 58%, oklch(95.6% 0.012 293.76) 100%)',
+      'linear-gradient(180deg, oklch(100% 0 0) 0%, oklch(98.5% 0 0) 58%, oklch(95.6% 0 0) 100%)',
     boxShadow:
       '0 1px 1px color-mix(in oklch, var(--control-accent) 25%, transparent), 0 0 0 0.5px color-mix(in oklch, var(--control-accent) 65%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.78)',
   },
   sliderTrack: {
-    backgroundColor: 'oklch(20.07% 0.0199 284.46)',
+    backgroundColor: 'oklch(20.07% 0 0)',
     borderRadius: 8,
     boxShadow:
       '0 3px 7px oklch(0% 0 0 / 0.27), 0 1px 3px oklch(0% 0 0 / 0.2), inset 0 1px 0 oklch(100% 0 0 / 0.045), inset 0 -1px 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025)',
@@ -2818,8 +2875,8 @@ const styles = stylex.create({
   switchLabel: {
     alignItems: 'center',
     backgroundColor: {
-      default: 'transparent',
-      ':hover': 'oklch(100% 0 0 / 0.035)',
+      default: 'oklch(100% 0 0 / 0.035)',
+      ':hover': 'oklch(100% 0 0 / 0.055)',
     },
     borderRadius: 8,
     color: 'oklch(86.4% 0.003 84.6 / 0.72)',
@@ -2829,11 +2886,12 @@ const styles = stylex.create({
     fontWeight: 500,
     height: 40,
     justifyContent: 'space-between',
-    paddingInline: 8,
+    paddingLeft: 14,
+    paddingRight: 10,
     transition: 'background-color 140ms ease-out',
   },
   switchRoot: {
-    backgroundColor: 'oklch(75.04% 0.0128 286.09 / 0.32)',
+    backgroundColor: 'oklch(75.04% 0 0 / 0.32)',
     borderRadius: 999,
     borderWidth: 0,
     boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.12), 0 1px 2px oklch(0% 0 0 / 0.28)',
