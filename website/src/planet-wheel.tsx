@@ -1,5 +1,6 @@
+import { Drawer } from '@base-ui/react/drawer'
 import * as stylex from '@stylexjs/stylex'
-import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
+import { animate, motion, useMotionValue, useTransform } from 'motion/react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 
@@ -11,6 +12,7 @@ const STEP = 360 / planets.length
 const RADIUS = 132
 const DRAG_DEG_PER_PX = 0.48
 const OPEN_PULL = 36
+const SETTINGS_SNAP = 0.78
 
 function subscribeMobile(onStoreChange: () => void) {
   const media = window.matchMedia(MOBILE_QUERY)
@@ -291,44 +293,25 @@ export function SettingsSheet({
   onOpenChange: (open: boolean) => void
   open: boolean
 }) {
-  const reduceMotion = useReducedMotion()
-
   return (
-    <motion.div
-      aria-hidden={!open}
-      animate={{ opacity: open ? 1 : 0 }}
-      initial={false}
-      style={{ pointerEvents: open ? 'auto' : 'none' }}
-      transition={{ duration: reduceMotion ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
-      {...stylex.props(styles.sheetRoot)}
+    <Drawer.Root
+      onOpenChange={onOpenChange}
+      open={open}
+      snapPoint={open ? SETTINGS_SNAP : null}
+      snapPoints={[SETTINGS_SNAP]}
+      swipeDirection="down"
     >
-      <button
-        aria-label="Close settings"
-        onClick={() => onOpenChange(false)}
-        type="button"
-        {...stylex.props(styles.sheetBackdrop)}
-      />
-      <motion.div
-        animate={{ y: open ? 0 : '108%' }}
-        aria-label="Settings"
-        drag={open ? 'y' : false}
-        dragConstraints={{ bottom: 0, top: 0 }}
-        dragElastic={{ bottom: 0.18, top: 0 }}
-        initial={false}
-        onDragEnd={(_, info) => {
-          if (info.offset.y > 72 || info.velocity.y > 720) onOpenChange(false)
-        }}
-        role="dialog"
-        transition={{
-          duration: reduceMotion ? 0 : 0.28,
-          ease: [0.22, 1, 0.36, 1],
-        }}
-        {...stylex.props(styles.sheet)}
-      >
-        <div {...stylex.props(styles.sheetHandle)} aria-hidden="true" />
-        <div {...stylex.props(styles.sheetBody)}>{children}</div>
-      </motion.div>
-    </motion.div>
+      <Drawer.Portal>
+        <Drawer.Backdrop {...stylex.props(styles.backdrop)} />
+        <Drawer.Viewport {...stylex.props(styles.viewport)}>
+          <Drawer.Popup {...stylex.props(styles.popup)}>
+            <div {...stylex.props(styles.sheetHandle)} aria-hidden="true" />
+            <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
+            <Drawer.Content {...stylex.props(styles.sheetBody)}>{children}</Drawer.Content>
+          </Drawer.Popup>
+        </Drawer.Viewport>
+      </Drawer.Portal>
+    </Drawer.Root>
   )
 }
 
@@ -474,34 +457,71 @@ const styles = stylex.create({
   planetNameActive: {
     color: '#f2e8d0',
   },
-  sheet: {
+  backdrop: {
+    backgroundColor: 'black',
+    inset: 0,
+    opacity: 'calc(0.46 * (1 - var(--drawer-swipe-progress, 0)))',
+    position: 'fixed',
+    transitionDuration: '450ms',
+    transitionProperty: 'opacity',
+    transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)',
+    ':is([data-starting-style], [data-ending-style])': {
+      opacity: 0,
+    },
+    ':is([data-swiping])': {
+      transitionDuration: '0ms',
+    },
+    ':is([data-ending-style])': {
+      transitionDuration: 'calc(var(--drawer-swipe-strength, 1) * 400ms)',
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  popup: {
     backgroundColor: '#0b0d12',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    bottom: 0,
     boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.06), 0 -18px 40px oklch(0% 0 0 / 0.36)',
+    boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
-    left: 0,
     maxHeight: '78dvh',
+    outline: 'none',
+    overflow: 'hidden',
+    paddingBottom:
+      'max(0px, calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y)))',
     pointerEvents: 'auto',
-    position: 'absolute',
-    right: 0,
-  },
-  sheetBackdrop: {
-    appearance: 'none',
-    backgroundColor: 'oklch(0% 0 0 / 0.46)',
-    borderWidth: 0,
-    inset: 0,
-    padding: 0,
-    position: 'absolute',
+    position: 'relative',
+    transform: 'translateY(calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y)))',
+    transitionDuration: '450ms',
+    transitionProperty: 'transform, padding-bottom',
+    transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)',
+    width: '100%',
+    willChange: 'transform',
+    ':is([data-swiping])': {
+      transitionDuration: '0ms',
+    },
+    ':is([data-starting-style], [data-ending-style])': {
+      paddingBottom: 0,
+      transform: 'translateY(100%)',
+    },
+    ':is([data-ending-style])': {
+      transitionDuration: 'calc(var(--drawer-swipe-strength, 1) * 400ms)',
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
   },
   sheetBody: {
+    flex: 1,
     minHeight: 0,
     overflowY: 'auto',
+    overscrollBehavior: 'contain',
     paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))',
     paddingInline: 20,
     paddingTop: 4,
+    touchAction: 'auto',
   },
   sheetHandle: {
     alignItems: 'center',
@@ -517,14 +537,25 @@ const styles = stylex.create({
       width: 36,
     },
   },
-  sheetRoot: {
-    display: 'none',
+  viewport: {
+    alignItems: 'flex-end',
+    display: 'flex',
     inset: 0,
+    justifyContent: 'center',
+    pointerEvents: 'none',
     position: 'fixed',
+    touchAction: 'none',
     zIndex: 24,
-    '@media (max-width: 960px)': {
-      display: 'block',
-    },
+  },
+  visuallyHidden: {
+    borderWidth: 0,
+    clip: 'rect(0 0 0 0)',
+    height: 1,
+    margin: -1,
+    overflow: 'hidden',
+    padding: 0,
+    position: 'absolute',
+    width: 1,
   },
   surface: {
     height: '100%',
