@@ -545,6 +545,61 @@ function LayoutGridOverlay() {
   )
 }
 
+const alsoArrowTransition = {
+  duration: 0.22,
+  ease: [0.4, 0, 0.2, 1],
+} as const
+
+function SeeAlsoLink({ children, href }: { children: ReactNode; href: string }) {
+  const reduceMotion = useReducedMotion()
+  const [active, setActive] = useState(false)
+  const drawn = active ? 1 : 0
+  const transition = reduceMotion ? { duration: 0 } : alsoArrowTransition
+
+  return (
+    <a
+      href={href}
+      onBlur={() => setActive(false)}
+      onFocus={() => setActive(true)}
+      onPointerEnter={() => setActive(true)}
+      onPointerLeave={() => setActive(false)}
+      rel="noreferrer"
+      target="_blank"
+      {...stylex.props(styles.pickerMetaLink, styles.pickerAlsoLink)}
+    >
+      {children}
+      <svg aria-hidden="true" viewBox="0 0 18 18" {...stylex.props(styles.pickerAlsoArrow)}>
+        <g
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={1.25}
+        >
+          <motion.path
+            animate={{ opacity: drawn, pathLength: drawn }}
+            d="M3.75 14.25 14.25 3.75"
+            initial={false}
+            transition={transition}
+          />
+          <motion.path
+            animate={{ opacity: drawn, pathLength: drawn }}
+            d="M8.24 3.75 14.25 3.75"
+            initial={false}
+            transition={transition}
+          />
+          <motion.path
+            animate={{ opacity: drawn, pathLength: drawn }}
+            d="M14.25 9.76 14.25 3.75"
+            initial={false}
+            transition={transition}
+          />
+        </g>
+      </svg>
+    </a>
+  )
+}
+
 const PlanetPicker = memo(function PlanetPicker({
   gridVisible,
   onGridVisibleChange,
@@ -574,105 +629,116 @@ const PlanetPicker = memo(function PlanetPicker({
   }
 
   return (
-    <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
-      <div {...stylex.props(styles.pickerNavigation)}>
-        <Link
-          onClick={(event) => selectPlanetFromLink(event, 'earth')}
-          params={{ planet: 'earth' }}
-          preload="intent"
-          to="/$planet"
-          {...stylex.props(
-            styles.wordmark,
-            styles.pickerWordmark,
-            styles.eclipseNavigationLighting,
-          )}
-        >
-          <span {...stylex.props(styles.wordmarkMark)} aria-hidden="true" />
-          Solaris
-        </Link>
+    <>
+      <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
+        <div {...stylex.props(styles.pickerNavigation)}>
+          <Link
+            onClick={(event) => selectPlanetFromLink(event, 'earth')}
+            params={{ planet: 'earth' }}
+            preload="intent"
+            to="/$planet"
+            {...stylex.props(
+              styles.wordmark,
+              styles.pickerWordmark,
+              styles.eclipseNavigationLighting,
+            )}
+          >
+            <span {...stylex.props(styles.wordmarkMark)} aria-hidden="true" />
+            Solaris
+          </Link>
 
-        <nav {...stylex.props(styles.planetList)}>
-          {planets.map((planet) => (
-            <Link
-              key={planet.id}
-              onClick={(event) => selectPlanetFromLink(event, planet.id)}
-              params={{ planet: planet.id }}
-              preload="intent"
-              preloadDelay={40}
-              to="/$planet"
-              {...stylex.props(
-                styles.planetTab,
-                selectedPlanet === planet.id && styles.planetTabSelected,
-              )}
-            >
-              <span {...stylex.props(styles.planetTabLabel)}>
-                <AnimatePresence initial={false}>
-                  {selectedPlanet === planet.id && (
-                    <motion.span
-                      key="active-indicator"
-                      animate={{ opacity: 1, transform: 'translate3d(0, 0, 0)' }}
-                      aria-hidden="true"
-                      exit={{
-                        opacity: 0,
-                        transform: reducedMotion
-                          ? 'translate3d(0, 0, 0)'
-                          : 'translate3d(-6px, 0, 0)',
-                      }}
-                      initial={{
-                        opacity: 0,
-                        transform: reducedMotion
-                          ? 'translate3d(0, 0, 0)'
-                          : 'translate3d(-6px, 0, 0)',
-                      }}
-                      transition={{
-                        duration: reducedMotion ? 0.14 : 0.3,
-                        ease: reducedMotion ? 'linear' : [0.4, 0, 0.2, 1],
-                      }}
-                      {...stylex.props(styles.planetTabIndicator)}
-                    />
-                  )}
-                </AnimatePresence>
-                <span {...stylex.props(styles.eclipseNavigationLighting)}>{planet.name}</span>
-              </span>
-              <span {...stylex.props(styles.planetThumbnail)} aria-hidden="true">
-                <img
-                  alt=""
-                  draggable={false}
-                  height={160}
-                  src={`/thumbnails/v1/${planet.id}.avif`}
-                  width={160}
-                  {...stylex.props(styles.planetThumbnailImage)}
-                  style={planet.id === 'saturn' ? { transform: 'scale(1.2)' } : undefined}
-                />
-              </span>
-            </Link>
-          ))}
-        </nav>
+          <nav {...stylex.props(styles.planetList)}>
+            {planets.map((planet) => (
+              <Link
+                key={planet.id}
+                onClick={(event) => selectPlanetFromLink(event, planet.id)}
+                params={{ planet: planet.id }}
+                preload="intent"
+                preloadDelay={40}
+                to="/$planet"
+                {...stylex.props(
+                  styles.planetTab,
+                  selectedPlanet === planet.id && styles.planetTabSelected,
+                )}
+              >
+                <span {...stylex.props(styles.planetTabLabel)}>
+                  <AnimatePresence initial={false}>
+                    {selectedPlanet === planet.id && (
+                      <motion.span
+                        key="active-indicator"
+                        animate={{ opacity: 1, transform: 'translate3d(0, 0, 0)' }}
+                        aria-hidden="true"
+                        exit={{
+                          opacity: 0,
+                          transform: reducedMotion
+                            ? 'translate3d(0, 0, 0)'
+                            : 'translate3d(-6px, 0, 0)',
+                        }}
+                        initial={{
+                          opacity: 0,
+                          transform: reducedMotion
+                            ? 'translate3d(0, 0, 0)'
+                            : 'translate3d(-6px, 0, 0)',
+                        }}
+                        transition={{
+                          duration: reducedMotion ? 0.14 : 0.3,
+                          ease: reducedMotion ? 'linear' : [0.4, 0, 0.2, 1],
+                        }}
+                        {...stylex.props(styles.planetTabIndicator)}
+                      />
+                    )}
+                  </AnimatePresence>
+                  <span {...stylex.props(styles.eclipseNavigationLighting)}>{planet.name}</span>
+                </span>
+                <span {...stylex.props(styles.planetThumbnail)} aria-hidden="true">
+                  <img
+                    alt=""
+                    draggable={false}
+                    height={160}
+                    src={`/thumbnails/v1/${planet.id}.avif`}
+                    width={160}
+                    {...stylex.props(styles.planetThumbnailImage)}
+                    style={planet.id === 'saturn' ? { transform: 'scale(1.2)' } : undefined}
+                  />
+                </span>
+              </Link>
+            ))}
+          </nav>
 
-        <div {...stylex.props(styles.pickerMeta, styles.eclipseNavigationLighting)}>
-          <div>
-            Source ·{' '}
+          <div {...stylex.props(styles.pickerAlso, styles.eclipseNavigationLighting)}>
+            <div {...stylex.props(styles.pickerAlsoLabel)}>See also</div>
+            <div {...stylex.props(styles.pickerAlsoItem)}>
+              <SeeAlsoLink href="https://cobe.vercel.app/">Cobe</SeeAlsoLink>
+              <span {...stylex.props(styles.pickerAlsoAuthor)}>Shu Ding</span>
+            </div>
+            <div {...stylex.props(styles.pickerAlsoItem)}>
+              <SeeAlsoLink href="https://www.tryspherium.com/">Spherium</SeeAlsoLink>
+              <span {...stylex.props(styles.pickerAlsoAuthor)}>Javier Crocco</span>
+            </div>
+          </div>
+
+          <div {...stylex.props(styles.pickerMeta, styles.eclipseNavigationLighting)}>
             <a href="https://github.com/thecuvii/solaris" {...stylex.props(styles.pickerMetaLink)}>
               GitHub
             </a>
-          </div>
-          <div>
-            Made by{' '}
-            <a href="https://github.com/thecuvii" {...stylex.props(styles.pickerMetaLink)}>
-              Cuvii
-            </a>
+            <div>
+              Made by{' '}
+              <a href="https://github.com/thecuvii" {...stylex.props(styles.pickerMetaLink)}>
+                Cuvii
+              </a>
+            </div>
           </div>
         </div>
-
-        <div {...stylex.props(styles.pickerGridToggle)}>
-          <ParameterSwitch
-            checked={gridVisible}
-            label="Grid"
-            onCheckedChange={onGridVisibleChange}
-          />
-        </div>
+      </aside>
+      <div {...stylex.props(styles.gridDock)}>
+        <ParameterSwitch
+          checked={gridVisible}
+          compact
+          label="Grid"
+          onCheckedChange={onGridVisibleChange}
+        />
       </div>
-    </aside>
+    </>
   )
 })
 
@@ -989,15 +1055,17 @@ const ParameterControl = memo(function ParameterControl({
 
 const ParameterSwitch = memo(function ParameterSwitch({
   checked,
+  compact = false,
   label,
   onCheckedChange,
 }: {
   checked: boolean
+  compact?: boolean
   label: string
   onCheckedChange: (checked: boolean) => void
 }) {
   return (
-    <label {...stylex.props(styles.switchLabel)}>
+    <label {...stylex.props(styles.switchLabel, compact && styles.switchLabelCompact)}>
       <span>{label}</span>
       <Switch.Root
         checked={checked}
@@ -2132,6 +2200,13 @@ const styles = stylex.create({
       display: 'block',
     },
   },
+  gridDock: {
+    left: 16,
+    position: 'fixed',
+    top: 16,
+    width: 'max-content',
+    zIndex: 3,
+  },
   gridOverlayCenter: {
     backgroundColor: 'color-mix(in oklch, var(--control-accent) 2%, transparent)',
     height: '100%',
@@ -2513,19 +2588,54 @@ const styles = stylex.create({
       zIndex: 'auto',
     },
   },
-  pickerGridToggle: {
+  pickerAlso: {
     alignSelf: 'flex-end',
+    display: 'flex',
     flex: '0 0 auto',
-    marginRight: 24,
-    marginTop: 'auto',
+    flexDirection: 'column',
+    fontSize: 11,
+    gap: 10,
+    marginRight: 29,
+    marginTop: 12,
+    paddingRight: 14,
+    paddingTop: 12,
+    textAlign: 'right',
     width: 180,
     '@media (max-width: 960px)': {
-      marginBottom: 16,
       marginLeft: 16,
       marginRight: 16,
-      marginTop: 12,
       width: 'auto',
     },
+  },
+  pickerAlsoAuthor: {
+    color: 'rgba(242, 232, 208, 0.38)',
+    fontSize: 10,
+    lineHeight: 1.35,
+  },
+  pickerAlsoItem: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+  },
+  pickerAlsoLabel: {
+    color: 'rgba(242, 232, 208, 0.38)',
+    fontSize: 10,
+    lineHeight: 1.45,
+  },
+  pickerAlsoArrow: {
+    display: 'block',
+    height: 11,
+    left: 'calc(100% + 3px)',
+    overflow: 'visible',
+    pointerEvents: 'none',
+    position: 'absolute',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    width: 11,
+  },
+  pickerAlsoLink: {
+    alignSelf: 'flex-end',
+    position: 'relative',
   },
   pickerMeta: {
     alignSelf: 'flex-end',
@@ -2537,8 +2647,7 @@ const styles = stylex.create({
     gap: 5,
     lineHeight: 1.45,
     marginRight: 29,
-    marginTop: 12,
-    paddingTop: 12,
+    marginTop: 'auto',
     textAlign: 'right',
     width: 180,
     '@media (max-width: 960px)': {
@@ -2879,6 +2988,18 @@ const styles = stylex.create({
     paddingLeft: 14,
     paddingRight: 10,
     transition: 'background-color 140ms ease-out',
+  },
+  switchLabelCompact: {
+    backgroundColor: {
+      default: 'oklch(100% 0 0 / 0.04)',
+      ':hover': 'oklch(100% 0 0 / 0.07)',
+    },
+    fontSize: 10,
+    gap: 8,
+    height: 28,
+    justifyContent: 'flex-start',
+    paddingLeft: 10,
+    paddingRight: 6,
   },
   switchRoot: {
     backgroundColor: 'oklch(75.04% 0 0 / 0.32)',
