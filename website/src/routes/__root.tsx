@@ -1,14 +1,7 @@
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-import { Suspense, lazy, useSyncExternalStore, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import appCss from '../styles.css?url'
-
-const DesignDials = import.meta.env.DEV
-  ? lazy(() => import('../design-dials').then((module) => ({ default: module.DesignDials })))
-  : null
-const subscribeToHydration = () => () => {}
-const getClientSnapshot = () => true
-const getServerSnapshot = () => false
 
 export const Route = createRootRoute({
   head: () => ({
@@ -44,21 +37,8 @@ function RootDocument({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
-        <DevDesignDials />
         <Scripts />
       </body>
     </html>
-  )
-}
-
-function DevDesignDials() {
-  const hydrated = useSyncExternalStore(subscribeToHydration, getClientSnapshot, getServerSnapshot)
-
-  if (!hydrated || !DesignDials) return null
-
-  return (
-    <Suspense fallback={null}>
-      <DesignDials />
-    </Suspense>
   )
 }
