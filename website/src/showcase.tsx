@@ -52,26 +52,14 @@ import { TextMorph } from 'torph/react'
 
 import { isPlanetId, planets, textures } from './showcase-data'
 import type { Planet, PlanetId, TexturedPlanetId } from './showcase-data'
-
-type PlanetSettings = Record<string, boolean | number>
-
-type ParameterDefinition =
-  | {
-      initial: boolean
-      kind: 'boolean'
-      name: string
-    }
-  | {
-      initial: number
-      kind: 'number'
-      max: number
-      min: number
-      name: string
-      step: number
-      suffix?: string
-    }
-
-type ParameterGroupId = 'atmosphere' | 'features' | 'lighting' | 'orientation' | 'rings' | 'surface'
+import {
+  initialSettings,
+  matchPlanetPreset,
+  parameterDefinitions,
+  parameterGroupsByPlanet,
+  planetPresets,
+} from './showcase-params'
+import type { ParameterDefinition, PlanetSettings } from './showcase-params'
 
 type PlanetTransitionContext = {
   direction: -1 | 1
@@ -91,234 +79,8 @@ type PlanetTransitionPlan = {
 type EclipseTextLightingProperties = CSSProperties & {
   '--eclipse-introduction-filter': string
   '--eclipse-introduction-shadow': string
-  '--eclipse-navigation-shadow': string
+  '--eclipse-navigation-filter': string
 }
-
-const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition[]> = {
-  earth: [
-    amount('aerosol', 1),
-    amount('atmosphereDensity', 1),
-    number('atmosphereThickness', 0.16, 0, 0.5, 0.01),
-    amount('cloudDensity', 1),
-    number('cloudHeight', 0.012, 0, 0.05, 0.001),
-    unit('cloudShadowIntensity', 0.48),
-    toggle('manualOrbit', false),
-    amount('multipleScattering', 1),
-    number('nightLightIntensity', 1, 0, 3, 0.01),
-    amount('oceanGlint', 0.72),
-    amount('oceanWaveStrength', 0.8),
-    speed('orbitSpeed', 0.08, -0.2, 0.2),
-    toggle('showAtmosphere', true),
-    angle('sunAzimuth', -41.25),
-    number('sunElevation', 8, -90, 90, 1, '°'),
-  ],
-  jupiter: [
-    unit('cloudPhotometricMix', 0.35),
-    unit('detailIntensity', 0.11),
-    number('detailScale', 1, 0, 4, 0.01),
-    speed('detailSpeed', 0.055, -0.2, 0.2),
-    exposure(1.05),
-    unit('jetStrength', 0.65),
-    unit('limbHaze', 0.16),
-    number('oblateness', 0.0649, 0, 0.2, 0.001),
-    speed('rotationSpeed', 0.025),
-    angle('sunAzimuth', -32),
-    number('sunElevation', 12, -90, 90, 1, '°'),
-    angle('surfaceRotation', 0),
-    unit('vortexStrength', 0.42),
-  ],
-  mars: [
-    unit('atmosphereDensity', 0.22),
-    angle('axialTilt', 8),
-    unit('blueAureole', 0.12),
-    unit('dustAerosol', 0.36),
-    unit('dustDetail', 0.1),
-    exposure(1.06),
-    number('normalStrength', 1.6, 0, 3, 0.01),
-    unit('photometricMix', 0.45),
-    speed('rotationSpeed', 0.021),
-    amount('selfShadowStrength', 1),
-    angle('sunAzimuth', -48),
-    number('sunElevation', 9, -90, 90, 1, '°'),
-    angle('surfaceRotation', 0),
-  ],
-  mercury: [
-    exposure(0.92),
-    unit('microDetail', 0.08),
-    number('normalStrength', 1.35, 0, 3, 0.01),
-    amount('photometricStrength', 1),
-    unit('reliefShadowStrength', 0.72),
-    speed('rotationSpeed', 0.01),
-    angle('sunAzimuth', -12),
-    number('sunElevation', 14, -90, 90, 1, '°'),
-    angle('surfaceRotation', 0),
-    angle('viewTilt', 0),
-  ],
-  moon: [
-    amount('bloomIntensity', 0),
-    unit('bloomRadius', 0.08),
-    unit('bloomWarmth', 0.35),
-    number('earthshineIntensity', 0.006, 0, 0.05, 0.001),
-    exposure(0.72),
-    number('normalStrength', 0.85, 0, 3, 0.01),
-    unit('oppositionStrength', 0.25),
-    number('oppositionWidth', 0.035, 0, 0.2, 0.001),
-    unit('photometricMix', 0.14),
-    unit('reliefShadowStrength', 0.58),
-    speed('rotationSpeed', 0.012),
-    angle('sunAzimuth', -48),
-    number('sunElevation', 16, -90, 90, 1, '°'),
-    angle('surfaceRotation', 0),
-    amount('veilingGlare', 0),
-  ],
-  'lunar-eclipse': [
-    number('atmosphericOpticalDepth', 1.18, 0, 3, 0.01),
-    exposure(1.18),
-    number('haloIntensity', 1.15, 0, 3, 0.01),
-    number('haloWidth', 0.23, 0, 1, 0.01),
-    number('normalStrength', 0.82, 0, 3, 0.01),
-    number('penumbraWidth', 0.72, 0, 2, 0.01),
-    number('refractedLightIntensity', 1.7, 0, 4, 0.01),
-    unit('reliefShadowStrength', 0.36),
-    number('shadowOffsetX', 0.55, -3, 3, 0.01),
-    number('shadowOffsetY', -1.55, -3, 3, 0.01),
-    angle('surfaceRotation', 0),
-    number('umbraRadius', 2.2, 0.5, 4, 0.01),
-  ],
-  neptune: [
-    amount('cloudRelief', 1),
-    unit('companionCloud', 0.68),
-    unit('deepOpticalDepth', 0.72),
-    exposure(0.72),
-    unit('flowDetail', 0.34),
-    unit('forwardScattering', 0.28),
-    unit('hazeOpticalDepth', 0.48),
-    unit('methaneAbsorption', 0.78),
-    number('oblateness', 0.017, 0, 0.2, 0.001),
-    speed('rotationSpeed', 0.022),
-    angle('sunAzimuth', -10),
-    number('sunElevation', 5, -90, 90, 1, '°'),
-    angle('surfaceRotation', 0),
-    unit('upperClouds', 0.68),
-    unit('upperHaze', 0.3),
-    unit('vortexCirculation', 0.48),
-    unit('vortexDarkness', 0.5),
-    angle('weatherTilt', 18),
-    unit('windScale', 0.62),
-  ],
-  pluto: [
-    exposure(1),
-    unit('hazeForwardScattering', 0.78),
-    unit('hazeIntensity', 0.28),
-    unit('hazeThickness', 0.08),
-    unit('iceResponse', 0.6),
-    unit('phaseFill', 0.035),
-    amount('reliefStrength', 0.85),
-    speed('rotationSpeed', 0),
-    unit('roughness', 0.78),
-    angle('sunAzimuth', -38),
-    number('sunElevation', 16, -90, 90, 1, '°'),
-    angle('surfaceRotation', 0),
-    amount('tholinStrength', 1),
-    angle('viewTilt', 25),
-  ],
-  saturn: [
-    angle('axialRoll', -8),
-    unit('bandContrast', 0.12),
-    unit('cloudPhotometricMix', 0.42),
-    unit('detailIntensity', 0.06),
-    speed('detailSpeed', 0.018, -0.2, 0.2),
-    exposure(0.96),
-    unit('forwardScatter', 0.35),
-    unit('limbHaze', 0.1),
-    number('oblateness', 0.09796, 0, 0.2, 0.001),
-    unit('polarHexagon', 0.14),
-    unit('ringOpacity', 1),
-    unit('ringShadowStrength', 0.82),
-    angle('ringTilt', 26),
-    speed('rotationSpeed', 0.018),
-    angle('sunAzimuth', -38),
-    number('sunElevation', -8, -90, 90, 1, '°'),
-    angle('surfaceRotation', 0),
-    unit('unlitRingBrightness', 0.08),
-  ],
-  sun: [
-    unit('activeRegionGain', 0.28),
-    number('contrast', 1.06, 0, 3, 0.01),
-    exposure(1),
-    unit('filamentDepth', 0.42),
-    number('flowAmount', 1.6, 0, 3, 0.01),
-    number('flowSpeed', 1, -2, 2, 0.01),
-    amount('limbEmission', 1),
-    number('saturation', 1.04, 0, 2, 0.01),
-  ],
-  titan: [
-    unit('bandContrast', 0.28),
-    unit('detachedHaze', 0.72),
-    exposure(1),
-    amount('forwardScatteringStrength', 1),
-    amount('hazeDensity', 1),
-    amount('hazeThickness', 1),
-    angle('longitudeOffsetDegrees', 0),
-    unit('polarHood', 0.34),
-    speed('rotationSpeed', 0.012),
-    angle('sunAzimuthDegrees', -58),
-    number('sunElevationDegrees', 18, -90, 90, 1, '°'),
-    number('viewLatitudeDegrees', 8, -90, 90, 1, '°'),
-  ],
-  uranus: [
-    unit('aerosolDepth', 0.72),
-    number('atmosphereThickness', 0.025, 0, 0.2, 0.001),
-    unit('bandContrast', 0.13),
-    unit('cloudContrast', 0.08),
-    number('epsilonEccentricity', 0.00794, 0, 0.1, 0.001),
-    angle('epsilonPeriapsis', 0),
-    exposure(0.86),
-    unit('forwardScattering', 0.15),
-    unit('hazeOpacity', 0.34),
-    number('hoodLatitude', 45, -90, 90, 1, '°'),
-    number('hoodPole', 1, -1, 1, 2),
-    number('hoodSoftness', 10, 0, 45, 1, '°'),
-    unit('limbDarkening', 0.72),
-    unit('methaneAbsorption', 0.58),
-    number('oblateness', 0.022927, 0, 0.2, 0.001),
-    unit('phaseFill', 0.08),
-    unit('polarHood', 0.26),
-    angle('poleAzimuth', -26),
-    number('poleElevation', 38, -90, 90, 1, '°'),
-    unit('ringShadow', 0.75),
-    number('ringVisibility', 4.5, 0, 8, 0.1),
-    speed('rotationSpeed', -0.008),
-    angle('sunAzimuth', -28),
-    number('sunElevation', 55, -90, 90, 1, '°'),
-    angle('surfaceRotation', 18),
-    unit('windScale', 0.2),
-  ],
-  venus: [
-    angle('axialTilt', -3),
-    unit('cloudContrast', 0.3),
-    unit('cloudDetail', 0.22),
-    exposure(1.08),
-    speed('flowSpeed', 0.045, -0.2, 0.2),
-    unit('flowStrength', 0.7),
-    unit('forwardScattering', 0.72),
-    unit('gloryStrength', 0.18),
-    unit('opticalDepth', 0.72),
-    speed('rotationSpeed', -0.026),
-    unit('sulfurTint', 0.72),
-    angle('sunAzimuth', -52),
-    number('sunElevation', 9, -90, 90, 1, '°'),
-    angle('surfaceRotation', 0),
-    unit('upperHaze', 0.46),
-  ],
-}
-
-const initialSettings = Object.fromEntries(
-  Object.entries(parameterDefinitions).map(([planetId, definitions]) => [
-    planetId,
-    Object.fromEntries(definitions.map((definition) => [definition.name, definition.initial])),
-  ]),
-) as Record<PlanetId, PlanetSettings>
 
 type SettingsStore = ReturnType<typeof createSettingsStore>
 
@@ -368,6 +130,15 @@ function createSettingsStore() {
     },
     subscribeSetting: (planetId: PlanetId, name: string, listener: () => void) =>
       subscribe(settingListeners, `${planetId}:${name}`, listener),
+    apply(planetId: PlanetId, values: PlanetSettings) {
+      const changedNames = Object.keys(values).filter(
+        (name) => current[planetId][name] !== values[name],
+      )
+      if (changedNames.length === 0) return
+
+      current = { ...current, [planetId]: { ...values } }
+      notify(planetId, changedNames)
+    },
     update(planetId: PlanetId, name: string, value: boolean | number) {
       if (current[planetId][name] === value) return
       current = { ...current, [planetId]: { ...current[planetId], [name]: value } }
@@ -393,32 +164,6 @@ function useSetting(store: SettingsStore, planetId: PlanetId, name: string): boo
   const getSnapshot = useCallback(() => store.getSetting(planetId, name), [name, planetId, store])
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
 }
-
-const parameterGroups: readonly { id: ParameterGroupId; label: string }[] = [
-  { id: 'surface', label: 'Surface & material' },
-  { id: 'atmosphere', label: 'Atmosphere' },
-  { id: 'lighting', label: 'Lighting' },
-  { id: 'orientation', label: 'Orientation & motion' },
-  { id: 'rings', label: 'Rings' },
-  { id: 'features', label: 'Features' },
-]
-
-const parameterGroupsByPlanet = new Map(
-  planets.map(
-    ({ id }) =>
-      [
-        id,
-        parameterGroups
-          .map((group) => ({
-            ...group,
-            definitions: parameterDefinitions[id].filter(
-              (definition) => getParameterGroup(definition) === group.id,
-            ),
-          }))
-          .filter((group) => group.definitions.length > 0),
-      ] as const,
-  ),
-)
 
 const earthModel = {
   mieExtinction: [8, 8, 8],
@@ -583,10 +328,10 @@ function EclipseLightingPage({
       haloEnergy === 0
         ? 'none'
         : `${(introductionShadowX * detailShadowScale).toFixed(2)}px ${(introductionShadowY * detailShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-introductionShadowX * rimScale * detailShadowScale).toFixed(2)}px ${(-introductionShadowY * rimScale * detailShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${rimAlpha.toFixed(3)})`,
-    '--eclipse-navigation-shadow':
+    '--eclipse-navigation-filter':
       haloEnergy === 0
         ? 'none'
-        : `${(navigationShadowX * navigationShadowScale).toFixed(2)}px ${(navigationShadowY * navigationShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-navigationShadowX * rimScale * navigationShadowScale).toFixed(2)}px ${(-navigationShadowY * rimScale * navigationShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${navigationRimAlpha.toFixed(3)})`,
+        : `drop-shadow(${(navigationShadowX * navigationShadowScale).toFixed(2)}px ${(navigationShadowY * navigationShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-navigationShadowX * rimScale * navigationShadowScale).toFixed(2)}px ${(-navigationShadowY * rimScale * navigationShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px oklch(86% 0.08 220 / ${navigationRimAlpha.toFixed(3)}))`,
   }
 
   return (
@@ -870,13 +615,17 @@ const PlanetPicker = memo(function PlanetPicker({
 
   return (
     <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
-      <div {...stylex.props(styles.pickerNavigation, styles.eclipseNavigationLighting)}>
+      <div {...stylex.props(styles.pickerNavigation)}>
         <Link
           onClick={(event) => selectPlanetFromLink(event, 'earth')}
           params={{ planet: 'earth' }}
           preload="intent"
           to="/$planet"
-          {...stylex.props(styles.wordmark, styles.pickerWordmark)}
+          {...stylex.props(
+            styles.wordmark,
+            styles.pickerWordmark,
+            styles.eclipseNavigationLighting,
+          )}
         >
           <span {...stylex.props(styles.wordmarkMark)} aria-hidden="true" />
           Solaris
@@ -923,7 +672,7 @@ const PlanetPicker = memo(function PlanetPicker({
                     />
                   )}
                 </AnimatePresence>
-                {planet.name}
+                <span {...stylex.props(styles.eclipseNavigationLighting)}>{planet.name}</span>
               </span>
               <span {...stylex.props(styles.planetThumbnail)} aria-hidden="true">
                 <img
@@ -940,7 +689,7 @@ const PlanetPicker = memo(function PlanetPicker({
           ))}
         </nav>
 
-        <div {...stylex.props(styles.pickerMeta)}>
+        <div {...stylex.props(styles.pickerMeta, styles.eclipseNavigationLighting)}>
           <div>
             Source ·{' '}
             <a href="https://github.com/thecuvii/solaris" {...stylex.props(styles.pickerMetaLink)}>
@@ -1089,6 +838,103 @@ function PlanetIntroduction({
   )
 }
 
+function PresetCarousel({
+  planetId,
+  settingsStore,
+}: {
+  planetId: PlanetId
+  settingsStore: SettingsStore
+}) {
+  const settings = usePlanetSettings(settingsStore, planetId)
+  const presets = planetPresets[planetId]
+  const activeId = matchPlanetPreset(planetId, settings)
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const reduceMotion = useReducedMotion()
+
+  const scrollByCard = useCallback(
+    (direction: -1 | 1) => {
+      const scroller = scrollerRef.current
+      const card = scroller?.querySelector<HTMLElement>('[data-preset-card]')
+      if (!scroller || !card) return
+
+      scroller.scrollBy({
+        behavior: reduceMotion ? 'auto' : 'smooth',
+        left: direction * (card.offsetWidth + 8),
+      })
+    },
+    [reduceMotion],
+  )
+
+  return (
+    <section {...stylex.props(styles.parameterGroup)}>
+      <div {...stylex.props(styles.presetHeader)}>
+        <h2 {...stylex.props(styles.groupTitle, styles.presetHeading)}>Looks</h2>
+        {presets.length > 1 ? (
+          <div {...stylex.props(styles.presetControls)}>
+            <button
+              aria-label="Previous look"
+              onClick={() => scrollByCard(-1)}
+              type="button"
+              {...stylex.props(styles.presetControl)}
+            >
+              <PresetChevron direction={-1} />
+            </button>
+            <button
+              aria-label="Next look"
+              onClick={() => scrollByCard(1)}
+              type="button"
+              {...stylex.props(styles.presetControl)}
+            >
+              <PresetChevron direction={1} />
+            </button>
+          </div>
+        ) : null}
+      </div>
+      <div
+        aria-label="Looks"
+        ref={scrollerRef}
+        role="radiogroup"
+        {...stylex.props(styles.presetScroller)}
+      >
+        {presets.map((preset) => {
+          const selected = activeId === preset.id
+          return (
+            <button
+              key={preset.id}
+              aria-checked={selected}
+              data-preset-card=""
+              onClick={() => settingsStore.apply(planetId, preset.values)}
+              role="radio"
+              type="button"
+              {...stylex.props(styles.presetCard, selected && styles.presetCardSelected)}
+            >
+              <span {...stylex.props(styles.presetFrame, selected && styles.presetFrameSelected)}>
+                <img
+                  alt=""
+                  draggable={false}
+                  height={64}
+                  src={preset.image}
+                  width={64}
+                  {...stylex.props(styles.presetImage)}
+                />
+              </span>
+              <span {...stylex.props(styles.presetLabel)}>{preset.label}</span>
+            </button>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function PresetChevron({ direction }: { direction: -1 | 1 }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 12 12" {...stylex.props(styles.presetChevron)}>
+      <path d={direction === -1 ? 'M7.5 2.5 3.5 6l4 3.5' : 'M4.5 2.5 8.5 6l-4 3.5'} />
+    </svg>
+  )
+}
+
 function Inspector({
   planetId,
   settingsStore,
@@ -1101,6 +947,7 @@ function Inspector({
   return (
     <>
       <div {...stylex.props(styles.inspectorGroups)}>
+        <PresetCarousel planetId={planetId} settingsStore={settingsStore} />
         {groups.map((group) => (
           <ParameterGroup
             key={group.id}
@@ -1197,7 +1044,7 @@ const ParameterControl = memo(function ParameterControl({
 
   return definition.kind === 'number' ? (
     <ParameterSlider
-      label={formatParameterName(definition.name)}
+      label={definition.label}
       max={definition.max}
       min={definition.min}
       onValueChange={updateValue}
@@ -1208,7 +1055,7 @@ const ParameterControl = memo(function ParameterControl({
   ) : (
     <ParameterSwitch
       checked={Boolean(value)}
-      label={formatParameterName(definition.name)}
+      label={definition.label}
       onCheckedChange={updateValue}
     />
   )
@@ -1811,77 +1658,8 @@ function hasTextures(id: PlanetId): id is TexturedPlanetId {
   return id in textures
 }
 
-function number(
-  name: string,
-  initial: number,
-  min: number,
-  max: number,
-  step: number,
-  suffix?: string,
-): ParameterDefinition {
-  return { initial, kind: 'number', max, min, name, step, suffix }
-}
-
-function amount(name: string, initial: number): ParameterDefinition {
-  return number(name, initial, 0, 2, 0.01)
-}
-
-function unit(name: string, initial: number): ParameterDefinition {
-  return number(name, initial, 0, 1, 0.01)
-}
-
-function angle(name: string, initial: number): ParameterDefinition {
-  return number(name, initial, -180, 180, 1, '°')
-}
-
-function speed(name: string, initial: number, min = -0.1, max = 0.1): ParameterDefinition {
-  return number(name, initial, min, max, 0.001)
-}
-
-function exposure(initial: number): ParameterDefinition {
-  return number('exposure', initial, 0.4, 1.5, 0.01)
-}
-
-function toggle(name: string, initial: boolean): ParameterDefinition {
-  return { initial, kind: 'boolean', name }
-}
-
-function getParameterGroup(definition: ParameterDefinition): ParameterGroupId {
-  if (definition.kind === 'boolean') return 'features'
-
-  const name = definition.name.toLowerCase()
-  if (definition.name.startsWith('ring') || definition.name.includes('Ring')) return 'rings'
-  if (
-    /aerosol|atmosphere|aureole|cloud|halo|haze|methane|optical|scattering|vortex|wind|jet|hood/.test(
-      name,
-    )
-  ) {
-    return 'atmosphere'
-  }
-  if (
-    /sun|exposure|night|bloom|earthshine|opposition|phase|glare|glint|emission|shadow|umbra|penumbra|refracted/.test(
-      name,
-    )
-  ) {
-    return 'lighting'
-  }
-  if (
-    /speed|rotation|tilt|roll|view|pole|longitude|azimuth|elevation|oblateness|epsilon|orbit/.test(
-      name,
-    )
-  ) {
-    return 'orientation'
-  }
-  return 'surface'
-}
-
 function getPrecision(step: number): number {
   return step < 0.01 ? 3 : step < 1 ? 2 : 0
-}
-
-function formatParameterName(name: string): string {
-  const words = name.replace(/Degrees$/, '').replaceAll(/([a-z])([A-Z])/g, '$1 $2')
-  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 const styles = stylex.create({
@@ -2087,8 +1865,8 @@ const styles = stylex.create({
     },
   },
   eclipseNavigationLighting: {
-    textShadow: 'var(--eclipse-navigation-shadow)',
-    transition: 'text-shadow 100ms cubic-bezier(0.23, 1, 0.32, 1)',
+    filter: 'var(--eclipse-navigation-filter)',
+    transition: 'filter 100ms cubic-bezier(0.23, 1, 0.32, 1)',
     '@media (prefers-reduced-motion: reduce)': {
       transition: 'none',
     },
@@ -2163,6 +1941,117 @@ const styles = stylex.create({
   },
   parameterGroup: {
     minWidth: 0,
+  },
+  presetCard: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    color: 'rgba(242, 232, 208, 0.48)',
+    cursor: 'pointer',
+    display: 'flex',
+    flex: '0 0 64px',
+    flexDirection: 'column',
+    gap: 6,
+    padding: 0,
+    scrollSnapAlign: 'start',
+    textAlign: 'left',
+    ':focus-visible': {
+      outline: '1px solid color-mix(in oklch, var(--control-accent) 28%, transparent)',
+      outlineOffset: 2,
+    },
+  },
+  presetCardSelected: {
+    color: '#f2e8d0',
+  },
+  presetChevron: {
+    display: 'block',
+    fill: 'none',
+    height: 12,
+    stroke: 'currentColor',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    strokeWidth: 1.4,
+    width: 12,
+  },
+  presetControl: {
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    borderRadius: 6,
+    borderWidth: 0,
+    color: 'rgba(242, 232, 208, 0.48)',
+    cursor: 'pointer',
+    display: 'flex',
+    height: 24,
+    justifyContent: 'center',
+    padding: 0,
+    width: 24,
+    ':hover': {
+      color: 'rgba(242, 232, 208, 0.82)',
+    },
+    ':focus-visible': {
+      boxShadow: '0 0 0 2px color-mix(in oklch, var(--control-accent) 40%, transparent)',
+      outline: 'none',
+    },
+  },
+  presetControls: {
+    display: 'flex',
+    flex: '0 0 auto',
+    gap: 2,
+    marginRight: 4,
+  },
+  presetFrame: {
+    backgroundColor: 'rgba(242, 232, 208, 0.04)',
+    borderRadius: 10,
+    boxShadow: 'inset 0 0 0 1px oklch(86.4% 0.003 84.6 / 0.08)',
+    boxSizing: 'border-box',
+    display: 'block',
+    height: 64,
+    overflow: 'hidden',
+    padding: 8,
+    position: 'relative',
+    width: 64,
+  },
+  presetFrameSelected: {
+    boxShadow: 'inset 0 0 0 1px color-mix(in oklch, var(--control-accent) 18%, transparent)',
+  },
+  presetHeading: {
+    flex: 1,
+    width: 'auto',
+  },
+  presetHeader: {
+    alignItems: 'center',
+    display: 'flex',
+    minWidth: 0,
+    width: '100%',
+  },
+  presetImage: {
+    borderRadius: 2,
+    display: 'block',
+    height: '100%',
+    objectFit: 'cover',
+    objectPosition: 'center',
+    pointerEvents: 'none',
+    width: '100%',
+  },
+  presetLabel: {
+    fontSize: 11,
+    fontWeight: 550,
+    letterSpacing: '-0.01em',
+    lineHeight: 1.2,
+    overflow: 'hidden',
+    paddingInline: 2,
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  presetScroller: {
+    display: 'flex',
+    gap: 8,
+    marginInline: -4,
+    overflowX: 'auto',
+    paddingBlock: 4,
+    paddingInline: 4,
+    scrollPaddingInline: 4,
+    scrollSnapType: 'x mandatory',
+    scrollbarWidth: 'none',
   },
   page: {
     '--showcase-inspector-width': '280px',
