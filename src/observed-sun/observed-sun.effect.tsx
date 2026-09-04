@@ -109,23 +109,22 @@ uniform float uTime;
 
 out vec4 fragColor;
 
+const float PI = 3.141592653589793;
 // Apparent solar radius in degrees (0.533 deg diameter).
 const float SUN_RADIUS = 0.2665;
 // Editorial exaggeration of the differential extinction across the disc.
 const float DISC_GRADIENT_STRETCH = 2.5;
-// Horizon-sky radiance relative to the unattenuated disc radiance.
-const float SKY_TO_SUN = 4.0e-3;
+// Single-scatter sky gain relative to the disc-centre exposure reference.
+const float SKY_GAIN = 0.22;
 const vec3 LUMINANCE = vec3(0.2126, 0.7152, 0.0722);
 // Sea-level zenith optical depths for ~(650, 550, 450) nm.
 const vec3 TAU_RAYLEIGH = vec3(0.050, 0.098, 0.218);
 const vec3 TAU_AEROSOL = vec3(0.045, 0.050, 0.060);
-// Chappuis band peaks between the red and green channels.
-const vec3 TAU_OZONE = vec3(0.030, 0.024, 0.003);
+// Chappuis band: green/yellow peak (Heckel / Frostbite RGB fit, zenith-OD units).
+const vec3 TAU_OZONE = vec3(0.012, 0.035, 0.0016);
 // Neckel per-wavelength limb-darkening exponents (blue darkens fastest).
 const vec3 LIMB_EXPONENT = vec3(0.397, 0.503, 0.652);
 const vec3 GLARE_TINT = vec3(1.0, 0.80, 0.46);
-const vec3 TWILIGHT_PURPLE = vec3(0.42, 0.38, 0.80);
-const vec3 DAY_BLUE = vec3(0.22, 0.45, 0.95);
 const vec3 DUSK_MAGENTA = vec3(1.42, 0.14, 0.68);
 const vec3 INDIGO_FIELD = vec3(0.026, 0.024, 0.055);
 
@@ -202,6 +201,27 @@ vec3 transmittance(float elevationDegrees) {
   return exp(-opticalDepth() * airmass(elevationDegrees));
 }
 
+float rayleighPhase(float mu) {
+  return (3.0 / (16.0 * PI)) * (1.0 + mu * mu);
+}
+
+float miePhase(float mu) {
+  float g = mix(0.65, 0.82, uHaze);
+  float gg = g * g;
+  float num = 3.0 * (1.0 - gg) * (1.0 + mu * mu);
+  float den = (8.0 * PI) * (2.0 + gg) * pow(max(1.0 + gg - 2.0 * g * mu, 1e-4), 1.5);
+  return num / den;
+}
+
+// Heckel skyDome softSunDisc: gaussian core, limb roll-off, exponential halo.
+float softSunDisc(float theta, float radius) {
+  float safeRadius = max(radius, 1e-5);
+  float core = exp(-pow(theta / max(safeRadius * 0.7, 1e-5), 2.0));
+  float limb = smoothstep(safeRadius * 1.3, safeRadius * 0.2, theta);
+  float halo = exp(-theta / max(safeRadius * 18.0, 1e-5));
+  return core * limb + 0.25 * halo;
+}
+
 vec3 saturateColor(vec3 color, float amount) {
   float luminance = max(dot(color, LUMINANCE), 0.0);
   return mix(vec3(luminance), color, amount);
@@ -260,10 +280,12 @@ void main() {
   vec3 sunTransmittance = transmittance(trueCentre);
   float centreLuminance = max(dot(sunTransmittance, LUMINANCE), 1e-5);
   vec3 sunTint = sunTransmittance / centreLuminance;
+  float skyLightFactor = smoothstep(-9.0, 3.5, trueCentre);
+  float directSunFactor = smoothstep(-4.5, 1.7, trueCentre);
 
-  // Disc: per-row extinction gradient times per-channel limb darkening.
-  float mu = sqrt(max(1.0 - radial * radial, 0.0));
-  vec3 limb = mix(pow(vec3(mu), LIMB_EXPONENT), vec3(1.0), uHaze * 0.85);
+  // Disc: per-row extinction, Neckel limb darkening, Heckel softSunDisc edge.
+  float muLimb = sqrt(max(1.0 - radial * radial, 0.0));
+  vec3 limb = mix(pow(vec3(muLimb), LIMB_EXPONENT), vec3(1.0), uHaze * 0.85);
   float rowElevation = trueCentre + yTrue * DISC_GRADIENT_STRETCH * (1.0 + uDuskFlush);
   vec3 discRadiance = transmittance(rowElevation) / centreLuminance * limb;
   float height = clamp(yTrue / SUN_RADIUS, -1.2, 1.2);
@@ -276,8 +298,10 @@ void main() {
   );
   discRadiance = saturateColor(discRadiance, uSaturation);
   vec3 glowTint = saturateColor(mix(sunTint * GLARE_TINT, DUSK_MAGENTA, flush), uSaturation);
-  float edgeWidth = SUN_RADIUS * mix(0.025, 0.45, uHaze);
-  float discMask = smoothstep(edgeWidth, -edgeWidth, edgeDistance);
+  float discRadius = SUN_RADIUS * mix(1.0, 1.55, uHaze);
+  float theta = length(vec2(discAngular.x, yTrue));
+  float sunShape = softSunDisc(theta, discRadius);
+  float discMask = smoothstep(discRadius * 1.3, discRadius * 0.2, theta);
 
   // Thin horizontal cloud layers: 1D noise along apparent elevation.
   float layerProximity = exp(-max(apparentElev, 0.0) / 6.0);
@@ -289,17 +313,17 @@ void main() {
   float streakDensity = smoothstep(0.42, 0.72, streakNoise) * (0.35 + 0.65 * streakEnvelope);
   float streaks = 1.0 - uCloudStreaks * 0.6 * streakDensity * layerProximity;
 
-  // Sky: warm sunlight-tinted haze, ozone twilight purple, or daytime blue.
-  float lowSun = smoothstep(14.0, 0.0, trueCentre);
-  vec3 warmHaze = sunTint * 0.9;
-  vec3 twilight = TWILIGHT_PURPLE * uOzone;
-  vec3 horizonSky = mix(warmHaze, twilight, clamp(uHaze * 1.1, 0.0, 1.0));
-  vec3 skyBase = mix(DAY_BLUE * 0.8, horizonSky, lowSun);
-  float skyRelative = min(SKY_TO_SUN / centreLuminance, 0.45);
-  vec3 sky = mix(INDIGO_FIELD, skyBase * skyRelative, uField);
-
-  // Circumsolar aureole: power-law falloff from the disc edge (DeVore 2011).
-  vec3 aureole = glowTint * (uHaze * mix(0.002, 0.006, uField) / pow(outsideEdge + 0.12, 1.8));
+  // Two-airmass single scatter (Heckel light-march, closed form for a ground observer).
+  vec3 viewTransmittance = transmittance(apparentElev);
+  float phaseMu = cos(radians(length(angular)));
+  vec3 extinction = max(opticalDepth(), vec3(1e-5));
+  vec3 scatterCoeff =
+    TAU_RAYLEIGH * rayleighPhase(phaseMu) +
+    TAU_AEROSOL * mix(0.3, 2.5, uHaze) * miePhase(phaseMu);
+  vec3 physicalSky =
+    scatterCoeff / extinction * (1.0 - viewTransmittance) * sunTransmittance /
+    centreLuminance * SKY_GAIN * skyLightFactor;
+  vec3 sky = mix(INDIGO_FIELD, physicalSky, uField);
 
   // Camera glare: near-limb bloom and Vos-style wings. Veiling is sky-only so a
   // zero field stays an indigo plate instead of a full-screen wash.
@@ -307,12 +331,12 @@ void main() {
   float glareWings = 0.012 / pow(outsideEdge + 0.15, 2.0) + 0.0015 / pow(outsideEdge + 0.15, 3.0);
   vec3 glare = glowTint * (
     uGlare * (0.42 * glareGauss + glareWings * mix(0.2, 1.0, uField) + 0.015 * uField)
-  );
+  ) * directSunFactor;
 
   // Apparent horizon with a dark ground. A zero field is a full indigo plate.
   float pixelAngle = (SUN_RADIUS / uSunScale) * 3.0 / max(uResolution.y, 1.0);
   float horizonMask = mix(1.0, smoothstep(-pixelAngle, pixelAngle, apparentElev), uField);
-  vec3 above = sky + discRadiance * discMask * streaks + aureole * mix(1.0, streaks, 0.6);
+  vec3 above = sky + discRadiance * sunShape * streaks * directSunFactor;
   vec3 ground = sky * 0.08 + vec3(0.004, 0.003, 0.004);
   vec3 scene = mix(ground, above, horizonMask) + glare;
 
