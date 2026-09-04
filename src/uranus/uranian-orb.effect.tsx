@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -950,7 +950,6 @@ export function UranianOrbEffect({
   yaw = 18,
   windScale = 0.2,
 }: UranianOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: UranianFrameSettings = {
     aerosolDepth,
     atmosphereThickness,
@@ -979,7 +978,7 @@ export function UranianOrbEffect({
     yaw,
     windScale,
   }
-  useCanvasRenderer(canvasRef, frameSettings, source, createUranianRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createUranianRenderer)
 
   return (
     <canvas

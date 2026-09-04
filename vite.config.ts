@@ -2,12 +2,12 @@ import { defineConfig } from 'vite-plus'
 
 export default defineConfig({
   fmt: {
-    ignorePatterns: ['website/src/routeTree.gen.ts'],
+    ignorePatterns: ['website/.next/**', 'website/out/**'],
     semi: false,
     singleQuote: true,
   },
   lint: {
-    ignorePatterns: ['dist/**', 'website/.output/**', 'website/src/routeTree.gen.ts'],
+    ignorePatterns: ['dist/**', 'website/.next/**', 'website/out/**'],
     options: {
       typeAware: true,
       typeCheck: true,

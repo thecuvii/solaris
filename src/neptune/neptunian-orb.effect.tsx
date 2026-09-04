@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -935,7 +935,6 @@ export function NeptunianOrbEffect({
   weatherTilt = 18,
   windScale = 0.62,
 }: NeptunianOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: NeptunianFrameSettings = {
     cloudRelief,
     companionCloud,
@@ -958,8 +957,7 @@ export function NeptunianOrbEffect({
     weatherTilt,
     windScale,
   }
-
-  useCanvasRenderer(canvasRef, frameSettings, source, createNeptunianRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createNeptunianRenderer)
 
   return (
     <canvas

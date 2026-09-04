@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -810,7 +810,6 @@ export function MartianOrbEffect({
   sunElevation = 9,
   yaw = 0,
 }: MartianOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: MartianFrameSettings = {
     axialTilt,
     blueAureole,
@@ -827,8 +826,7 @@ export function MartianOrbEffect({
     sunElevation,
     yaw,
   }
-
-  useCanvasRenderer(canvasRef, frameSettings, source, createMartianRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createMartianRenderer)
 
   return (
     <canvas

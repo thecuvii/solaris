@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -1114,7 +1114,6 @@ export function SaturnOrbEffect({
   yaw = 0,
   unlitRingBrightness = 0.08,
 }: SaturnOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: SaturnFrameSettings = {
     axialRoll,
     bandContrast,
@@ -1136,7 +1135,7 @@ export function SaturnOrbEffect({
     yaw,
     unlitRingBrightness,
   }
-  useCanvasRenderer(canvasRef, frameSettings, source, createSaturnRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createSaturnRenderer)
 
   return (
     <canvas

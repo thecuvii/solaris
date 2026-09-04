@@ -46,7 +46,7 @@ jobs:
           node-version: 26
           run-install: false
       - run: vp install --frozen-lockfile
-      - run: vp -C website build
+      - run: pnpm --filter website build
 
   bundle-size:
     runs-on: ubuntu-latest

@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -1004,7 +1004,6 @@ export function SolarSkyEffect({
   sunX = 0.18,
   style,
 }: SolarSkyEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: SolarSkySettings = {
     airDensity,
     aerosolAbsorption,
@@ -1024,7 +1023,7 @@ export function SolarSkyEffect({
     sunScale,
     sunX,
   }
-  useCanvasRenderer(canvasRef, frameSettings, SOLAR_SKY_INPUT, createSolarSkyRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, SOLAR_SKY_INPUT, createSolarSkyRenderer)
 
   return (
     <canvas

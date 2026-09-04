@@ -1,5 +1,5 @@
 import * as stylex from '@stylexjs/stylex'
-import { Link } from '@tanstack/react-router'
+import Link from 'next/link'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useState } from 'react'
@@ -96,10 +96,8 @@ export const PlanetPicker = memo(function PlanetPicker({
       <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
         <div {...stylex.props(styles.pickerNavigation)}>
           <Link
+            href="/earth"
             onClick={(event) => selectPlanetFromLink(event, 'earth')}
-            params={{ planet: 'earth' }}
-            preload="intent"
-            to="/$planet"
             {...stylex.props(
               styles.wordmark,
               styles.pickerWordmark,
@@ -114,11 +112,8 @@ export const PlanetPicker = memo(function PlanetPicker({
             {planets.map((planet) => (
               <Link
                 key={planet.id}
+                href={`/${planet.id}`}
                 onClick={(event) => selectPlanetFromLink(event, planet.id)}
-                params={{ planet: planet.id }}
-                preload="intent"
-                preloadDelay={40}
-                to="/$planet"
                 {...stylex.props(
                   styles.planetTab,
                   selectedPlanet === planet.id && styles.planetTabSelected,

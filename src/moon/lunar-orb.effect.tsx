@@ -747,7 +747,6 @@ export function LunarOrbEffect({
   veilingGlare = 0,
   viewport,
 }: LunarOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const compositionRef = useRef<HTMLDivElement>(null)
   const hasComposition = composition !== undefined
   const frameSettings: LunarFrameSettings = {
@@ -774,7 +773,7 @@ export function LunarOrbEffect({
     [hasComposition, source],
   )
 
-  useCanvasRenderer(canvasRef, frameSettings, rendererInput, createLunarRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, rendererInput, createLunarRenderer)
 
   if (composition) {
     return (

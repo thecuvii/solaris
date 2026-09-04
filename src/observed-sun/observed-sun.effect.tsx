@@ -609,7 +609,6 @@ export function ObservedSunEffect({
   sunScale = 0.36,
   viewport,
 }: ObservedSunEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const compositionRef = useRef<HTMLDivElement>(null)
   const hasComposition = composition !== undefined
   const frameSettings: ObservedSunSettings = {
@@ -629,7 +628,7 @@ export function ObservedSunEffect({
     sunScale,
   }
   const rendererInput = useMemo(() => ({ compositionRef, hasComposition }), [hasComposition])
-  useCanvasRenderer(canvasRef, frameSettings, rendererInput, createObservedSunRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, rendererInput, createObservedSunRenderer)
 
   if (composition) {
     return (

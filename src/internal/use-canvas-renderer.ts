@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, type RefObject } from 'react'
+import { useCallback, useEffectEvent, type RefCallback } from 'react'
 
 export type CanvasRenderer<Settings> = {
   dispose: () => void
@@ -6,7 +6,6 @@ export type CanvasRenderer<Settings> = {
 }
 
 export function useCanvasRenderer<Settings, Input>(
-  canvasRef: RefObject<HTMLCanvasElement | null>,
   settings: Settings,
   input: Input,
   createRenderer: (
@@ -14,30 +13,32 @@ export function useCanvasRenderer<Settings, Input>(
     input: Input,
     getSettings: () => Settings,
   ) => CanvasRenderer<Settings> | null,
-): void {
+): RefCallback<HTMLCanvasElement> {
   const getSettings = useEffectEvent(() => settings)
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const renderer = createRenderer(canvas, input, getSettings)
-    if (!renderer) return
-    const activeRenderer = renderer
+  return useCallback<RefCallback<HTMLCanvasElement>>(
+    (canvas) => {
+      if (!canvas) return
+      const renderer = createRenderer(canvas, input, getSettings)
+      if (!renderer) return
+      const activeRenderer = renderer
 
-    let disposed = false
-    let frameId = 0
+      let disposed = false
+      let frameId = 0
 
-    function frame(timestamp: number): void {
-      activeRenderer.render(timestamp, getSettings())
-      if (!disposed) frameId = requestAnimationFrame(frame)
-    }
+      function frame(timestamp: number): void {
+        activeRenderer.render(timestamp, getSettings())
+        if (!disposed) frameId = requestAnimationFrame(frame)
+      }
 
-    frameId = requestAnimationFrame(frame)
+      frameId = requestAnimationFrame(frame)
 
-    return () => {
-      disposed = true
-      cancelAnimationFrame(frameId)
-      activeRenderer.dispose()
-    }
-  }, [canvasRef, createRenderer, input])
+      return () => {
+        disposed = true
+        cancelAnimationFrame(frameId)
+        activeRenderer.dispose()
+      }
+    },
+    [createRenderer, getSettings, input],
+  )
 }

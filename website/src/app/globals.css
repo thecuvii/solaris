@@ -21,8 +21,7 @@
   }
 
   html,
-  body,
-  #app {
+  body {
     min-height: 100%;
   }
 
@@ -46,3 +45,5 @@
     outline: none;
   }
 }
+
+@stylex;

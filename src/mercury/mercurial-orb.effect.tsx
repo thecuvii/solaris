@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -769,7 +769,6 @@ export function MercurialOrbEffect({
   tilt = 0,
   yaw = 0,
 }: MercurialOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: MercurialFrameSettings = {
     exposure,
     lean,
@@ -784,7 +783,7 @@ export function MercurialOrbEffect({
     yaw,
   }
 
-  useCanvasRenderer(canvasRef, frameSettings, source, createMercurialRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createMercurialRenderer)
 
   return (
     <canvas

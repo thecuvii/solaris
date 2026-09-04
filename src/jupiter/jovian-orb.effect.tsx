@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -637,7 +637,6 @@ export function JovianOrbEffect({
   yaw = 0,
   vortexStrength = 0.42,
 }: JovianOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: JovianFrameSettings = {
     bandDrift,
     cloudPhotometricMix,
@@ -654,7 +653,7 @@ export function JovianOrbEffect({
     yaw,
     vortexStrength,
   }
-  useCanvasRenderer(canvasRef, frameSettings, source, createJovianRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createJovianRenderer)
 
   return (
     <canvas

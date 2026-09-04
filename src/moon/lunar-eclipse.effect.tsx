@@ -727,7 +727,6 @@ export function LunarEclipseEffect({
   umbraRadius = 2.2,
   viewport,
 }: LunarEclipseEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const compositionRef = useRef<HTMLDivElement>(null)
   const hasComposition = composition !== undefined
   const frameSettings: LunarEclipseFrameSettings = {
@@ -751,7 +750,7 @@ export function LunarEclipseEffect({
     [hasComposition, source],
   )
 
-  useCanvasRenderer(canvasRef, frameSettings, rendererInput, createLunarEclipseRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, rendererInput, createLunarEclipseRenderer)
 
   if (composition) {
     return (

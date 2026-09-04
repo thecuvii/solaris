@@ -1,3 +1,5 @@
+'use client'
+
 import { Drawer } from '@base-ui/react/drawer'
 import * as stylex from '@stylexjs/stylex'
 import { animate, motion, useMotionValue, useTransform } from 'motion/react'

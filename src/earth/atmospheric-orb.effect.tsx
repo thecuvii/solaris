@@ -1579,7 +1579,6 @@ export function AtmosphericOrbEffect({
   sunOrbit = 4.6,
   viewport,
 }: AtmosphericOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const compositionRef = useRef<HTMLDivElement>(null)
   const hasComposition = composition !== undefined
   const frameSettings: AtmosphericFrameSettings = {
@@ -1605,7 +1604,7 @@ export function AtmosphericOrbEffect({
     [hasComposition, source],
   )
 
-  useCanvasRenderer(canvasRef, frameSettings, rendererInput, createAtmosphericRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, rendererInput, createAtmosphericRenderer)
 
   if (composition) {
     return (

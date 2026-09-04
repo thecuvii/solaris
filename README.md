@@ -5,7 +5,7 @@ React shader effects for the solar system.
 ## Workspace
 
 - `src/` contains the publishable `@thecuvii/solaris` package.
-- `website/` contains the TanStack Start documentation site and hosted demo textures.
+- `website/` contains the Next.js 16 documentation site and hosted demo textures.
 
 ## Development
 

@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -659,7 +659,6 @@ export function SolarOrbEffect({
   source,
   style,
 }: SolarOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: SolarOrbSettings = {
     activeRegionGain,
     contrast,
@@ -670,7 +669,7 @@ export function SolarOrbEffect({
     limbEmission,
     saturation,
   }
-  useCanvasRenderer(canvasRef, frameSettings, source, createSolarOrbRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createSolarOrbRenderer)
 
   return (
     <canvas

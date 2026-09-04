@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -880,7 +880,6 @@ export function PlutonianOrbEffect({
   tilt = 25,
   yaw = 0,
 }: PlutonianOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: PlutonianFrameSettings = {
     exposure,
     hazeForwardScattering,
@@ -899,7 +898,7 @@ export function PlutonianOrbEffect({
     yaw,
   }
 
-  useCanvasRenderer(canvasRef, frameSettings, source, createPlutonianRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createPlutonianRenderer)
 
   return (
     <canvas

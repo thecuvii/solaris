@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -746,7 +746,6 @@ export function TitanianOrbEffect({
   sunAzimuth = -58,
   sunElevation = 18,
 }: TitanianOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: TitanianFrameSettings = {
     bandContrast,
     detachedHaze,
@@ -761,7 +760,7 @@ export function TitanianOrbEffect({
     sunAzimuth,
     sunElevation,
   }
-  useCanvasRenderer(canvasRef, frameSettings, source, createTitanianRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createTitanianRenderer)
 
   return (
     <canvas

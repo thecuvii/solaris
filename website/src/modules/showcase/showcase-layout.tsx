@@ -1,5 +1,7 @@
+'use client'
+
 import * as stylex from '@stylexjs/stylex'
-import { Outlet, useNavigate, useParams } from '@tanstack/react-router'
+import { useParams, useRouter } from 'next/navigation'
 import { Provider, createStore, useAtomValue } from 'jotai'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
@@ -66,10 +68,16 @@ function EclipseLightingPage({
   )
 }
 
-export function ShowcaseLayout() {
-  const routePlanet = useParams({ strict: false, select: (params) => params.planet })
-  const selectedPlanet = isPlanetId(routePlanet) ? routePlanet : 'earth'
-  const navigate = useNavigate()
+export function ShowcaseLayout({
+  children,
+  planetId,
+}: {
+  children: ReactNode
+  planetId: PlanetId
+}) {
+  const params = useParams<{ planet?: string }>()
+  const router = useRouter()
+  const selectedPlanet = isPlanetId(params.planet) ? params.planet : planetId
   const [showGrid, setShowGrid] = useState(false)
   const [transitionDirection, setTransitionDirection] = useState<-1 | 1>(1)
   const [plan, setPlan] = useState(() => getPlanetTransitionPlan(selectedPlanet, selectedPlanet))
@@ -114,10 +122,10 @@ export function ShowcaseLayout() {
       setPlan(nextPlan)
       setPresentedPlanet(nextPlanet)
       if (updateRoute) {
-        void navigate({ params: { planet: nextPlanet }, resetScroll: false, to: '/$planet' })
+        router.push(`/${nextPlanet}`, { scroll: false })
       }
     },
-    [navigate],
+    [router],
   )
 
   const selectPlanet = useCallback(
@@ -125,7 +133,7 @@ export function ShowcaseLayout() {
       if (nextPlanet === selectedPlanetRef.current) {
         queuedPlanetRef.current = null
         if (nextPlanet !== selectedPlanet) {
-          void navigate({ params: { planet: nextPlanet }, resetScroll: false, to: '/$planet' })
+          router.push(`/${nextPlanet}`, { scroll: false })
         }
         return
       }
@@ -137,7 +145,7 @@ export function ShowcaseLayout() {
 
       startPlanetTransition(nextPlanet)
     },
-    [navigate, selectedPlanet, startPlanetTransition],
+    [router, selectedPlanet, startPlanetTransition],
   )
 
   const completePlanetTransition = useCallback((): void => {
@@ -196,9 +204,7 @@ export function ShowcaseLayout() {
             selectedPlanet={selectedPlanet}
           />
 
-          <main {...stylex.props(styles.content)}>
-            <Outlet />
-          </main>
+          <main {...stylex.props(styles.content)}>{children}</main>
 
           {isMobile ? (
             <>

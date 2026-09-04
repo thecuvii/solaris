@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -786,7 +786,6 @@ export function VenusianOrbEffect({
   yaw = 0,
   upperHaze = 0.46,
 }: VenusianOrbEffectProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
   const frameSettings: VenusianFrameSettings = {
     axialTilt,
     cloudContrast,
@@ -805,8 +804,7 @@ export function VenusianOrbEffect({
     yaw,
     upperHaze,
   }
-
-  useCanvasRenderer(canvasRef, frameSettings, source, createVenusianRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, source, createVenusianRenderer)
 
   return (
     <canvas

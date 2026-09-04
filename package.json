@@ -68,10 +68,10 @@
   },
   "scripts": {
     "build": "vp pack",
-    "build:website": "vp -C website build",
+    "build:website": "pnpm --filter website build",
     "check": "vp check",
     "check:fix": "vp check --fix",
-    "dev": "vp -C website dev",
+    "dev": "pnpm --filter website dev",
     "prepare": "vp config --no-agent",
     "size": "vp pack && node scripts/check-bundle-size.mjs",
     "test": "vp test --run"
