@@ -45,8 +45,9 @@ jobs:
           cache: true
           node-version: 26
           run-install: false
+      - run: corepack enable
       - run: vp install --frozen-lockfile
-      - run: pnpm --filter website build
+      - run: vp run --filter website build
 
   bundle-size:
     runs-on: ubuntu-latest
