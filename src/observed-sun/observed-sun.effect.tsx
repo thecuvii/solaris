@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useRef, type CSSProperties } from 'react'
+import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -21,10 +21,18 @@ import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-r
  * horizon to noon.
  */
 
+export type ObservedSunComposition = {
+  bottom?: CSSProperties['bottom']
+  height: CSSProperties['height']
+  width: CSSProperties['width']
+}
+
 export type ObservedSunEffectProps = {
   className?: string
   /** Thin horizontal cloud/inversion striations across the low disc. */
   cloudStreaks?: number
+  /** Disc layout box. The canvas can be larger so glow is not clipped. */
+  composition?: ObservedSunComposition
   /** Editorial yellow→orange→magenta disc grade. Stays on the disc. */
   duskFlush?: number
   /** Linear scene gain relative to the disc centre before tone mapping. */
@@ -50,8 +58,10 @@ export type ObservedSunEffectProps = {
   style?: CSSProperties
   /** True solar-centre elevation in degrees. */
   sunElevation?: number
-  /** Disc radius as a fraction of the shorter canvas half-side. */
+  /** Disc radius as a fraction of the shorter composition half-side. */
   sunScale?: number
+  /** Extra canvas bleed around the composition box. */
+  viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
 
 type ObservedSunSettings = {
@@ -76,8 +86,6 @@ type ObservedSunResources = {
   vertexArray: WebGLVertexArrayObject
 }
 
-const OBSERVED_SUN_INPUT = null
-
 const VERTEX_SHADER = `#version 300 es
 precision highp float;
 
@@ -91,6 +99,8 @@ const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform float uCloudStreaks;
+uniform vec2 uCompositionCenter;
+uniform float uCompositionScale;
 uniform float uDuskFlush;
 uniform float uExposure;
 uniform float uField;
@@ -246,7 +256,7 @@ float interleavedGradientNoise(vec2 pixel) {
 }
 
 void main() {
-  vec2 screen = (2.0 * gl_FragCoord.xy - uResolution) / min(uResolution.x, uResolution.y);
+  vec2 screen = (2.0 * (gl_FragCoord.xy - uCompositionCenter)) / uCompositionScale;
   // Angular offset from the apparent disc centre, in degrees.
   vec2 angular = screen * (SUN_RADIUS / uSunScale);
 
@@ -297,7 +307,7 @@ void main() {
   float physicalRadius = SUN_RADIUS * mix(1.0, 1.55, uHaze);
   float sunShapePhysical = softSunDisc(theta, physicalRadius);
   // Poster disc is a hard circle with ~1 px AA. Haze must not feather it.
-  float pixelSoft = (SUN_RADIUS / max(uSunScale, 1e-4)) * 1.25 / max(uResolution.y, 1.0);
+  float pixelSoft = (SUN_RADIUS / max(uSunScale, 1e-4)) * 1.25 / max(uCompositionScale, 1.0);
   float sunShapePoster = 1.0 - smoothstep(SUN_RADIUS, SUN_RADIUS + pixelSoft, theta);
   float sunShape = mix(sunShapePhysical, sunShapePoster, uDuskFlush);
   float bloomWidth = SUN_RADIUS * 0.008;
@@ -343,7 +353,7 @@ void main() {
   vec3 glare = mix(physicalGlare, posterGlare, uDuskFlush);
 
   // Apparent horizon with a dark ground. A zero field is a full indigo plate.
-  float pixelAngle = (SUN_RADIUS / uSunScale) * 3.0 / max(uResolution.y, 1.0);
+  float pixelAngle = (SUN_RADIUS / uSunScale) * 3.0 / max(uCompositionScale, 1.0);
   float horizonMask = mix(1.0, smoothstep(-pixelAngle, pixelAngle, apparentElev), uField);
   vec3 above = sky + discRadiance * sunShape * streaks * mix(directSunFactor, 1.0, uDuskFlush);
   vec3 ground = sky * 0.08 + vec3(0.004, 0.003, 0.004);
@@ -442,8 +452,12 @@ function sanitizedSettings(settings: ObservedSunSettings): ObservedSunSettings {
 
 function createObservedSunRenderer(
   canvas: HTMLCanvasElement,
-  _input: null,
+  input: {
+    compositionRef: RefObject<HTMLDivElement | null>
+    hasComposition: boolean
+  },
 ): CanvasRenderer<ObservedSunSettings> | null {
+  const { compositionRef, hasComposition } = input
   const context = canvas.getContext('webgl2', {
     alpha: false,
     antialias: false,
@@ -459,6 +473,9 @@ function createObservedSunRenderer(
   let disposed = false
   let resources: ObservedSunResources | null = createResources(gl)
   let startTime = performance.now()
+  let compositionCenterX = 0
+  let compositionCenterY = 0
+  let compositionScale = 1
 
   function resize(): void {
     const bounds = canvas.getBoundingClientRect()
@@ -469,10 +486,23 @@ function createObservedSunRenderer(
       canvas.width = width
       canvas.height = height
     }
+
+    const compositionBounds = compositionRef.current?.getBoundingClientRect() ?? bounds
+    const scaleX = width / Math.max(bounds.width, 1)
+    const scaleY = height / Math.max(bounds.height, 1)
+    compositionCenterX =
+      (compositionBounds.left - bounds.left + compositionBounds.width / 2) * scaleX
+    compositionCenterY =
+      height - (compositionBounds.top - bounds.top + compositionBounds.height / 2) * scaleY
+    compositionScale = Math.max(
+      Math.min(compositionBounds.width * scaleX, compositionBounds.height * scaleY),
+      1,
+    )
   }
 
   function render(timestamp: number, frameSettings: ObservedSunSettings): void {
     if (disposed || contextLost || !resources) return
+    resize()
     const settings = sanitizedSettings(frameSettings)
     const { program, vertexArray } = resources
 
@@ -487,6 +517,12 @@ function createObservedSunRenderer(
       gl.uniform1f(gl.getUniformLocation(program, name), value)
     }
     uniform1f('uCloudStreaks', settings.cloudStreaks)
+    gl.uniform2f(
+      gl.getUniformLocation(program, 'uCompositionCenter'),
+      compositionCenterX,
+      compositionCenterY,
+    )
+    uniform1f('uCompositionScale', compositionScale)
     uniform1f('uDuskFlush', settings.duskFlush)
     uniform1f('uExposure', settings.exposure)
     uniform1f('uField', settings.field)
@@ -522,6 +558,7 @@ function createObservedSunRenderer(
 
   const resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(canvas)
+  if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
   window.addEventListener('resize', resize)
   canvas.addEventListener('webglcontextlost', handleContextLost)
   canvas.addEventListener('webglcontextrestored', handleContextRestored)
@@ -555,6 +592,7 @@ function createObservedSunRenderer(
 export function ObservedSunEffect({
   className,
   cloudStreaks = 0.3,
+  composition,
   duskFlush = 0,
   exposure = 1,
   field = 1,
@@ -569,8 +607,11 @@ export function ObservedSunEffect({
   style,
   sunElevation = 2,
   sunScale = 0.36,
+  viewport,
 }: ObservedSunEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const compositionRef = useRef<HTMLDivElement>(null)
+  const hasComposition = composition !== undefined
   const frameSettings: ObservedSunSettings = {
     cloudStreaks,
     duskFlush,
@@ -587,7 +628,46 @@ export function ObservedSunEffect({
     sunElevation,
     sunScale,
   }
-  useCanvasRenderer(canvasRef, frameSettings, OBSERVED_SUN_INPUT, createObservedSunRenderer)
+  const rendererInput = useMemo(() => ({ compositionRef, hasComposition }), [hasComposition])
+  useCanvasRenderer(canvasRef, frameSettings, rendererInput, createObservedSunRenderer)
+
+  if (composition) {
+    return (
+      <div
+        className={className}
+        style={{ height: '100%', position: 'relative', width: '100%', ...style }}
+      >
+        <div
+          aria-hidden="true"
+          ref={compositionRef}
+          style={{
+            left: '50%',
+            pointerEvents: 'none',
+            position: 'absolute',
+            transform: 'translateX(-50%)',
+            ...composition,
+          }}
+        />
+        <div
+          style={{
+            bottom: 0,
+            left: 0,
+            pointerEvents: 'none',
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            ...viewport,
+          }}
+        >
+          <canvas
+            aria-hidden="true"
+            ref={canvasRef}
+            style={{ display: 'block', height: '100%', pointerEvents: 'none', width: '100%' }}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <canvas

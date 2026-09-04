@@ -68,6 +68,7 @@ import {
   eclipseHaloAtom,
   isDefaultPlanetAtom,
   moonLightingAtom,
+  observedSunLightingAtom,
   planetSettingsAtom,
   resetPlanetSettingsAtom,
   settingAtom,
@@ -86,6 +87,8 @@ type ChromeTransitionContext = {
 
 type PlanetTransitionPlan = {
   duration: number
+  /** Fade in place. Used when a full-bleed field would look wrong if it slid. */
+  hold?: boolean
 }
 
 type EclipseTextLightingProperties = CSSProperties & {
@@ -109,6 +112,13 @@ const earthModel = {
 const linear = 'linear' as const
 
 function getPlanetTransitionPlan(from: PlanetId, to: PlanetId): PlanetTransitionPlan {
+  if (from === 'observed-sun' || to === 'observed-sun') {
+    return {
+      duration: 0.48,
+      hold: true,
+    }
+  }
+
   if ((from === 'moon' && to === 'lunar-eclipse') || (from === 'lunar-eclipse' && to === 'moon')) {
     return {
       duration: 0.56,
@@ -132,11 +142,13 @@ const highlighter = createHighlighterCoreSync({
 
 const planetPreviewVariants: Variants = {
   center: ({ plan, reducedMotion }: PlanetTransitionContext) => {
-    if (reducedMotion) {
+    if (reducedMotion || plan.hold) {
       return {
         opacity: 1,
         transform: slideTransform(0, 1, 0),
-        transition: { duration: 0.14, ease: linear },
+        transition: reducedMotion
+          ? { duration: 0.14, ease: linear }
+          : { duration: plan.duration, ease: [0.22, 1, 0.36, 1] },
       }
     }
 
@@ -149,18 +161,21 @@ const planetPreviewVariants: Variants = {
       },
     }
   },
-  enter: ({ direction, reducedMotion }: PlanetTransitionContext) => ({
+  enter: ({ direction, plan, reducedMotion }: PlanetTransitionContext) => ({
     opacity: 0,
-    transform: reducedMotion
-      ? slideTransform(0, 1, 0)
-      : slideTransform(direction * 82, 0.94, direction * 2),
+    transform:
+      reducedMotion || plan.hold
+        ? slideTransform(0, 1, 0)
+        : slideTransform(direction * 82, 0.94, direction * 2),
   }),
   exit: ({ direction, plan, reducedMotion }: PlanetTransitionContext) => {
-    if (reducedMotion) {
+    if (reducedMotion || plan.hold) {
       return {
         opacity: 0,
         transform: slideTransform(0, 1, 0),
-        transition: { duration: 0.14, ease: linear },
+        transition: reducedMotion
+          ? { duration: 0.14, ease: linear }
+          : { duration: plan.duration, ease: [0.22, 1, 0.36, 1] },
       }
     }
 
@@ -268,6 +283,7 @@ function EclipseLightingPage({
 }) {
   const eclipse = useAtomValue(eclipseHaloAtom)
   const moon = useAtomValue(moonLightingAtom)
+  const observedSun = useAtomValue(observedSunLightingAtom)
   const lighting =
     previewPlanet === 'lunar-eclipse'
       ? buildTextLighting({
@@ -294,7 +310,21 @@ function EclipseLightingPage({
             offsetY: -Math.sin((moon.sunElevation * Math.PI) / 180) * 2.2,
             rimHue: 75,
           })
-        : noneTextLighting()
+        : previewPlanet === 'observed-sun'
+          ? buildTextLighting({
+              haloEnergy: Math.min(
+                0.08 +
+                  Math.min(Math.max(observedSun.glare, 0), 2) * 0.42 +
+                  Math.min(Math.max(observedSun.exposure, 0), 4) * 0.06 +
+                  Math.min(Math.max(observedSun.field, 0), 1) * 0.16 +
+                  Math.min(Math.max(observedSun.duskFlush, 0), 1) * 0.06,
+                1,
+              ),
+              offsetX: 0,
+              offsetY: -Math.sin((observedSun.sunElevation * Math.PI) / 180) * 2.2,
+              rimHue: 48 + observedSun.duskFlush * 292,
+            })
+          : noneTextLighting()
 
   return (
     <div {...stylex.props(styles.page)} style={lighting}>
@@ -327,8 +357,10 @@ export function ShowcaseLayout() {
   const expandedPreviewActive =
     previewPlanet === 'moon' ||
     previewPlanet === 'lunar-eclipse' ||
+    previewPlanet === 'observed-sun' ||
     departingPlanet === 'moon' ||
-    departingPlanet === 'lunar-eclipse'
+    departingPlanet === 'lunar-eclipse' ||
+    departingPlanet === 'observed-sun'
   const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
 
   const startPlanetTransition = useCallback(
@@ -525,7 +557,9 @@ export function ShowcasePlanetPage() {
               <div
                 {...stylex.props(
                   styles.planetPreviewTransition,
-                  (previewPlanet === 'moon' || previewPlanet === 'lunar-eclipse') &&
+                  (previewPlanet === 'moon' ||
+                    previewPlanet === 'lunar-eclipse' ||
+                    previewPlanet === 'observed-sun') &&
                     styles.planetPreviewTransitionExpanded,
                 )}
               >
@@ -822,7 +856,23 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
     case 'neptune':
       return <Neptune {...shared} />
     case 'observed-sun':
-      return <ObservedSun {...shared} />
+      return (
+        <ObservedSun
+          {...shared}
+          composition={{
+            bottom: 'calc((clamp(480px, 68vh, 720px) - clamp(360px, 52vh, 590px)) / 2)',
+            height: 'clamp(360px, 52vh, 590px)',
+            width: 'calc(100% - 2 * clamp(24px, 4vw, 64px))',
+          }}
+          viewport={{
+            bottom: 0,
+            left: 'calc(50% - 50vw - (var(--showcase-picker-width) - var(--showcase-inspector-width)) / 2)',
+            right:
+              'calc(50% - 50vw + (var(--showcase-picker-width) - var(--showcase-inspector-width)) / 2)',
+            top: 'calc(var(--showcase-preview-top) * -1)',
+          }}
+        />
+      )
     case 'pluto':
       return <Pluto {...shared} textures={textures.pluto} />
     case 'saturn':
@@ -3048,6 +3098,7 @@ const styles = stylex.create({
     marginBottom: 0,
     marginTop: 8,
     maxWidth: 560,
+    minHeight: 'calc(1.65em * 2)',
   },
   switchLabel: {
     alignItems: 'center',
