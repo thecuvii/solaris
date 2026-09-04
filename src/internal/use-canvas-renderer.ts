@@ -39,6 +39,8 @@ export function useCanvasRenderer<Settings, Input>(
         activeRenderer.dispose()
       }
     },
-    [createRenderer, getSettings, input],
+    // `getSettings` is an Effect Event. React 19 recreates that function every
+    // render, so listing it here tears down the WebGL context on every slider tick.
+    [createRenderer, input],
   )
 }
