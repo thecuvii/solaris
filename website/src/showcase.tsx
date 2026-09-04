@@ -3136,7 +3136,7 @@ const styles = stylex.create({
     alignItems: 'center',
     backgroundColor: 'transparent',
     backgroundImage:
-      'linear-gradient(in oklch 180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 94%, black) 100%)',
+      'linear-gradient(in oklch 180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 81%, black) 100%)',
     borderRadius: 8,
     borderWidth: 0,
     boxShadow: {
@@ -3185,11 +3185,11 @@ const styles = stylex.create({
     position: 'absolute',
   },
   sliderIndicator: {
-    backgroundColor: 'oklch(32.86% 0 0)',
+    backgroundColor: 'var(--slider-progress-bg, oklch(32.86% 0 0))',
     borderRadius: 8,
     boxSizing: 'content-box',
     boxShadow:
-      '2px 0 3px oklch(0% 0 0 / 0.18), inset 0 1px 0 oklch(100% 0 0 / 0.035), inset 0 -1px 1px oklch(0% 0 0 / 0.13)',
+      '0.5px 0 0.5px oklch(0% 0 0 / 0.1), inset 0 1px 0 oklch(100% 0 0 / 0.035), inset 0 -1px 1px oklch(0% 0 0 / 0.13)',
     height: '100%',
     left: 0,
     paddingRight: 10,
@@ -3256,10 +3256,10 @@ const styles = stylex.create({
       '0 1px 1px color-mix(in oklch, var(--control-accent) 25%, transparent), 0 0 0 0.5px color-mix(in oklch, var(--control-accent) 65%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.78)',
   },
   sliderTrack: {
-    backgroundColor: 'oklch(20.07% 0 0)',
+    backgroundColor: 'var(--slider-track-bg, oklch(20.07% 0 0))',
     borderRadius: 8,
     boxShadow:
-      '0 3px 7px oklch(0% 0 0 / 0.27), 0 1px 3px oklch(0% 0 0 / 0.2), inset 0 1px 0 oklch(100% 0 0 / 0.045), inset 0 -1px 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025)',
+      '0 1px 2px oklch(0% 0 0 / 0.07), 0 1px 1px oklch(0% 0 0 / 0.04), inset 0 1px 0 oklch(100% 0 0 / 0.045), inset 0 -1px 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025)',
     height: 32,
     overflow: 'hidden',
     position: 'relative',
@@ -3338,9 +3338,9 @@ const styles = stylex.create({
     },
   },
   switchRootChecked: {
-    backgroundColor: 'var(--control-accent)',
+    backgroundColor: 'color-mix(in oklch, var(--control-accent) 72%, white)',
     boxShadow:
-      'inset 0 1px 0 oklch(100% 0 0 / 0.18), 0 0 12px color-mix(in oklch, var(--control-accent) 30%, transparent)',
+      'inset 0 1px 0 oklch(100% 0 0 / 0.22), 0 0 12px color-mix(in oklch, var(--control-accent) 28%, transparent)',
   },
   switchThumb: {
     backgroundColor: 'oklch(96% 0.004 84.6)',

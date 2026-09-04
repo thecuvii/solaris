@@ -2,7 +2,7 @@ import { Drawer } from '@base-ui/react/drawer'
 import * as stylex from '@stylexjs/stylex'
 import { animate, motion, useMotionValue, useTransform } from 'motion/react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 
 import type { PlanetId } from './showcase-data'
 import { planets } from './showcase-data'
@@ -12,7 +12,14 @@ const STEP = 360 / planets.length
 const RADIUS = 132
 const DRAG_DEG_PER_PX = 0.48
 const OPEN_PULL = 36
-const SETTINGS_SNAP = 0.78
+const PRESET_SNAP = 0.25
+const EXPANDED_SNAP = 0.5
+// Offset at the flush snap (max 50dvh − first snap 25dvh). Morph finishes 5dvh later (0.30).
+const PRESET_TRAVEL = '25dvh'
+const MORPH_RANGE = '5dvh'
+const FLOAT_GAP = '12px'
+const SHEET_RADIUS = '16px'
+const SHEET_PROGRESS = `clamp(0, (${PRESET_TRAVEL} - (var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y))) / ${MORPH_RANGE}, 1)`
 
 function subscribeMobile(onStoreChange: () => void) {
   const media = window.matchMedia(MOBILE_QUERY)
@@ -293,21 +300,35 @@ export function SettingsSheet({
   onOpenChange: (open: boolean) => void
   open: boolean
 }) {
+  const [snapPoint, setSnapPoint] = useState<Drawer.Root.SnapPoint>(PRESET_SNAP)
+
   return (
     <Drawer.Root
-      onOpenChange={onOpenChange}
+      modal={false}
+      onOpenChange={(next) => {
+        if (next) setSnapPoint(PRESET_SNAP)
+        onOpenChange(next)
+      }}
+      onSnapPointChange={(next) => {
+        if (next != null) setSnapPoint(next)
+      }}
       open={open}
-      snapPoint={open ? SETTINGS_SNAP : null}
-      snapPoints={[SETTINGS_SNAP]}
+      snapPoint={open ? snapPoint : null}
+      snapPoints={[PRESET_SNAP, EXPANDED_SNAP]}
+      snapToSequentialPoints
       swipeDirection="down"
     >
       <Drawer.Portal>
-        <Drawer.Backdrop {...stylex.props(styles.backdrop)} />
         <Drawer.Viewport {...stylex.props(styles.viewport)}>
           <Drawer.Popup {...stylex.props(styles.popup)}>
-            <div {...stylex.props(styles.sheetHandle)} aria-hidden="true" />
-            <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
-            <Drawer.Content {...stylex.props(styles.sheetBody)}>{children}</Drawer.Content>
+            <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
+            <div {...stylex.props(styles.sheetSurface)}>
+              <div {...stylex.props(styles.sheetClip)}>
+                <div {...stylex.props(styles.sheetHandle)} aria-hidden="true" />
+                <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
+                <Drawer.Content {...stylex.props(styles.sheetBody)}>{children}</Drawer.Content>
+              </div>
+            </div>
           </Drawer.Popup>
         </Drawer.Viewport>
       </Drawer.Portal>
@@ -457,38 +478,14 @@ const styles = stylex.create({
   planetNameActive: {
     color: '#f2e8d0',
   },
-  backdrop: {
-    backgroundColor: 'black',
-    inset: 0,
-    opacity: 'calc(0.46 * (1 - var(--drawer-swipe-progress, 0)))',
-    position: 'fixed',
-    transitionDuration: '450ms',
-    transitionProperty: 'opacity',
-    transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)',
-    ':is([data-starting-style], [data-ending-style])': {
-      opacity: 0,
-    },
-    ':is([data-swiping])': {
-      transitionDuration: '0ms',
-    },
-    ':is([data-ending-style])': {
-      transitionDuration: 'calc(var(--drawer-swipe-strength, 1) * 400ms)',
-    },
-    '@media (prefers-reduced-motion: reduce)': {
-      transition: 'none',
-    },
-  },
   popup: {
-    backgroundColor: '#0b0d12',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.06), 0 -18px 40px oklch(0% 0 0 / 0.36)',
+    backgroundColor: 'transparent',
     boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
-    maxHeight: '78dvh',
+    maxHeight: '50dvh',
     outline: 'none',
-    overflow: 'hidden',
+    overflow: 'visible',
     paddingBottom:
       'max(0px, calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y)))',
     pointerEvents: 'auto',
@@ -509,6 +506,68 @@ const styles = stylex.create({
     ':is([data-ending-style])': {
       transitionDuration: 'calc(var(--drawer-swipe-strength, 1) * 400ms)',
     },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  // Sits in the visible content box so radius/gap start as soon as the sheet leaves the flush snap.
+  // Drawer registers its travel vars with inherits:false; pull them onto this node so progress is real.
+  sheetSurface: {
+    '--drawer-snap-point-offset': 'inherit',
+    '--drawer-swipe-movement-y': 'inherit',
+    '--slider-progress-bg': 'oklch(43.49% 0 0)',
+    '--slider-track-bg': 'oklch(35.62% 0 0)',
+    backdropFilter: 'blur(22px) saturate(0.72)',
+    backgroundColor: 'oklch(34.49% 0.0017 286.3 / 0.831)',
+    borderBottomLeftRadius: `calc(${SHEET_RADIUS} * ${SHEET_PROGRESS})`,
+    borderBottomRightRadius: `calc(${SHEET_RADIUS} * ${SHEET_PROGRESS})`,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.102), inset 0 0 0 1px oklch(100% 0 0 / 0.039)',
+    display: 'flex',
+    flex: 1,
+    flexDirection: 'column',
+    marginBottom: `calc(${FLOAT_GAP} * ${SHEET_PROGRESS})`,
+    marginInline: FLOAT_GAP,
+    minHeight: 0,
+    overflow: 'visible',
+    position: 'relative',
+    transitionDuration: 'inherit',
+    transitionProperty: 'margin, border-radius',
+    zIndex: 1,
+    transitionTimingFunction: 'inherit',
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  sheetClip: {
+    '--drawer-snap-point-offset': 'inherit',
+    '--drawer-swipe-movement-y': 'inherit',
+    borderRadius: 'inherit',
+    display: 'flex',
+    flex: 1,
+    flexDirection: 'column',
+    minHeight: 0,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  sheetBottomMask: {
+    '--drawer-snap-point-offset': 'inherit',
+    '--drawer-swipe-movement-y': 'inherit',
+    backgroundImage:
+      'linear-gradient(to top, rgba(7, 8, 13, 0.88) 0%, rgba(7, 8, 13, 0) 100%), linear-gradient(to top, rgba(9, 12, 20, 0.55) 0%, rgba(9, 12, 20, 0) 58%), linear-gradient(to top, rgba(9, 12, 20, 0.28) 0%, rgba(9, 12, 20, 0) 32%)',
+    // Sit on the visible viewport bottom (content-box edge), behind the card.
+    bottom: 'calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y))',
+    height: `calc(${FLOAT_GAP} * ${SHEET_PROGRESS} + 36px * ${SHEET_PROGRESS})`,
+    left: FLOAT_GAP,
+    opacity: SHEET_PROGRESS,
+    pointerEvents: 'none',
+    position: 'absolute',
+    right: FLOAT_GAP,
+    transitionDuration: 'inherit',
+    transitionProperty: 'opacity, height, bottom',
+    transitionTimingFunction: 'inherit',
+    zIndex: 0,
     '@media (prefers-reduced-motion: reduce)': {
       transition: 'none',
     },
