@@ -9,7 +9,7 @@ import { planets } from './showcase-data'
 
 const MOBILE_QUERY = '(max-width: 960px)'
 const STEP = 360 / planets.length
-const RADIUS = 132
+const RADIUS = 152
 const DRAG_DEG_PER_PX = 0.48
 const OPEN_PULL = 36
 const PRESET_SNAP = 0.25
@@ -61,19 +61,56 @@ function GearIcon() {
   )
 }
 
+// Ring track: recessed dots on the bezel; faint ticks along the disc edge.
 function WheelTicks() {
   return (
     <svg aria-hidden="true" viewBox="0 0 360 360" {...stylex.props(styles.ticks)}>
+      <defs>
+        <linearGradient
+          gradientUnits="userSpaceOnUse"
+          id="solaris-wheel-inner-hairline"
+          x1="56"
+          x2="304"
+          y1="0"
+          y2="0"
+        >
+          <stop offset="0" stopColor="#fff" stopOpacity="0" />
+          <stop offset="0.5" stopColor="#fff" stopOpacity="1" />
+          <stop offset="1" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
+        <mask id="solaris-wheel-inner-hairline-mask" maskUnits="userSpaceOnUse">
+          <rect fill="url(#solaris-wheel-inner-hairline)" height="360" width="360" x="0" y="0" />
+        </mask>
+      </defs>
+      <circle
+        cx={180}
+        cy={180}
+        fill="none"
+        mask="url(#solaris-wheel-inner-hairline-mask)"
+        r={124}
+        stroke="rgba(120, 120, 128, 0.12)"
+        strokeWidth={1}
+      />
       {Array.from({ length: 72 }, (_, index) => {
-        const major = index % 6 === 0
         const angle = (index * 5 * Math.PI) / 180
-        const inner = major ? 154 : 160
-        const outer = 172
+        const cx = 180 + Math.cos(angle) * RADIUS
+        const cy = 180 + Math.sin(angle) * RADIUS
+        return (
+          <g key={index}>
+            <circle cx={cx} cy={cy + 0.7} fill="rgba(255, 255, 255, 0.07)" r={1.7} />
+            <circle cx={cx} cy={cy} fill="#07080b" r={1.7} />
+          </g>
+        )
+      })}
+      {Array.from({ length: 48 }, (_, index) => {
+        const angle = (index * 7.5 * Math.PI) / 180
+        const inner = index % 4 === 0 ? 104 : 110
+        const outer = 116
         return (
           <line
-            key={index}
-            stroke="currentColor"
-            strokeWidth={major ? 1.25 : 0.7}
+            key={`tick-${index}`}
+            stroke="rgba(242, 232, 208, 0.09)"
+            strokeWidth={0.7}
             x1={180 + Math.cos(angle) * inner}
             x2={180 + Math.cos(angle) * outer}
             y1={180 + Math.sin(angle) * inner}
@@ -132,9 +169,6 @@ function WheelPlanet({
         {...stylex.props(styles.planetImage)}
         style={planet.id === 'saturn' ? { transform: 'scale(1.2)' } : undefined}
       />
-      <span {...stylex.props(styles.planetName, selected && styles.planetNameActive)}>
-        {planet.name}
-      </span>
     </motion.button>
   )
 }
@@ -229,8 +263,6 @@ export function PlanetWheel({
         {...stylex.props(styles.surface)}
       >
         <div {...stylex.props(styles.bezel)} aria-hidden="true">
-          <span {...stylex.props(styles.bezelFace)} />
-          <span {...stylex.props(styles.bezelWell)} />
           <WheelTicks />
           <span {...stylex.props(styles.notch)} />
         </div>
@@ -338,33 +370,27 @@ export function SettingsSheet({
 
 const styles = stylex.create({
   bezel: {
+    backgroundColor: '#0c0d10',
+    // Disc (0–124px) with a soft dark lip, then the matte ring underneath.
+    backgroundImage:
+      'radial-gradient(circle at 50% 50%, #1a1b20 0px, #16171b 64px, #131418 108px, rgba(0, 0, 0, 0.18) 123px, transparent 124px), linear-gradient(180deg, #14151a 0%, #0b0c0f 100%)',
+    borderRadius: '50%',
+    borderWidth: 0,
+    boxShadow:
+      'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(255, 255, 255, 0.04), 0 12px 30px rgba(0, 0, 0, 0.5)',
+    boxSizing: 'border-box',
     height: 360,
     left: '50%',
     pointerEvents: 'none',
     position: 'absolute',
-    top: -48,
+    top: -4,
     transform: 'translateX(-50%)',
     width: 360,
-  },
-  bezelFace: {
-    backgroundColor: '#0b0d12',
-    borderRadius: '50%',
-    boxShadow:
-      'inset 0 1px 0 oklch(100% 0 0 / 0.06), inset 0 -1px 1px oklch(0% 0 0 / 0.38), 0 -16px 40px oklch(0% 0 0 / 0.42)',
-    inset: 0,
-    position: 'absolute',
-  },
-  bezelWell: {
-    backgroundColor: 'oklch(16% 0 0)',
-    borderRadius: '50%',
-    boxShadow: 'inset 0 3px 8px oklch(0% 0 0 / 0.34), inset 0 1px 0 oklch(100% 0 0 / 0.04)',
-    inset: 22,
-    position: 'absolute',
   },
   dock: {
     bottom: 0,
     display: 'none',
-    height: 'calc(168px + env(safe-area-inset-bottom, 0px))',
+    height: 'calc(128px + env(safe-area-inset-bottom, 0px))',
     left: 0,
     pointerEvents: 'none',
     position: 'fixed',
@@ -377,18 +403,20 @@ const styles = stylex.create({
   gear: {
     alignItems: 'center',
     appearance: 'none',
-    backgroundColor: 'oklch(22% 0 0)',
+    backgroundColor: '#1b1c21',
     backgroundImage:
-      'linear-gradient(180deg, color-mix(in oklch, var(--control-accent) 88%, white) 0%, color-mix(in oklch, var(--control-accent) 96%, black) 100%)',
+      'radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 70%), linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(0, 0, 0, 0.22) 100%)',
+    borderColor: 'rgba(255, 255, 255, 0.045)',
     borderRadius: '50%',
-    borderWidth: 0,
-    bottom: 'calc(10px + env(safe-area-inset-bottom, 0px))',
+    borderStyle: 'solid',
+    borderWidth: 1,
+    bottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
     boxShadow:
-      'inset 0 1px 0 oklch(100% 0 0 / 0.16), inset 0 -1px 1px oklch(0% 0 0 / 0.28), 0 2px 6px oklch(0% 0 0 / 0.28)',
-    color: 'oklch(18% 0.01 84)',
+      'inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 -1px 1px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.22)',
+    color: 'rgba(242, 232, 208, 0.82)',
     cursor: 'pointer',
     display: 'grid',
-    height: 48,
+    height: 40,
     justifyContent: 'center',
     left: '50%',
     padding: 0,
@@ -396,7 +424,7 @@ const styles = stylex.create({
     pointerEvents: 'auto',
     position: 'absolute',
     transform: 'translateX(-50%)',
-    width: 48,
+    width: 40,
     zIndex: 3,
     ':focus-visible': {
       outline: '2px solid #f2e8d0',
@@ -405,19 +433,19 @@ const styles = stylex.create({
   },
   gearIcon: {
     display: 'block',
-    height: 22,
-    width: 22,
+    height: 18,
+    width: 18,
   },
   gearOpen: {
-    color: 'oklch(12% 0.01 84)',
+    color: '#f2e8d0',
   },
   notch: {
-    backgroundColor: 'rgba(242, 232, 208, 0.72)',
+    backgroundColor: 'rgba(242, 232, 208, 0.3)',
     borderRadius: 1,
-    height: 10,
+    height: 6,
     left: '50%',
     position: 'absolute',
-    top: 14,
+    top: 6,
     transform: 'translateX(-50%)',
     width: 2,
   },
@@ -426,7 +454,7 @@ const styles = stylex.create({
     left: '50%',
     pointerEvents: 'none',
     position: 'absolute',
-    top: 132,
+    top: 176,
     width: 0,
   },
   planet: {
@@ -437,16 +465,14 @@ const styles = stylex.create({
     color: 'rgba(242, 232, 208, 0.42)',
     cursor: 'pointer',
     display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-    height: 64,
-    justifyContent: 'flex-start',
-    left: -28,
+    height: 44,
+    justifyContent: 'center',
+    left: -22,
     padding: 0,
     pointerEvents: 'auto',
     position: 'absolute',
-    top: -28,
-    width: 56,
+    top: -22,
+    width: 44,
     ':focus-visible': {
       outline: '2px solid #f2e8d0',
       outlineOffset: 2,
@@ -461,22 +487,6 @@ const styles = stylex.create({
     objectFit: 'contain',
     pointerEvents: 'none',
     width: 36,
-  },
-  planetName: {
-    fontFamily: '"Inter Variable", Inter, sans-serif',
-    fontSize: 9,
-    fontWeight: 550,
-    letterSpacing: '-0.01em',
-    lineHeight: 1.1,
-    maxWidth: 72,
-    overflow: 'hidden',
-    pointerEvents: 'none',
-    textAlign: 'center',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  planetNameActive: {
-    color: '#f2e8d0',
   },
   popup: {
     backgroundColor: 'transparent',
@@ -624,7 +634,6 @@ const styles = stylex.create({
     userSelect: 'none',
   },
   ticks: {
-    color: 'rgba(242, 232, 208, 0.22)',
     inset: 0,
     position: 'absolute',
   },

@@ -2858,7 +2858,7 @@ const styles = stylex.create({
     },
     '@media (max-width: 960px)': {
       gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-      paddingBottom: 'calc(188px + env(safe-area-inset-bottom, 0px))',
+      paddingBottom: 'calc(148px + env(safe-area-inset-bottom, 0px))',
       paddingTop: 24,
     },
   },
