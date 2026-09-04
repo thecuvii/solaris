@@ -282,17 +282,16 @@ void main() {
   float edgeWidth = max(fwidth(radialDistance), 0.0005);
   float coverage = 1.0 - smoothstep(MOON_RADIUS - edgeWidth, MOON_RADIUS + edgeWidth, radialDistance);
 
-  vec2 edgePosition = position / max(radialDistance, 0.0001);
-  float edgeSunVisibility = visibleSun(edgePosition);
-  float eclipseBoundarySupport = 4.0 * edgeSunVisibility * (1.0 - edgeSunVisibility);
+  vec2 limbPosition = position / max(radialDistance, 0.0001);
+  float limbSunVisibility = visibleSun(limbPosition);
   float outsideDistance = max(radialDistance - MOON_RADIUS, 0.0);
   float haloFalloff = exp(
     -outsideDistance / max(uHaloWidth * MOON_RADIUS, 0.0001)
   );
-  float haloAlpha = (1.0 - coverage) * uHaloIntensity * 0.46 *
-    eclipseBoundarySupport * haloFalloff;
+  float limbGlow = smoothstep(0.05, 0.42, limbSunVisibility);
+  float haloAlpha = (1.0 - coverage) * uHaloIntensity * 0.46 * limbGlow * haloFalloff;
   vec3 haloDisplay = displayEncode(
-    vec3(0.18, 0.46, 1.2) * uExposure * (0.65 + edgeSunVisibility * 0.35)
+    vec3(0.18, 0.46, 1.2) * uExposure * (0.65 + limbSunVisibility * 0.35)
   );
 
   if (coverage <= 0.0) {
