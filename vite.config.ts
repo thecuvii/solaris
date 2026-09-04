@@ -27,6 +27,7 @@ export default defineConfig({
       'mercury/index': 'src/mercury/index.ts',
       'moon/index': 'src/moon/index.ts',
       'neptune/index': 'src/neptune/index.ts',
+      'observed-sun/index': 'src/observed-sun/index.ts',
       'pluto/index': 'src/pluto/index.ts',
       'saturn/index': 'src/saturn/index.ts',
       'sun/index': 'src/sun/index.ts',

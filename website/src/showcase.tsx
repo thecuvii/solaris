@@ -14,6 +14,7 @@ import { Mars } from '@thecuvii/solaris/mars'
 import { Mercury } from '@thecuvii/solaris/mercury'
 import { LunarEclipse, Moon } from '@thecuvii/solaris/moon'
 import { Neptune } from '@thecuvii/solaris/neptune'
+import { ObservedSun } from '@thecuvii/solaris/observed-sun'
 import { Pluto } from '@thecuvii/solaris/pluto'
 import { Saturn } from '@thecuvii/solaris/saturn'
 import { Sun } from '@thecuvii/solaris/sun'
@@ -52,6 +53,7 @@ import {
 } from 'react'
 import { TextMorph } from 'torph/react'
 
+import { PlanetWheel, SettingsSheet, useMobileShowcase } from './planet-wheel'
 import { getPlanetTextureDocs, isPlanetId, planets, textures } from './showcase-data'
 import type { Planet, PlanetId, TextureDoc, TexturedPlanetId } from './showcase-data'
 import {
@@ -312,6 +314,8 @@ export function ShowcaseLayout() {
   const [departingPlanet, setDepartingPlanet] = useState<PlanetId | null>(null)
   const [jotaiStore] = useState(createStore)
   const [presentedPlanet, setPresentedPlanet] = useState<PlanetId>(selectedPlanet)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const isMobile = useMobileShowcase()
   const selectedPlanetRef = useRef<PlanetId>(selectedPlanet)
   const transitionInFlightRef = useRef(false)
   const queuedPlanetRef = useRef<PlanetId | null>(null)
@@ -429,19 +433,34 @@ export function ShowcaseLayout() {
             <Outlet />
           </main>
 
-          <AnimatePresence custom={chromeTransition} initial={false}>
-            <motion.aside
-              key={presentedPlanet}
-              animate="center"
-              custom={chromeTransition}
-              exit="exit"
-              initial="enter"
-              variants={chromeVariants}
-              {...stylex.props(styles.inspector)}
-            >
-              <Inspector planetId={presentedPlanet} />
-            </motion.aside>
-          </AnimatePresence>
+          {isMobile ? (
+            <>
+              <PlanetWheel
+                onSelectPlanet={selectPlanet}
+                onSettingsOpenChange={setSettingsOpen}
+                reducedMotion={Boolean(reduceMotion)}
+                selectedPlanet={selectedPlanet}
+                settingsOpen={settingsOpen}
+              />
+              <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen}>
+                <Inspector planetId={presentedPlanet} />
+              </SettingsSheet>
+            </>
+          ) : (
+            <AnimatePresence custom={chromeTransition} initial={false}>
+              <motion.aside
+                key={presentedPlanet}
+                animate="center"
+                custom={chromeTransition}
+                exit="exit"
+                initial="enter"
+                variants={chromeVariants}
+                {...stylex.props(styles.inspector)}
+              >
+                <Inspector planetId={presentedPlanet} />
+              </motion.aside>
+            </AnimatePresence>
+          )}
 
           {showGrid && <LayoutGridOverlay />}
         </EclipseLightingPage>
@@ -802,6 +821,8 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
       )
     case 'neptune':
       return <Neptune {...shared} />
+    case 'observed-sun':
+      return <ObservedSun {...shared} />
     case 'pluto':
       return <Pluto {...shared} textures={textures.pluto} />
     case 'saturn':
@@ -2378,14 +2399,7 @@ const styles = stylex.create({
     willChange: 'opacity, transform',
     zIndex: 2,
     '@media (max-width: 960px)': {
-      height: 'auto',
-      overflowY: 'visible',
-      paddingBlock: 28,
-      paddingInline: 24,
-      position: 'relative',
-      right: 'auto',
-      top: 'auto',
-      width: 'auto',
+      display: 'none',
     },
   },
   inspectorGroups: {
@@ -2609,6 +2623,7 @@ const styles = stylex.create({
     },
     '@media (max-width: 960px)': {
       gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+      paddingBottom: 'calc(188px + env(safe-area-inset-bottom, 0px))',
       paddingTop: 24,
     },
   },
@@ -2630,6 +2645,9 @@ const styles = stylex.create({
   previewStageSpace: {
     gridColumn: '1 / -1',
     height: 'clamp(480px, 68vh, 720px)',
+    '@media (max-width: 960px)': {
+      height: 'clamp(300px, 52dvh, 460px)',
+    },
   },
   picker: {
     height: '100dvh',
@@ -2823,18 +2841,7 @@ const styles = stylex.create({
     scrollbarWidth: 'none',
     width: 204,
     '@media (max-width: 960px)': {
-      alignItems: 'center',
-      flexShrink: 0,
-      flexDirection: 'row',
-      gap: 8,
-      height: 'auto',
-      marginTop: 12,
-      overflowX: 'auto',
-      overflowY: 'hidden',
-      paddingBlock: 13,
-      paddingInline: 16,
-      scrollSnapType: 'x proximity',
-      width: '100%',
+      display: 'none',
     },
   },
   planetTab: {

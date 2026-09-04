@@ -8,6 +8,7 @@ export type PlanetId =
   | 'mercury'
   | 'moon'
   | 'neptune'
+  | 'observed-sun'
   | 'pluto'
   | 'saturn'
   | 'sun'
@@ -41,6 +42,14 @@ export const planets: readonly Planet[] = [
     name: 'Sun',
     packageName: 'sun',
     summary: 'A data-driven solar surface with active regions, filaments, and limb emission.',
+  },
+  {
+    componentName: 'ObservedSun',
+    id: 'observed-sun',
+    name: 'Observed Sun',
+    packageName: 'observed-sun',
+    summary:
+      'The Sun as photographed from the ground: haze-softened disc, refraction flattening, cloud striations, and lens glare.',
   },
   {
     id: 'mercury',
