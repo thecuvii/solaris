@@ -9,7 +9,7 @@ module.exports = {
       '@stylexjs/babel-plugin',
       {
         aliases: {
-          '#/*': [path.join(__dirname, 'src/*')],
+          '#/*': [path.join(__dirname, '*')],
         },
         dev,
         enableInlinedConditionalMerge: true,

@@ -2,7 +2,7 @@
   "name": "website",
   "private": true,
   "imports": {
-    "#/*": "./src/*"
+    "#/*": "./*"
   },
   "scripts": {
     "dev": "next dev --port 3000",

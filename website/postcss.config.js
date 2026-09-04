@@ -8,7 +8,7 @@ module.exports = {
         parserOpts: { plugins: ['typescript', 'jsx'] },
         plugins: babelConfig.plugins,
       },
-      include: ['src/**/*.{js,jsx,ts,tsx}'],
+      include: ['app/**/*.{js,jsx,ts,tsx}', 'modules/**/*.{js,jsx,ts,tsx}'],
       useCSSLayers: true,
     },
     autoprefixer: {},

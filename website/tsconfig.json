@@ -14,19 +14,15 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "paths": {
-      "#/*": ["./src/*"],
+      "#/*": ["./*"],
       "@thecuvii/solaris": ["../src/index.ts"],
       "@thecuvii/solaris/*": ["../src/*/index.ts"]
     },
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ],
+    "plugins": [{ "name": "next" }],
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": true,
-    "target": "ES2022",
-    "resolveJsonModule": true
+    "target": "ES2022"
   },
   "include": [
     "next-env.d.ts",

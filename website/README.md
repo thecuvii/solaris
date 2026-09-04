@@ -7,4 +7,8 @@ pnpm --filter website dev
 pnpm --filter website build
 ```
 
-`next build` writes a static site to `out/` (`output: 'export'`). Each planet is prerendered from `src/app/[planet]/page.tsx` with its own title, description, and canonical URL.
+`next build` writes a static site to `out/` (`output: 'export'`).
+
+- `app/layout.tsx` is the document shell.
+- `app/(showcase)/layout.tsx` keeps the picker, wheel, inspector, and page chrome mounted across planet routes.
+- Each planet is its own route (`earth/page.tsx`, `moon/page.tsx`, …) and composes a `PlanetPreview` around that planet's scene. `/` redirects to `/earth/`.
