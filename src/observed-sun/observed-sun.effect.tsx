@@ -25,7 +25,7 @@ export type ObservedSunEffectProps = {
   className?: string
   /** Thin horizontal cloud/inversion striations across the low disc. */
   cloudStreaks?: number
-  /** Editorial magenta flush on the lower disc and its glow. */
+  /** Editorial yellow→orange→magenta disc grade. Stays on the disc. */
   duskFlush?: number
   /** Linear scene gain relative to the disc centre before tone mapping. */
   exposure?: number
@@ -125,8 +125,7 @@ const vec3 TAU_OZONE = vec3(0.012, 0.035, 0.0016);
 // Neckel per-wavelength limb-darkening exponents (blue darkens fastest).
 const vec3 LIMB_EXPONENT = vec3(0.397, 0.503, 0.652);
 const vec3 GLARE_TINT = vec3(1.0, 0.80, 0.46);
-const vec3 DUSK_MAGENTA = vec3(1.42, 0.14, 0.68);
-const vec3 INDIGO_FIELD = vec3(0.026, 0.024, 0.055);
+const vec3 INDIGO_FIELD = vec3(0.016, 0.014, 0.032);
 
 float hash11(float p) {
   return fract(sin(p * 127.1) * 43758.5453123);
@@ -286,22 +285,28 @@ void main() {
   // Disc: per-row extinction, Neckel limb darkening, Heckel softSunDisc edge.
   float muLimb = sqrt(max(1.0 - radial * radial, 0.0));
   vec3 limb = mix(pow(vec3(muLimb), LIMB_EXPONENT), vec3(1.0), uHaze * 0.85);
-  float rowElevation = trueCentre + yTrue * DISC_GRADIENT_STRETCH * (1.0 + uDuskFlush);
+  float rowElevation = trueCentre + yTrue * DISC_GRADIENT_STRETCH;
   vec3 discRadiance = transmittance(rowElevation) / centreLuminance * limb;
-  float height = clamp(yTrue / SUN_RADIUS, -1.2, 1.2);
-  float flush = uDuskFlush * smoothstep(0.28, -0.92, height);
-  float discLuminance = max(dot(discRadiance, LUMINANCE), 1e-4);
-  discRadiance = mix(
-    discRadiance,
-    DUSK_MAGENTA * discLuminance / max(dot(DUSK_MAGENTA, LUMINANCE), 1e-4),
-    flush
-  );
   discRadiance = saturateColor(discRadiance, uSaturation);
-  vec3 glowTint = saturateColor(mix(sunTint * GLARE_TINT, DUSK_MAGENTA, flush), uSaturation);
-  float discRadius = SUN_RADIUS * mix(1.0, 1.55, uHaze);
+  vec3 glowTint = saturateColor(sunTint * GLARE_TINT, uSaturation);
   float theta = length(vec2(discAngular.x, yTrue));
-  float sunShape = softSunDisc(theta, discRadius);
-  float discMask = smoothstep(discRadius * 1.3, discRadius * 0.2, theta);
+  float height = clamp(yTrue / SUN_RADIUS, -1.2, 1.2);
+  // Physical path: Heckel softSunDisc, haze-widened. Poster path: keep the
+  // geometric radius and let haze only blur the limb, so the grade cannot
+  // paint the field.
+  float physicalRadius = SUN_RADIUS * mix(1.0, 1.55, uHaze);
+  float sunShapePhysical = softSunDisc(theta, physicalRadius);
+  // Poster disc is a hard circle with ~1 px AA. Haze must not feather it.
+  float pixelSoft = (SUN_RADIUS / max(uSunScale, 1e-4)) * 1.25 / max(uResolution.y, 1.0);
+  float sunShapePoster = 1.0 - smoothstep(SUN_RADIUS, SUN_RADIUS + pixelSoft, theta);
+  float sunShape = mix(sunShapePhysical, sunShapePoster, uDuskFlush);
+  float bloomWidth = SUN_RADIUS * 0.008;
+  float posterBloom = exp(-pow(max(theta - SUN_RADIUS, 0.0) / max(bloomWidth, 1e-5), 2.0));
+  // Same stops as the display grade: yellow → orange → hot magenta.
+  float toAmber = smoothstep(0.95, 0.08, height);
+  float toMagenta = smoothstep(0.18, -0.78, height);
+  vec3 posterRamp = mix(vec3(1.16, 1.06, 0.34), vec3(1.08, 0.50, 0.08), toAmber);
+  posterRamp = mix(posterRamp, vec3(1.04, 0.12, 0.44), toMagenta);
 
   // Thin horizontal cloud layers: 1D noise along apparent elevation.
   float layerProximity = exp(-max(apparentElev, 0.0) / 6.0);
@@ -329,24 +334,28 @@ void main() {
   // zero field stays an indigo plate instead of a full-screen wash.
   float glareGauss = exp(-pow(outsideEdge / (0.05 + 0.22 * uHaze), 2.0));
   float glareWings = 0.012 / pow(outsideEdge + 0.15, 2.0) + 0.0015 / pow(outsideEdge + 0.15, 3.0);
-  vec3 glare = glowTint * (
+  vec3 physicalGlare = glowTint * (
     uGlare * (0.42 * glareGauss + glareWings * mix(0.2, 1.0, uField) + 0.015 * uField)
   ) * directSunFactor;
+  // Poster: a tight limb veil only. Vos wings + wide gauss are what made the
+  // indigo plate look like a purple halo.
+  vec3 posterGlare = posterRamp * posterBloom * (0.03 + 0.10 * uGlare);
+  vec3 glare = mix(physicalGlare, posterGlare, uDuskFlush);
 
   // Apparent horizon with a dark ground. A zero field is a full indigo plate.
   float pixelAngle = (SUN_RADIUS / uSunScale) * 3.0 / max(uResolution.y, 1.0);
   float horizonMask = mix(1.0, smoothstep(-pixelAngle, pixelAngle, apparentElev), uField);
-  vec3 above = sky + discRadiance * sunShape * streaks * directSunFactor;
+  vec3 above = sky + discRadiance * sunShape * streaks * mix(directSunFactor, 1.0, uDuskFlush);
   vec3 ground = sky * 0.08 + vec3(0.004, 0.003, 0.004);
   vec3 scene = mix(ground, above, horizonMask) + glare;
 
   vec3 mapped = acesToneMap(scene * uExposure * 0.45);
-  vec3 posterRamp = mix(
-    vec3(1.06, 0.88, 0.32),
-    vec3(1.0, 0.18, 0.58),
-    smoothstep(0.55, -0.78, height)
+  float posterCore = sunShapePoster;
+  mapped = mix(
+    mapped,
+    saturateColor(posterRamp, mix(1.0, uSaturation, 0.55)),
+    posterCore * uDuskFlush
   );
-  mapped = mix(mapped, saturateColor(posterRamp, uSaturation), discMask * uDuskFlush);
   vec3 displayColor = linearToSrgb(mapped);
   float dither = (interleavedGradientNoise(gl_FragCoord.xy) - 0.5) / 255.0;
   fragColor = vec4(clamp(displayColor + dither, 0.0, 1.0), 1.0);
