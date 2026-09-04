@@ -9,7 +9,8 @@ import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-r
 /*
  * The Sun as photographed from the Earth's surface: a haze-softened,
  * refraction-flattened disc with per-row atmospheric extinction, limb
- * darkening, thin-cloud striations, seeing shimmer, and camera glare.
+ * darkening, thin-cloud striations, seeing shimmer, camera glare, and a
+ * mu6k-style lens flare.
  *
  * Single fullscreen pass, no textures, no render targets. The physical
  * ingredients are closed-form fits rather than a scattering integral:
@@ -39,6 +40,14 @@ export type ObservedSunEffectProps = {
   exposure?: number
   /** Scattering-sky amount. 0 is a dark indigo plate; 1 is the physical field. */
   field?: number
+  /** Lens flare strength: 1/r hotspot with soft noise rays and chromatic ghosts. */
+  flare?: number
+  /** Direction from the sun to the virtual optical centre, in degrees. Ghosts line up on it. */
+  flareAngle?: number
+  /** Ray density. 0 is a few broad soft rays; 1 is a dense burst of hairlines. */
+  flareRays?: number
+  /** Aperture star: eight diaphragm diffraction spikes, rotated by flareAngle. */
+  flareStar?: number
   /** Camera glare strength: near-limb bloom, wide wings, and veiling. */
   glare?: number
   /** Aerosol load. Softens the limb, tightens the aureole, and greys the sky. */
@@ -69,6 +78,10 @@ type ObservedSunSettings = {
   duskFlush: number
   exposure: number
   field: number
+  flare: number
+  flareAngle: number
+  flareRays: number
+  flareStar: number
   glare: number
   haze: number
   ozone: number
@@ -104,6 +117,10 @@ uniform float uCompositionScale;
 uniform float uDuskFlush;
 uniform float uExposure;
 uniform float uField;
+uniform float uFlare;
+uniform float uFlareAngle;
+uniform float uFlareRays;
+uniform float uFlareStar;
 uniform float uGlare;
 uniform float uHaze;
 uniform float uOzone;
@@ -236,6 +253,100 @@ vec3 saturateColor(vec3 color, float amount) {
   return mix(vec3(luminance), color, amount);
 }
 
+// Lens flare after mu6k (Shadertoy 4sX3Rs), the pattern most procedural
+// flares derive from. uv is frame space with the optical centre at 0 and
+// the frame height spanning 1; pos is the sun in that space.
+//
+// Hotspot: a 1/r glow (long tail, unlike the gaussian camera glare) whose
+// angular noise modulation gives the soft uneven rays seen in photos.
+float flareRays(vec2 uv, vec2 pos, float rayGain, float sizeScale, float density) {
+  vec2 main = uv - pos;
+  float ang = atan(main.x, main.y);
+  // Glow footprint grows with the disc's apparent size.
+  float r = length(main) / sizeScale;
+  float dist = pow(r, 0.1);
+  // mu6k uses 1/(16r+1); the extra quadratic term shortens the tail so the
+  // far field is veiled rather than flooded.
+  float f0 = 1.0 / (r * r * 160.0 + r * 16.0 + 1.0);
+  // Seamless in angle: noise is fed trig functions of the angle, as in mu6k.
+  // Broad rays are always present; the fine set fades in with density.
+  float coarse = sin(valueNoise1(sin(ang * 2.0 + pos.x) * 4.0 - cos(ang * 3.0 + pos.y)) * 16.0);
+  float fine = sin(valueNoise1(sin(ang * 5.0) * 7.0 + cos(ang * 7.0) * 3.0 + 31.0) * 24.0);
+  // Hairline streaks: density sets both how many angles the noise can light
+  // up (frequency) and how few survive the threshold (power).
+  float hairFreq = mix(3.0, 11.0, density);
+  float hairNoise = valueNoise1(sin(ang * 9.0) * hairFreq + cos(ang * 13.0) * hairFreq * 0.45 + 57.0);
+  float hair = pow(hairNoise, mix(30.0, 6.0, density));
+  float rays = coarse * 0.1 + fine * 0.06 * density + hair * mix(0.55, 0.3, density);
+  return f0 + f0 * (rays * rayGain + dist * 0.1 + 0.8);
+}
+
+// Aperture star: diaphragm diffraction spikes. Each spike is a soft line of
+// roughly constant width that fades along its length, so it reads as a
+// bright wedge near the disc and tapers out, not a hairline to the edge.
+// Eight primary spikes plus a weaker interleaved set; lengths vary.
+float apertureSpike(vec2 p, float dirAngle, float len, float width) {
+  vec2 d = vec2(cos(dirAngle), sin(dirAngle));
+  float along = dot(p, d);
+  float across = abs(p.x * d.y - p.y * d.x);
+  float w = width + along * 0.035;
+  float taper = exp(-pow(max(along, 0.0) / len, 1.5));
+  return exp(-pow(across / w, 2.0)) * taper * step(0.0, along);
+}
+
+float apertureStar(vec2 p, float rotation, float sizeScale) {
+  p /= sizeScale;
+  float star = 0.0;
+  for (int i = 0; i < 8; i++) {
+    float fi = float(i);
+    float a = rotation + fi * (PI / 4.0);
+    float len = mix(0.09, 0.22, hash11(fi + 3.0));
+    star += apertureSpike(p, a, len, 0.005);
+    star += apertureSpike(p, a + PI / 8.0, len * 0.45, 0.0035) * 0.35;
+  }
+  return star;
+}
+
+// Ghosts: soft discs and Lorentzian blobs along the sun-to-centre axis in
+// barrel-warped coordinates, each channel offset slightly for dispersion.
+vec3 flareGhosts(vec2 uv, vec2 pos) {
+  vec2 uvd = uv * length(uv);
+  vec3 c = vec3(0.0);
+  vec3 k;
+  // Far Lorentzian blobs past the optical centre.
+  k = vec3(0.8, 0.85, 0.9);
+  c += vec3(
+    1.0 / (1.0 + 32.0 * pow(length(uvd + k.x * pos), 2.0)),
+    1.0 / (1.0 + 32.0 * pow(length(uvd + k.y * pos), 2.0)),
+    1.0 / (1.0 + 32.0 * pow(length(uvd + k.z * pos), 2.0))
+  ) * vec3(0.25, 0.23, 0.21) * 0.25;
+  // Soft discs between the sun and the centre.
+  vec2 uvx = mix(uv, uvd, -0.5);
+  k = vec3(0.4, 0.45, 0.5);
+  c += vec3(
+    max(0.01 - pow(length(uvx + k.x * pos), 2.4), 0.0) * 6.0,
+    max(0.01 - pow(length(uvx + k.y * pos), 2.4), 0.0) * 5.0,
+    max(0.01 - pow(length(uvx + k.z * pos), 2.4), 0.0) * 3.0
+  );
+  // Tight discs.
+  uvx = mix(uv, uvd, -0.4);
+  k = vec3(0.2, 0.4, 0.6);
+  c += vec3(
+    max(0.01 - pow(length(uvx + k.x * pos), 5.5), 0.0) * 2.0,
+    max(0.01 - pow(length(uvx + k.y * pos), 5.5), 0.0) * 2.0,
+    max(0.01 - pow(length(uvx + k.z * pos), 5.5), 0.0) * 2.0
+  );
+  // Large disc on the sun side of the centre.
+  uvx = mix(uv, uvd, -0.5);
+  k = vec3(0.3, 0.325, 0.35);
+  c += vec3(
+    max(0.01 - pow(length(uvx - k.x * pos), 1.6), 0.0) * 6.0,
+    max(0.01 - pow(length(uvx - k.y * pos), 1.6), 0.0) * 3.0,
+    max(0.01 - pow(length(uvx - k.z * pos), 1.6), 0.0) * 5.0
+  );
+  return c;
+}
+
 vec3 acesToneMap(vec3 color) {
   return clamp(
     (color * (2.51 * color + 0.03)) / (color * (2.43 * color + 0.59) + 0.14),
@@ -352,12 +463,60 @@ void main() {
   vec3 posterGlare = posterRamp * posterBloom * (0.03 + 0.10 * uGlare);
   vec3 glare = mix(physicalGlare, posterGlare, uDuskFlush);
 
+  // Lens flare (mu6k layout). The sun sits at the composition centre, so a
+  // virtual optical centre is placed along uFlareAngle; ghosts line up on
+  // that axis. Frame space: height 1, sun at flarePos.
+  float canvasUnit = min(uResolution.x, uResolution.y);
+  vec2 fromSun = (gl_FragCoord.xy - uCompositionCenter) / canvasUnit;
+  float flareRad = radians(uFlareAngle);
+  vec2 flareAxis = vec2(cos(flareRad), sin(flareRad));
+  vec2 flarePos = -flareAxis * 0.32;
+  vec2 flareUv = fromSun + flarePos;
+  float flareAmt = uFlare * mix(directSunFactor, 1.0, uDuskFlush * 0.55);
+  // Disc radius in frame units. The flare was tuned around a ~0.01 disc; a
+  // larger disc grows the glow (sub-linearly, so a full-frame disc does not
+  // flood the image) and the bloom must always cover the disc, or it reads
+  // as a white dot painted on the sun.
+  float discFrame = uSunScale * uCompositionScale / (2.0 * canvasUnit);
+  float discRatio = max(discFrame / 0.0095, 1.0);
+  float glowScale = clamp(pow(discRatio, 0.5), 1.0, 4.0);
+  float hotspot = flareRays(flareUv, flarePos, 1.15, glowScale, uFlareRays);
+  vec3 ghosts = flareGhosts(flareUv, flarePos);
+  // Halo ring (Chapman): a circle about the optical centre whose radius is
+  // the centre-to-sun distance, so it always passes through the sun.
+  float haloRing = exp(-pow((length(flareUv) - length(flarePos)) / 0.04, 2.0));
+  float star = apertureStar(fromSun, flareRad, glowScale);
+  // Sensor bloom. Charge spill grows with over-exposure: below clipping it is
+  // a faint warm glow around the disc; past it the blown region turns white
+  // and outgrows the disc, as in photographs. Super-gaussian plateau gives a
+  // clipped core with a quick shoulder; the tight term lifts the deep-orange
+  // low-sun disc so it does not show as a yellow dot inside the white.
+  float flareR = length(fromSun);
+  float over = max(uExposure * 0.45 - 0.8, 0.0);
+  float bloomOuter = max(0.04, discFrame * 1.7);
+  float bloomInner = max(0.014, discFrame * 1.15);
+  float bloomShape = exp(-pow(flareR / bloomOuter, 3.0)) * 0.45 + exp(-pow(flareR / bloomInner, 2.0)) * 0.45;
+  float bloom = bloomShape * (0.35 + over * 1.4);
+  vec3 bloomTint = mix(glowTint, vec3(1.0), clamp(0.3 + over * 0.35, 0.3, 0.85));
+  // Rays and glow carry the sky's warm tint; ghosts lean red-orange like
+  // real coatings do. All scene-linear so exposure and ACES shape them.
+  vec3 flareEnergy = (
+    glowTint * hotspot * 0.3 +
+    bloomTint * bloom +
+    ghosts * vec3(1.0, 0.42, 0.26) * 1.0 +
+    vec3(1.0, 0.38, 0.18) * haloRing * (0.1 + 0.18 * uFlareStar) +
+    mix(glowTint, vec3(1.0), 0.3) * star * 0.45 * uFlareStar
+  ) * flareAmt;
+
   // Apparent horizon with a dark ground. A zero field is a full indigo plate.
   float pixelAngle = (SUN_RADIUS / uSunScale) * 3.0 / max(uCompositionScale, 1.0);
-  float horizonMask = mix(1.0, smoothstep(-pixelAngle, pixelAngle, apparentElev), uField);
+  // Haze softens the skyline into a fog band instead of a ruled edge.
+  float horizonSoft = pixelAngle + uHaze * 1.2;
+  float horizonMask = mix(1.0, smoothstep(-horizonSoft, horizonSoft, apparentElev), uField);
   vec3 above = sky + discRadiance * sunShape * streaks * mix(directSunFactor, 1.0, uDuskFlush);
-  vec3 ground = sky * 0.08 + vec3(0.004, 0.003, 0.004);
-  vec3 scene = mix(ground, above, horizonMask) + glare;
+  // Backlit terrain is a silhouette; it takes only a whisper of skylight.
+  vec3 ground = sky * 0.025 + vec3(0.004, 0.003, 0.004);
+  vec3 scene = mix(ground, above, horizonMask) + glare + flareEnergy;
 
   vec3 mapped = acesToneMap(scene * uExposure * 0.45);
   float posterCore = sunShapePoster;
@@ -366,6 +525,11 @@ void main() {
     saturateColor(posterRamp, mix(1.0, uSaturation, 0.55)),
     posterCore * uDuskFlush
   );
+  // Sensor grain rides with the flare: a lens that flares is a camera, and a
+  // perfectly smooth gradient is the first thing that reads as CG. Heavier
+  // in the shadows, gone in clipped highlights.
+  float grain = hash21(gl_FragCoord.xy + fract(uTime * 7.0) * vec2(17.0, 31.0)) - 0.5;
+  mapped += grain * 0.035 * uFlare * uField * (1.0 - dot(mapped, LUMINANCE));
   vec3 displayColor = linearToSrgb(mapped);
   float dither = (interleavedGradientNoise(gl_FragCoord.xy) - 0.5) / 255.0;
   fragColor = vec4(clamp(displayColor + dither, 0.0, 1.0), 1.0);
@@ -437,6 +601,10 @@ function sanitizedSettings(settings: ObservedSunSettings): ObservedSunSettings {
     duskFlush: clamp(settings.duskFlush, 0, 1),
     exposure: clamp(settings.exposure, 0, 8),
     field: clamp(settings.field, 0, 1),
+    flare: clamp(settings.flare, 0, 2),
+    flareAngle: clamp(settings.flareAngle, -180, 180),
+    flareRays: clamp(settings.flareRays, 0, 1),
+    flareStar: clamp(settings.flareStar, 0, 1),
     glare: clamp(settings.glare, 0, 2),
     haze: clamp(settings.haze, 0, 1),
     ozone: clamp(settings.ozone, 0, 2),
@@ -446,7 +614,7 @@ function sanitizedSettings(settings: ObservedSunSettings): ObservedSunSettings {
     seeingSpeed: clamp(settings.seeingSpeed, 0, 3),
     streakDrift: clamp(settings.streakDrift, 0, 3),
     sunElevation: clamp(settings.sunElevation, -1, 70),
-    sunScale: clamp(settings.sunScale, 0.1, 0.6),
+    sunScale: clamp(settings.sunScale, 0.02, 0.6),
   }
 }
 
@@ -526,6 +694,10 @@ function createObservedSunRenderer(
     uniform1f('uDuskFlush', settings.duskFlush)
     uniform1f('uExposure', settings.exposure)
     uniform1f('uField', settings.field)
+    uniform1f('uFlare', settings.flare)
+    uniform1f('uFlareAngle', settings.flareAngle)
+    uniform1f('uFlareRays', settings.flareRays)
+    uniform1f('uFlareStar', settings.flareStar)
     uniform1f('uGlare', settings.glare)
     uniform1f('uHaze', settings.haze)
     uniform1f('uOzone', settings.ozone)
@@ -596,6 +768,10 @@ export function ObservedSunEffect({
   duskFlush = 0,
   exposure = 1,
   field = 1,
+  flare = 0,
+  flareAngle = -38,
+  flareRays = 0.4,
+  flareStar = 0,
   glare = 0.4,
   haze = 0.5,
   ozone = 1,
@@ -616,6 +792,10 @@ export function ObservedSunEffect({
     duskFlush,
     exposure,
     field,
+    flare,
+    flareAngle,
+    flareRays,
+    flareStar,
     glare,
     haze,
     ozone,
