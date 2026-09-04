@@ -248,7 +248,7 @@ const styles = stylex.create({
     gap: 10,
     marginRight: 29,
     marginTop: 12,
-    paddingRight: 14,
+    paddingRight: 0,
     paddingTop: 12,
     textAlign: 'right',
     width: 180,
