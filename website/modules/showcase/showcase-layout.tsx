@@ -310,7 +310,6 @@ const styles = stylex.create({
     },
   },
   page: {
-    '--showcase-badge-ink': 'rgba(242, 232, 208, 0.5)',
     '--showcase-inspector-width': '280px',
     '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
     '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',

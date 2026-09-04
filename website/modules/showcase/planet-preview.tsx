@@ -13,36 +13,21 @@ export function PlanetIntroduction({
   chrome: ChromeTransitionContext
   planet: Planet
 }) {
-  const componentName = planet.componentName ?? planet.name
   const titleProps = stylex.props(styles.title, styles.eclipseTitleLighting)
-  const badgeProps = stylex.props(styles.componentName)
 
   return (
     <>
-      <div {...stylex.props(styles.titleRow)}>
-        <TextMorph
-          as="h1"
-          className={[titleProps.className, 'showcase-title-morph'].filter(Boolean).join(' ')}
-          disabled={chrome.reducedMotion}
-          duration={220}
-          ease="cubic-bezier(0.22, 1, 0.36, 1)"
-          scale={false}
-          style={titleProps.style}
-        >
-          {planet.name}
-        </TextMorph>
-        <TextMorph
-          as="span"
-          className={badgeProps.className}
-          disabled={chrome.reducedMotion}
-          duration={220}
-          ease="cubic-bezier(0.22, 1, 0.36, 1)"
-          scale={false}
-          style={badgeProps.style}
-        >
-          {`<${componentName} />`}
-        </TextMorph>
-      </div>
+      <TextMorph
+        as="h1"
+        className={[titleProps.className, 'showcase-title-morph'].filter(Boolean).join(' ')}
+        disabled={chrome.reducedMotion}
+        duration={220}
+        ease="cubic-bezier(0.22, 1, 0.36, 1)"
+        scale={false}
+        style={titleProps.style}
+      >
+        {planet.name}
+      </TextMorph>
       <AnimatePresence custom={chrome} initial={false} mode="popLayout">
         <motion.p
           key={planet.id}
@@ -61,16 +46,6 @@ export function PlanetIntroduction({
 }
 
 const styles = stylex.create({
-  componentName: {
-    backgroundColor: 'rgba(242, 232, 208, 0.065)',
-    borderRadius: 999,
-    color: 'var(--showcase-badge-ink)',
-    fontFamily: '"SFMono-Regular", Consolas, monospace',
-    fontSize: 10,
-    paddingBlock: 6,
-    paddingInline: 10,
-    transform: 'translateY(-8px)',
-  },
   eclipseTitleLighting: {
     filter: 'var(--eclipse-introduction-filter)',
     textShadow: 'none',
@@ -107,10 +82,5 @@ const styles = stylex.create({
     marginTop: '-0.12em',
     overflow: 'visible',
     paddingBottom: '0.22em',
-  },
-  titleRow: {
-    alignItems: 'baseline',
-    display: 'flex',
-    gap: 13,
   },
 })

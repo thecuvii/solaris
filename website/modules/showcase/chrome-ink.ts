@@ -1,7 +1,6 @@
 import type { CSSProperties } from 'react'
 
 export type ChromeInkProperties = {
-  '--showcase-badge-ink': string
   '--showcase-nav-ink': string
   '--showcase-nav-ink-hover': string
   '--showcase-nav-ink-strong': string
@@ -18,7 +17,6 @@ export type EclipseTextLightingProperties = CSSProperties &
   }
 
 const LIGHT_CHROME_INK: ChromeInkProperties = {
-  '--showcase-badge-ink': 'rgba(242, 232, 208, 0.5)',
   '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
   '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',
   '--showcase-nav-ink-strong': '#f2e8d0',
@@ -39,7 +37,6 @@ function inkMix(wash: number, light: string, dark: string): string {
 }
 
 const DARK_CHROME_INK: ChromeInkProperties = {
-  '--showcase-badge-ink': 'oklch(12% 0.01 80 / 0.72)',
   '--showcase-nav-ink': 'oklch(11% 0.01 80 / 0.82)',
   '--showcase-nav-ink-hover': 'oklch(8% 0.01 80 / 0.94)',
   '--showcase-nav-ink-strong': 'oklch(8% 0.012 80)',
@@ -52,11 +49,6 @@ export function chromeInk(wash: number): ChromeInkProperties {
   if (wash <= 0.001) return LIGHT_CHROME_INK
   if (wash >= 0.999) return DARK_CHROME_INK
   return {
-    '--showcase-badge-ink': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-badge-ink'],
-      DARK_CHROME_INK['--showcase-badge-ink'],
-    ),
     '--showcase-nav-ink': inkMix(
       wash,
       LIGHT_CHROME_INK['--showcase-nav-ink'],
