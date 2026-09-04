@@ -1,7 +1,6 @@
 import stylex from '@stylexjs/unplugin'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
-import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 const planetPages = [
@@ -21,11 +20,12 @@ const planetPages = [
   'venus',
 ].map((planet) => ({ path: `/${planet}` }))
 
-export default defineConfig(({ command }) => ({
+export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom'],
     tsconfigPaths: true,
   },
+  preview: { host: '127.0.0.1' },
   server: { allowedHosts: true },
   plugins: [
     stylex.vite({
@@ -38,25 +38,11 @@ export default defineConfig(({ command }) => ({
         enabled: true,
       },
       prerender: {
-        crawlLinks: true,
+        crawlLinks: false,
         enabled: true,
       },
       pages: [{ path: '/' }, ...planetPages],
     }),
-    command === 'build'
-      ? nitro({
-          preset: 'cloudflare_module',
-          compatibilityDate: '2026-09-01',
-          cloudflare: {
-            deployConfig: true,
-            nodeCompat: true,
-            wrangler: {
-              name: 'solaris',
-            },
-          },
-          rollupConfig: { external: [/^@sentry\//] },
-        })
-      : undefined,
     viteReact(),
   ],
-}))
+})
