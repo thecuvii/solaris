@@ -1,12 +1,12 @@
 import { createFileRoute, notFound } from '@tanstack/react-router'
 
-import { ShowcasePlanetPage } from '../showcase'
 import {
+  ShowcasePlanetPage,
   getPlanet,
   getPlanetTextureUrls,
   isPlanetId,
   preloadPlanetTextures,
-} from '../showcase-data'
+} from '../modules/showcase'
 
 export const Route = createFileRoute('/_showcase/$planet')({
   beforeLoad: ({ params }) => {

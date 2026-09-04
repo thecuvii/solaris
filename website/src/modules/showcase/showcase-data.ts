@@ -344,6 +344,6 @@ export function preloadPlanetTextures(id: PlanetId): void {
   void preloadTextureImages(urls).catch(() => {})
 }
 
-function hasTextures(id: PlanetId): id is TexturedPlanetId {
+export function hasTextures(id: PlanetId): id is TexturedPlanetId {
   return id in textures
 }

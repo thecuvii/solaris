@@ -2,12 +2,10 @@ import { Drawer } from '@base-ui/react/drawer'
 import * as stylex from '@stylexjs/stylex'
 import { animate, motion, useMotionValue, useTransform } from 'motion/react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import type { PlanetId } from './showcase-data'
-import { planets } from './showcase-data'
+import { planets, type PlanetId } from './modules/showcase/showcase-data'
 
-const MOBILE_QUERY = '(max-width: 960px)'
 const STEP = 360 / planets.length
 const RADIUS = 152
 const DRAG_DEG_PER_PX = 0.48
@@ -20,20 +18,6 @@ const MORPH_RANGE = '5dvh'
 const FLOAT_GAP = '12px'
 const SHEET_RADIUS = '16px'
 const SHEET_PROGRESS = `clamp(0, (${PRESET_TRAVEL} - (var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y))) / ${MORPH_RANGE}, 1)`
-
-function subscribeMobile(onStoreChange: () => void) {
-  const media = window.matchMedia(MOBILE_QUERY)
-  media.addEventListener('change', onStoreChange)
-  return () => media.removeEventListener('change', onStoreChange)
-}
-
-export function useMobileShowcase() {
-  return useSyncExternalStore(
-    subscribeMobile,
-    () => window.matchMedia(MOBILE_QUERY).matches,
-    () => false,
-  )
-}
 
 function wrapIndex(index: number) {
   const count = planets.length
