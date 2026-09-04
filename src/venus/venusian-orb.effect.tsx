@@ -7,7 +7,7 @@ import { type CSSProperties } from 'react'
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
 type VenusianFrameSettings = {
-  axialTilt: number
+  tilt: number
   cloudContrast: number
   cloudDetail: number
   exposure: number
@@ -34,7 +34,7 @@ export type VenusianOrbSource = {
 }
 
 export type VenusianOrbEffectProps = {
-  axialTilt?: number
+  tilt?: number
   className?: string
   cloudContrast?: number
   cloudDetail?: number
@@ -676,7 +676,7 @@ function createVenusianRenderer(
     gl.bindTexture(gl.TEXTURE_2D, resources.cloudStructureTexture)
     const { uniforms } = resources
     gl.uniform1i(uniforms.cloudStructureTexture, 0)
-    gl.uniform1f(uniforms.axialTilt, (settings.axialTilt * Math.PI) / 180)
+    gl.uniform1f(uniforms.axialTilt, (settings.tilt * Math.PI) / 180)
     gl.uniform1f(uniforms.cloudContrast, settings.cloudContrast)
     gl.uniform1f(uniforms.cloudDetail, settings.cloudDetail)
     gl.uniform1f(uniforms.exposure, settings.exposure)
@@ -766,7 +766,7 @@ function createVenusianRenderer(
 }
 
 export function VenusianOrbEffect({
-  axialTilt = -3,
+  tilt = -3,
   className,
   cloudContrast = 0.3,
   cloudDetail = 0.22,
@@ -787,7 +787,7 @@ export function VenusianOrbEffect({
   upperHaze = 0.46,
 }: VenusianOrbEffectProps) {
   const frameSettings: VenusianFrameSettings = {
-    axialTilt,
+    tilt,
     cloudContrast,
     cloudDetail,
     exposure,

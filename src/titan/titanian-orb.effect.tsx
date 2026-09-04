@@ -29,8 +29,8 @@ export type TitanianOrbEffectProps = {
   forwardScatteringStrength?: number
   hazeDensity?: number
   hazeThickness?: number
-  latitude?: number
   polarHood?: number
+  tilt?: number
   source: TitanianOrbSource
   spin?: number
   style?: CSSProperties
@@ -53,8 +53,8 @@ type TitanianFrameSettings = {
   hazeDensity: number
   hazeThickness: number
   yaw: number
-  latitude: number
   polarHood: number
+  tilt: number
   spin: number
   sunAzimuth: number
   sunElevation: number
@@ -669,7 +669,7 @@ function createTitanianRenderer(
     uniform1f('uSpin', (clamp(current.spin, 0, 4.6) * Math.PI) / 180)
     uniform1f('uSourceReady', hasSource ? 1 : 0)
     uniform1f('uTime', elapsed)
-    uniform1f('uLatitude', (clamp(current.latitude, -55, 55) * Math.PI) / 180)
+    uniform1f('uLatitude', (clamp(current.tilt, -55, 55) * Math.PI) / 180)
     gl.uniform2f(
       gl.getUniformLocation(activeResources.program, 'uResolution'),
       canvas!.width,
@@ -738,8 +738,8 @@ export function TitanianOrbEffect({
   hazeDensity = 1,
   hazeThickness = 1,
   yaw = 0,
-  latitude = 8,
   polarHood = 0.34,
+  tilt = 8,
   source,
   spin = 0.7,
   style,
@@ -753,9 +753,9 @@ export function TitanianOrbEffect({
     forwardScatteringStrength,
     hazeDensity,
     hazeThickness,
-    latitude,
     yaw,
     polarHood,
+    tilt,
     spin,
     sunAzimuth,
     sunElevation,

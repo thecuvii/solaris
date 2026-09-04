@@ -18,6 +18,7 @@ type LunarEclipseFrameSettings = {
   penumbraWidth: number
   refractedLightIntensity: number
   reliefShadowStrength: number
+  tilt: number
   yaw: number
   umbraRadius: number
 }
@@ -54,6 +55,7 @@ export type LunarEclipseEffectProps = {
   reliefShadowStrength?: number
   source: LunarEclipseSource
   style?: CSSProperties
+  tilt?: number
   yaw?: number
   umbraRadius?: number
   viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
@@ -110,6 +112,7 @@ uniform float uReliefShadowStrength;
 uniform vec2 uResolution;
 uniform vec2 uShadowOffset;
 uniform float uSourceReady;
+uniform float uTilt;
 uniform float uYaw;
 uniform float uUmbraRadius;
 
@@ -133,7 +136,7 @@ vec3 rotateY(vec3 value, float angle) {
 }
 
 vec3 textureDirection(vec3 surfaceNormal) {
-  vec3 tilted = rotateX(surfaceNormal, uPointer.y * 0.1);
+  vec3 tilted = rotateX(surfaceNormal, uTilt + uPointer.y * 0.1);
   return rotateY(tilted, uLongitudeOffset + uYaw + uPointer.x * 0.16);
 }
 
@@ -635,6 +638,7 @@ function createLunarEclipseRenderer(
       settings.offsetY,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTilt'), (settings.tilt * Math.PI) / 180)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uYaw'), (settings.yaw * Math.PI) / 180)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uUmbraRadius'), settings.umbraRadius)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
@@ -723,6 +727,7 @@ export function LunarEclipseEffect({
   reliefShadowStrength = 0.36,
   source,
   style,
+  tilt = 0,
   yaw = 0,
   umbraRadius = 2.2,
   viewport,
@@ -741,6 +746,7 @@ export function LunarEclipseEffect({
     penumbraWidth,
     refractedLightIntensity,
     reliefShadowStrength,
+    tilt,
     yaw,
     umbraRadius,
   }

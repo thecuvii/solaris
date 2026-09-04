@@ -37,7 +37,7 @@ type NeptunianFrameSettings = {
   upperHaze: number
   vortexCirculation: number
   vortexDarkness: number
-  weatherTilt: number
+  tilt: number
   windScale: number
 }
 
@@ -74,7 +74,7 @@ export type NeptunianOrbEffectProps = {
   vortexCirculation?: number
   vortexDarkness?: number
   /** View-space rotation of the weather map in degrees; it does not change the lighting geometry. */
-  weatherTilt?: number
+  tilt?: number
   windScale?: number
 }
 
@@ -817,7 +817,7 @@ function createNeptunianRenderer(
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.zonalWindTexture)
     gl.uniform1i(resources.uniforms.zonalWindTexture, 2)
-    gl.uniform1f(resources.uniforms.weatherTilt, (settings.weatherTilt * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.weatherTilt, (settings.tilt * Math.PI) / 180)
     gl.uniform1f(resources.uniforms.cloudRelief, settings.cloudRelief)
     gl.uniform1f(resources.uniforms.companionCloud, settings.companionCloud)
     gl.uniform1f(resources.uniforms.deepOpticalDepth, settings.deepOpticalDepth)
@@ -932,7 +932,7 @@ export function NeptunianOrbEffect({
   upperHaze = 0.3,
   vortexCirculation = 0.48,
   vortexDarkness = 0.5,
-  weatherTilt = 18,
+  tilt = 18,
   windScale = 0.62,
 }: NeptunianOrbEffectProps) {
   const frameSettings: NeptunianFrameSettings = {
@@ -954,7 +954,7 @@ export function NeptunianOrbEffect({
     upperHaze,
     vortexCirculation,
     vortexDarkness,
-    weatherTilt,
+    tilt,
     windScale,
   }
   const canvasRef = useCanvasRenderer(frameSettings, source, createNeptunianRenderer)

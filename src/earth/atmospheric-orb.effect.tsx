@@ -60,7 +60,9 @@ export type AtmosphericOrbEffectProps = {
   sunAzimuth?: number
   sunElevation?: number
   sunOrbit?: number
+  tilt?: number
   viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
+  yaw?: number
 }
 
 type AtmosphericFrameSettings = {
@@ -80,6 +82,8 @@ type AtmosphericFrameSettings = {
   sunAzimuth: number
   sunElevation: number
   sunOrbit: number
+  tilt: number
+  yaw: number
 }
 
 type AtmosphericRendererInput = {
@@ -278,8 +282,10 @@ uniform vec3 uSunDirection;
 uniform float uSunIntensity;
 uniform vec3 uSurfaceDay;
 uniform vec3 uSurfaceNight;
+uniform float uTilt;
 uniform sampler2D uTransmittance;
 uniform float uTime;
+uniform float uYaw;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out vec4 emissionColor;
@@ -330,6 +336,16 @@ vec3 rotateAroundY(vec3 value, float angle) {
     value.y,
     -sine * value.x + cosine * value.z
   );
+}
+
+vec3 rotateX(vec3 value, float angle) {
+  float sine = sin(angle);
+  float cosine = cos(angle);
+  return vec3(value.x, cosine * value.y - sine * value.z, sine * value.y + cosine * value.z);
+}
+
+vec3 bodyDirection(vec3 direction, float spinAngle) {
+  return rotateAroundY(rotateX(direction, uTilt), spinAngle + uLongitudeOffset + uYaw);
 }
 
 vec2 sphereUv(vec3 normal) {
@@ -562,7 +578,7 @@ void main() {
   if (hitsSurface) {
     vec3 surfacePoint = rayOrigin + rayDirection * planetHit.x;
     vec3 normal = normalize(surfacePoint);
-    vec3 rotatedNormal = rotateAroundY(normal, uTime * uSpin + uLongitudeOffset);
+    vec3 rotatedNormal = bodyDirection(normal, uTime * uSpin);
     float lightFacing = dot(normal, uSunDirection);
     float directLight = max(lightFacing, 0.0);
     float surfaceVariation = valueNoise(rotatedNormal * 2.8) * 0.65 + valueNoise(rotatedNormal * 7.0) * 0.35;
@@ -627,15 +643,15 @@ void main() {
         vec2 cloudHit = raySphereIntersect(rayOrigin, rayDirection, cloudRadius);
         vec3 cloudPoint = rayOrigin + rayDirection * max(cloudHit.x, 0.0);
         cloudNormal = normalize(cloudPoint);
-        vec3 rotatedCloudNormal = rotateAroundY(
+        vec3 rotatedCloudNormal = bodyDirection(
           cloudNormal,
-          uTime * uSpin * CLOUD_SPIN_RATIO + uLongitudeOffset
+          uTime * uSpin * CLOUD_SPIN_RATIO
         );
         float coverage = cloudCoverage(rotatedCloudNormal);
         cloudOpticalDepth = 1.0 - exp(-coverage * 2.6);
-        vec3 rotatedSunDirection = rotateAroundY(
+        vec3 rotatedSunDirection = bodyDirection(
           uSunDirection,
-          uTime * uSpin * CLOUD_SPIN_RATIO + uLongitudeOffset
+          uTime * uSpin * CLOUD_SPIN_RATIO
         );
         vec3 cloudSunTangent =
           rotatedSunDirection - rotatedCloudNormal * dot(rotatedCloudNormal, rotatedSunDirection);
@@ -649,9 +665,9 @@ void main() {
         vec2 shadowHit = raySphereIntersect(shadowOrigin, uSunDirection, cloudRadius);
         if (shadowHit.y > 0.0 && directLight > 0.0) {
           vec3 shadowShellNormal = normalize(shadowOrigin + uSunDirection * shadowHit.y);
-          vec3 rotatedShadowNormal = rotateAroundY(
+          vec3 rotatedShadowNormal = bodyDirection(
             shadowShellNormal,
-            uTime * uSpin * CLOUD_SPIN_RATIO + uLongitudeOffset
+            uTime * uSpin * CLOUD_SPIN_RATIO
           );
           cloudShadow = cloudCoverage(rotatedShadowNormal) * directLight;
         }
@@ -1435,6 +1451,14 @@ function createAtmosphericRenderer(
       longitudeOffset,
     )
     gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uTilt'),
+      (current.tilt * Math.PI) / 180,
+    )
+    gl.uniform1f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uYaw'),
+      (current.yaw * Math.PI) / 180,
+    )
+    gl.uniform1f(
       gl.getUniformLocation(resources.atmosphereProgram, 'uSunIntensity'),
       current.model.sunIntensity,
     )
@@ -1577,7 +1601,9 @@ export function AtmosphericOrbEffect({
   sunAzimuth = -41.25,
   sunElevation = 8,
   sunOrbit = 4.6,
+  tilt = 0,
   viewport,
+  yaw = 0,
 }: AtmosphericOrbEffectProps) {
   const compositionRef = useRef<HTMLDivElement>(null)
   const hasComposition = composition !== undefined
@@ -1598,6 +1624,8 @@ export function AtmosphericOrbEffect({
     sunAzimuth,
     sunElevation,
     sunOrbit,
+    tilt,
+    yaw,
   }
   const rendererInput = useMemo<AtmosphericRendererInput>(
     () => ({ compositionRef, hasComposition, source }),

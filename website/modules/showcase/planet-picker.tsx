@@ -176,7 +176,7 @@ export const PlanetPicker = memo(function PlanetPicker({
             </div>
           </div>
 
-          <div {...stylex.props(styles.pickerMeta, styles.eclipseNavigationLighting)}>
+          <div {...stylex.props(styles.pickerMeta)}>
             <a href="https://github.com/thecuvii/solaris" {...stylex.props(styles.pickerMetaLink)}>
               GitHub
             </a>
@@ -294,6 +294,9 @@ const styles = stylex.create({
     position: 'relative',
   },
   pickerMeta: {
+    '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
+    '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',
+    '--showcase-nav-ink-strong': '#f2e8d0',
     alignSelf: 'flex-end',
     color: 'var(--showcase-nav-ink)',
     display: 'flex',

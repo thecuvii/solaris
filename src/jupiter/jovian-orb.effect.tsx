@@ -32,6 +32,7 @@ export type JovianOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
+  tilt?: number
   yaw?: number
   vortexStrength?: number
 }
@@ -60,6 +61,7 @@ type JovianFrameSettings = {
   spin: number
   sunAzimuth: number
   sunElevation: number
+  tilt: number
   yaw: number
   vortexStrength: number
 }
@@ -100,6 +102,7 @@ uniform vec2 uPointer;
 uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
+uniform float uTilt;
 uniform float uYaw;
 uniform float uTime;
 uniform float uVortexStrength;
@@ -133,7 +136,7 @@ float wrapAngle(float angle) {
 }
 
 vec3 textureDirection(vec3 radialDirection) {
-  vec3 tilted = rotateX(radialDirection, uPointer.y * 0.12);
+  vec3 tilted = rotateX(radialDirection, uTilt + uPointer.y * 0.12);
   return rotateY(tilted, uLongitudeOffset + uYaw + uPointer.x * 0.18);
 }
 
@@ -552,6 +555,7 @@ function createJovianRenderer(
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTilt'), (settings.tilt * Math.PI) / 180)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uYaw'),
       ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
@@ -634,6 +638,7 @@ export function JovianOrbEffect({
   style,
   sunAzimuth = -32,
   sunElevation = 12,
+  tilt = 0,
   yaw = 0,
   vortexStrength = 0.42,
 }: JovianOrbEffectProps) {
@@ -650,6 +655,7 @@ export function JovianOrbEffect({
     spin,
     sunAzimuth,
     sunElevation,
+    tilt,
     yaw,
     vortexStrength,
   }

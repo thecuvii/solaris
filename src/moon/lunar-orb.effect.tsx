@@ -21,6 +21,7 @@ type LunarFrameSettings = {
   spin: number
   sunAzimuth: number
   sunElevation: number
+  tilt: number
   yaw: number
   veilingGlare: number
 }
@@ -60,6 +61,7 @@ export type LunarOrbEffectProps = {
   style?: CSSProperties
   sunAzimuth?: number
   sunElevation?: number
+  tilt?: number
   yaw?: number
   veilingGlare?: number
   viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
@@ -118,6 +120,7 @@ uniform float uReliefShadowStrength;
 uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
+uniform float uTilt;
 uniform float uYaw;
 uniform float uVeilingGlare;
 
@@ -140,7 +143,7 @@ vec3 rotateY(vec3 value, float angle) {
 }
 
 vec3 textureDirection(vec3 surfaceNormal) {
-  vec3 tilted = rotateX(surfaceNormal, uPointer.y * 0.1);
+  vec3 tilted = rotateX(surfaceNormal, uTilt + uPointer.y * 0.1);
   return rotateY(tilted, uLongitudeOffset + uYaw + uPointer.x * 0.16);
 }
 
@@ -648,6 +651,7 @@ function createLunarRenderer(
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
+    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTilt'), (settings.tilt * Math.PI) / 180)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uYaw'),
       ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
@@ -743,6 +747,7 @@ export function LunarOrbEffect({
   style,
   sunAzimuth = -48,
   sunElevation = 16,
+  tilt = 0,
   yaw = 0,
   veilingGlare = 0,
   viewport,
@@ -764,6 +769,7 @@ export function LunarOrbEffect({
     spin,
     sunAzimuth,
     sunElevation,
+    tilt,
     yaw,
     veilingGlare,
   }

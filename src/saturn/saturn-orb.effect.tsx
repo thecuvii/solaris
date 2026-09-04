@@ -31,8 +31,8 @@ export type SaturnOrbEffectProps = {
   polarHexagon?: number
   ringOpacity?: number
   ringShadowStrength?: number
-  ringTilt?: number
   source: SaturnOrbSource
+  tilt?: number
   spin?: number
   style?: CSSProperties
   sunAzimuth?: number
@@ -67,8 +67,8 @@ type SaturnFrameSettings = {
   polarHexagon: number
   ringOpacity: number
   ringShadowStrength: number
-  ringTilt: number
   spin: number
+  tilt: number
   sunAzimuth: number
   sunElevation: number
   yaw: number
@@ -1024,7 +1024,7 @@ function createSaturnRenderer(
     )
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uRingTilt'),
-      (current.ringTilt * Math.PI) / 180,
+      (current.tilt * Math.PI) / 180,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
     gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirectionView'), ...sunDirection)
@@ -1105,7 +1105,7 @@ export function SaturnOrbEffect({
   polarHexagon = 0.14,
   ringOpacity = 1,
   ringShadowStrength = 0.82,
-  ringTilt = 26,
+  tilt = 26,
   source,
   spin = 1,
   style,
@@ -1128,8 +1128,8 @@ export function SaturnOrbEffect({
     polarHexagon,
     ringOpacity,
     ringShadowStrength,
-    ringTilt,
     spin,
+    tilt,
     sunAzimuth,
     sunElevation,
     yaw,

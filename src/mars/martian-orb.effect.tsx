@@ -17,8 +17,8 @@ export type MartianOrbSource = {
 }
 
 export type MartianOrbEffectProps = {
-  axialTilt?: number
   blueAureole?: number
+  tilt?: number
   className?: string
   density?: number
   dustAerosol?: number
@@ -45,7 +45,7 @@ type MartianResources = {
 }
 
 type MartianFrameSettings = {
-  axialTilt: number
+  tilt: number
   blueAureole: number
   density: number
   dustAerosol: number
@@ -699,7 +699,7 @@ function createMartianRenderer(
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uDensity'), settings.density)
     gl.uniform1f(
       gl.getUniformLocation(resources.program, 'uAxialTilt'),
-      (settings.axialTilt * Math.PI) / 180,
+      (settings.tilt * Math.PI) / 180,
     )
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uBlueAureole'), settings.blueAureole)
     gl.uniform1f(gl.getUniformLocation(resources.program, 'uDustAerosol'), settings.dustAerosol)
@@ -792,7 +792,7 @@ function createMartianRenderer(
 }
 
 export function MartianOrbEffect({
-  axialTilt = 8,
+  tilt = 8,
   blueAureole = 0.12,
   className,
   density = 0.22,
@@ -811,7 +811,7 @@ export function MartianOrbEffect({
   yaw = 0,
 }: MartianOrbEffectProps) {
   const frameSettings: MartianFrameSettings = {
-    axialTilt,
+    tilt,
     blueAureole,
     density,
     dustAerosol,
