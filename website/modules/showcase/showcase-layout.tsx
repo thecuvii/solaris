@@ -5,9 +5,10 @@ import { useRouter } from 'next/navigation'
 import { Provider } from 'jotai'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 
 import { PlanetPage } from '../planet-page/planet-page'
+import { PlanetStage } from '../planet-page/planet-stage'
 import { planetPath } from '../planet-route/planet-route'
 import { usePlanetId } from '../planet-route/use-planet-id'
 import { usePlanetChromeStyle } from '../planets/chrome-lighting'
@@ -23,51 +24,97 @@ import { planets } from './showcase-data'
 import type { PlanetId } from './showcase-data'
 
 export function ShowcaseLayout({ children }: { children: ReactNode }) {
+  return (
+    <Provider>
+      <ShowcaseShell>{children}</ShowcaseShell>
+    </Provider>
+  )
+}
+
+function ShowcaseShell({ children }: { children: ReactNode }) {
   const router = useRouter()
   const selectedPlanet = usePlanetId()
   const queuedPlanetRef = useRef<PlanetId | null>(null)
-  const [originPlanet, setOriginPlanet] = useState(selectedPlanet)
+  const selectedPlanetRef = useRef(selectedPlanet)
+  const transitionInFlightRef = useRef(false)
+  const [previewPlanet, setPreviewPlanet] = useState(selectedPlanet)
+  const [presentedPlanet, setPresentedPlanet] = useState(selectedPlanet)
+  const [transitionDirection, setTransitionDirection] = useState<-1 | 1>(1)
+  const [plan, setPlan] = useState(() => getPlanetTransitionPlan(selectedPlanet, selectedPlanet))
   const [showGrid, setShowGrid] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const isMobile = useMobileShowcase()
   const reduceMotion = useReducedMotion()
-  const lighting = usePlanetChromeStyle(selectedPlanet)
-  const fromIndex = planets.findIndex(({ id }) => id === originPlanet)
-  const toIndex = planets.findIndex(({ id }) => id === selectedPlanet)
-  const transitionDirection: -1 | 1 = toIndex > fromIndex ? 1 : -1
-  const plan = getPlanetTransitionPlan(originPlanet, selectedPlanet)
-  const planet = planets.find(({ id }) => id === selectedPlanet) ?? planets[0]
+  const lighting = usePlanetChromeStyle(previewPlanet)
+  const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
   const chromeTransition: ChromeTransitionContext = {
     direction: transitionDirection,
     reducedMotion: Boolean(reduceMotion),
   }
 
+  const startPlanetTransition = useCallback(
+    (nextPlanet: PlanetId, updateRoute = true): void => {
+      const currentPlanet = selectedPlanetRef.current
+      if (nextPlanet === currentPlanet) return
+
+      const currentIndex = planets.findIndex(({ id }) => id === currentPlanet)
+      const nextIndex = planets.findIndex(({ id }) => id === nextPlanet)
+      transitionInFlightRef.current = true
+      selectedPlanetRef.current = nextPlanet
+      setPreviewPlanet(nextPlanet)
+      setPresentedPlanet(nextPlanet)
+      setTransitionDirection(nextIndex > currentIndex ? 1 : -1)
+      setPlan(getPlanetTransitionPlan(currentPlanet, nextPlanet))
+      if (updateRoute) {
+        router.push(planetPath(nextPlanet), { scroll: false })
+      }
+    },
+    [router],
+  )
+
   const selectPlanet = useCallback(
     (nextPlanet: PlanetId): void => {
-      if (nextPlanet === originPlanet && nextPlanet === selectedPlanet) {
+      if (nextPlanet === selectedPlanetRef.current) {
         queuedPlanetRef.current = null
+        if (nextPlanet !== selectedPlanet) {
+          router.push(planetPath(nextPlanet), { scroll: false })
+        }
         return
       }
 
-      if (originPlanet !== selectedPlanet) {
+      if (transitionInFlightRef.current) {
         queuedPlanetRef.current = nextPlanet
         return
       }
 
-      queuedPlanetRef.current = null
-      router.push(planetPath(nextPlanet), { scroll: false })
+      startPlanetTransition(nextPlanet)
     },
-    [originPlanet, router, selectedPlanet],
+    [router, selectedPlanet, startPlanetTransition],
   )
 
   const completePlanetTransition = useCallback((): void => {
-    setOriginPlanet(selectedPlanet)
+    setPresentedPlanet(selectedPlanetRef.current)
+    transitionInFlightRef.current = false
     const queuedPlanet = queuedPlanetRef.current
     queuedPlanetRef.current = null
-    if (queuedPlanet && queuedPlanet !== selectedPlanet) {
-      router.push(planetPath(queuedPlanet), { scroll: false })
+    if (queuedPlanet) startPlanetTransition(queuedPlanet, queuedPlanet !== selectedPlanet)
+  }, [selectedPlanet, startPlanetTransition])
+
+  const syncRoutePlanet = useEffectEvent((nextPlanet: PlanetId) => {
+    const previousPlanet = selectedPlanetRef.current
+    if (previousPlanet === nextPlanet) return
+
+    if (transitionInFlightRef.current) {
+      queuedPlanetRef.current = nextPlanet
+      return
     }
-  }, [router, selectedPlanet])
+
+    startPlanetTransition(nextPlanet, false)
+  })
+
+  useEffect(() => {
+    syncRoutePlanet(selectedPlanet)
+  }, [selectedPlanet])
 
   const showcaseContext = useMemo<ShowcaseContextValue>(
     () => ({
@@ -78,87 +125,86 @@ export function ShowcaseLayout({ children }: { children: ReactNode }) {
   )
 
   return (
-    <Provider>
-      <ShowcaseContext.Provider value={showcaseContext}>
-        <div {...stylex.props(styles.page)} style={lighting}>
-          <PlanetPicker
-            gridVisible={showGrid}
-            onGridVisibleChange={setShowGrid}
-            onSelectPlanet={selectPlanet}
-            reducedMotion={Boolean(reduceMotion)}
-            selectedPlanet={selectedPlanet}
-          />
+    <ShowcaseContext.Provider value={showcaseContext}>
+      <div {...stylex.props(styles.page)} style={lighting}>
+        <PlanetPicker
+          gridVisible={showGrid}
+          onGridVisibleChange={setShowGrid}
+          onSelectPlanet={selectPlanet}
+          reducedMotion={Boolean(reduceMotion)}
+          selectedPlanet={previewPlanet}
+        />
 
-          <main {...stylex.props(styles.content)}>
-            <PlanetPage>
-              <PlanetPage.PreviewRegion>
-                <PlanetPage.Introduction />
-                <PlanetPage.Stage>
-                  <AnimatePresence
+        <main {...stylex.props(styles.content)}>
+          <PlanetPage>
+            <PlanetPage.PreviewRegion>
+              <PlanetPage.Introduction />
+              <PlanetPage.Stage>
+                <AnimatePresence
+                  custom={{
+                    direction: transitionDirection,
+                    plan,
+                    reducedMotion: Boolean(reduceMotion),
+                  }}
+                  initial={false}
+                  onExitComplete={completePlanetTransition}
+                >
+                  <motion.div
+                    key={previewPlanet}
+                    animate="center"
                     custom={{
                       direction: transitionDirection,
                       plan,
                       reducedMotion: Boolean(reduceMotion),
                     }}
-                    initial={false}
-                    onExitComplete={completePlanetTransition}
+                    exit="exit"
+                    initial="enter"
+                    variants={planetPreviewVariants}
+                    {...stylex.props(styles.planetTravelLayer)}
                   >
-                    <motion.div
-                      key={selectedPlanet}
-                      animate="center"
-                      custom={{
-                        direction: transitionDirection,
-                        plan,
-                        reducedMotion: Boolean(reduceMotion),
-                      }}
-                      exit="exit"
-                      initial="enter"
-                      variants={planetPreviewVariants}
-                      {...stylex.props(styles.planetTravelLayer)}
-                    >
-                      {children}
-                    </motion.div>
-                  </AnimatePresence>
-                </PlanetPage.Stage>
-              </PlanetPage.PreviewRegion>
-              <PlanetPage.Code />
-              <PlanetPage.Textures />
-            </PlanetPage>
-          </main>
+                    <PlanetStage planetId={previewPlanet} />
+                  </motion.div>
+                </AnimatePresence>
+              </PlanetPage.Stage>
+            </PlanetPage.PreviewRegion>
+            <PlanetPage.Code />
+            <PlanetPage.Textures />
+          </PlanetPage>
+          <div hidden>{children}</div>
+        </main>
 
-          {isMobile ? (
-            <>
-              <PlanetWheel
-                onSelectPlanet={selectPlanet}
-                onSettingsOpenChange={setSettingsOpen}
-                reducedMotion={Boolean(reduceMotion)}
-                selectedPlanet={selectedPlanet}
-                settingsOpen={settingsOpen}
-              />
-              <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen}>
-                <Inspector planetId={selectedPlanet} />
-              </SettingsSheet>
-            </>
-          ) : (
-            <AnimatePresence custom={chromeTransition} initial={false}>
-              <motion.aside
-                key={selectedPlanet}
-                animate="center"
-                custom={chromeTransition}
-                exit="exit"
-                initial="enter"
-                variants={chromeVariants}
-                {...stylex.props(styles.inspector)}
-              >
-                <Inspector planetId={selectedPlanet} />
-              </motion.aside>
-            </AnimatePresence>
-          )}
+        {isMobile ? (
+          <>
+            <PlanetWheel
+              onSelectPlanet={selectPlanet}
+              onSettingsOpenChange={setSettingsOpen}
+              reducedMotion={Boolean(reduceMotion)}
+              selectedPlanet={previewPlanet}
+              settingsOpen={settingsOpen}
+            />
+            <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen}>
+              <Inspector planetId={presentedPlanet} />
+            </SettingsSheet>
+          </>
+        ) : (
+          <AnimatePresence custom={chromeTransition} initial={false}>
+            <motion.aside
+              key={presentedPlanet}
+              animate="center"
+              custom={chromeTransition}
+              exit="exit"
+              initial="enter"
+              variants={chromeVariants}
+              {...stylex.props(styles.inspector)}
+            >
+              <Inspector planetId={presentedPlanet} />
+            </motion.aside>
+          </AnimatePresence>
+        )}
 
-          {showGrid && <LayoutGridOverlay />}
-        </div>
-      </ShowcaseContext.Provider>
-    </Provider>
+        {showGrid && <LayoutGridOverlay />}
+      </div>
+    </ShowcaseContext.Provider>
   )
 }
 

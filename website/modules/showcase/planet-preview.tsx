@@ -14,12 +14,23 @@ export function PlanetIntroduction({
   planet: Planet
 }) {
   const componentName = planet.componentName ?? planet.name
+  const titleProps = stylex.props(styles.title, styles.eclipseTitleLighting)
   const badgeProps = stylex.props(styles.componentName)
 
   return (
     <>
       <div {...stylex.props(styles.titleRow)}>
-        <h1 {...stylex.props(styles.title, styles.eclipseTitleLighting)}>{planet.name}</h1>
+        <TextMorph
+          as="h1"
+          className={[titleProps.className, 'showcase-title-morph'].filter(Boolean).join(' ')}
+          disabled={chrome.reducedMotion}
+          duration={220}
+          ease="cubic-bezier(0.22, 1, 0.36, 1)"
+          scale={false}
+          style={titleProps.style}
+        >
+          {planet.name}
+        </TextMorph>
         <TextMorph
           as="span"
           className={badgeProps.className}

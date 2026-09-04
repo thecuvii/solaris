@@ -47,3 +47,10 @@
 }
 
 @stylex;
+
+.showcase-title-morph > [torph-item] {
+  background: inherit;
+  background-clip: text;
+  color: inherit;
+  -webkit-background-clip: text;
+}
