@@ -2,7 +2,7 @@
 
 // Requires: react
 
-import { useMemo, useRef, type CSSProperties } from 'react'
+import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
 
@@ -33,6 +33,12 @@ export type AtmosphericOrbSource = {
   } | null
 }
 
+export type AtmosphericOrbComposition = {
+  bottom?: CSSProperties['bottom']
+  height: CSSProperties['height']
+  width: CSSProperties['width']
+}
+
 export type AtmosphericOrbEffectProps = {
   aerosol?: number
   atmosphereThickness?: number
@@ -41,6 +47,7 @@ export type AtmosphericOrbEffectProps = {
   cloudDensity?: number
   cloudHeight?: number
   cloudShadowIntensity?: number
+  composition?: AtmosphericOrbComposition
   density?: number
   lean?: boolean
   model: AtmosphericOrbModel
@@ -53,6 +60,7 @@ export type AtmosphericOrbEffectProps = {
   sunAzimuth?: number
   sunElevation?: number
   sunOrbit?: number
+  viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
 
 type AtmosphericFrameSettings = {
@@ -75,6 +83,8 @@ type AtmosphericFrameSettings = {
 }
 
 type AtmosphericRendererInput = {
+  compositionRef: RefObject<HTMLDivElement | null>
+  hasComposition: boolean
   source: AtmosphericOrbSource | undefined
 }
 
@@ -233,8 +243,10 @@ precision highp sampler2D;
 in vec2 vUv;
 
 uniform float uAerosol;
-uniform float uAspect;
+uniform vec2 uCompositionCenter;
+uniform float uCompositionScale;
 uniform float uDensity;
+uniform vec2 uResolution;
 uniform float uAtmosphereRadius;
 uniform float uCloudDensity;
 uniform float uCloudHeight;
@@ -470,8 +482,7 @@ vec3 filmic(vec3 color) {
 }
 
 void main() {
-  vec2 screen = vUv * 2.0 - 1.0;
-  screen.x *= uAspect;
+  vec2 screen = (vUv * uResolution - uCompositionCenter) * 2.0 / uCompositionScale;
   vec3 rayOrigin = vec3(0.0, 0.0, 3.0);
   vec3 rayDirection = normalize(vec3(screen * 0.39, -1.0));
   vec2 atmosphereHit = raySphereIntersect(rayOrigin, rayDirection, uAtmosphereRadius);
@@ -1107,7 +1118,7 @@ function setColor(
 
 function createAtmosphericRenderer(
   canvas: HTMLCanvasElement,
-  { source }: AtmosphericRendererInput,
+  { compositionRef, hasComposition, source }: AtmosphericRendererInput,
   getSettings: () => AtmosphericFrameSettings,
 ): CanvasRenderer<AtmosphericFrameSettings> | null {
   const context = canvas.getContext('webgl2', {
@@ -1130,6 +1141,9 @@ function createAtmosphericRenderer(
   let startTime = performance.now()
   let lastTime = startTime
   let transmittanceKey = ''
+  let compositionCenterX = 0
+  let compositionCenterY = 0
+  let compositionScale = 1
   const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
 
   function ensureEarthResources(): EarthResources {
@@ -1203,6 +1217,16 @@ function createAtmosphericRenderer(
       resizeRenderTarget(gl, earthResources.bloomA, bloomWidth, bloomHeight)
       resizeRenderTarget(gl, earthResources.bloomB, bloomWidth, bloomHeight)
     }
+
+    const compositionBounds = compositionRef.current?.getBoundingClientRect() ?? bounds
+    const scaleX = width / Math.max(bounds.width, 1)
+    const scaleY = height / Math.max(bounds.height, 1)
+    compositionCenterX =
+      (compositionBounds.left - bounds.left + compositionBounds.width / 2) * scaleX
+    compositionCenterY =
+      height - (compositionBounds.top - bounds.top + compositionBounds.height / 2) * scaleY
+    // Size stays locked to composition height so a taller canvas does not shrink the globe.
+    compositionScale = Math.max(compositionBounds.height * scaleY, 1)
   }
 
   function setPhysicalUniforms(program: WebGLProgram, current: AtmosphericFrameSettings): void {
@@ -1372,9 +1396,19 @@ function createAtmosphericRenderer(
       gl.getUniformLocation(resources.atmosphereProgram, 'uCloudDensity'),
       current.cloudDensity,
     )
+    gl.uniform2f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uCompositionCenter'),
+      compositionCenterX,
+      compositionCenterY,
+    )
     gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uAspect'),
-      resources.atmosphere.width / resources.atmosphere.height,
+      gl.getUniformLocation(resources.atmosphereProgram, 'uCompositionScale'),
+      compositionScale,
+    )
+    gl.uniform2f(
+      gl.getUniformLocation(resources.atmosphereProgram, 'uResolution'),
+      resources.atmosphere.width,
+      resources.atmosphere.height,
     )
     gl.uniform1f(
       gl.getUniformLocation(resources.atmosphereProgram, 'uCloudHeight'),
@@ -1460,7 +1494,8 @@ function createAtmosphericRenderer(
   }
 
   function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas!.getBoundingClientRect()
+    const bounds =
+      compositionRef.current?.getBoundingClientRect() ?? canvas!.getBoundingClientRect()
     pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
     pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
   }
@@ -1494,8 +1529,10 @@ function createAtmosphericRenderer(
 
   const resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(canvas)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
+  if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
+  const pointerTarget: HTMLElement = compositionRef.current ?? canvas
+  pointerTarget.addEventListener('pointermove', handlePointerMove)
+  pointerTarget.addEventListener('pointerleave', handlePointerLeave)
   canvas.addEventListener('webglcontextlost', handleContextLost)
   canvas.addEventListener('webglcontextrestored', handleContextRestored)
   uploadSurfaceSource()
@@ -1506,8 +1543,8 @@ function createAtmosphericRenderer(
     dispose: () => {
       disposed = true
       resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
+      pointerTarget.removeEventListener('pointermove', handlePointerMove)
+      pointerTarget.removeEventListener('pointerleave', handlePointerLeave)
       canvas.removeEventListener('webglcontextlost', handleContextLost)
       canvas.removeEventListener('webglcontextrestored', handleContextRestored)
       if (!contextLost) {
@@ -1527,6 +1564,7 @@ export function AtmosphericOrbEffect({
   cloudDensity = 1,
   cloudHeight = 1.2,
   cloudShadowIntensity = 0.48,
+  composition,
   density = 1,
   lean = true,
   model,
@@ -1539,8 +1577,11 @@ export function AtmosphericOrbEffect({
   sunAzimuth = -41.25,
   sunElevation = 8,
   sunOrbit = 4.6,
+  viewport,
 }: AtmosphericOrbEffectProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const compositionRef = useRef<HTMLDivElement>(null)
+  const hasComposition = composition !== undefined
   const frameSettings: AtmosphericFrameSettings = {
     aerosol,
     atmosphereThickness,
@@ -1559,9 +1600,51 @@ export function AtmosphericOrbEffect({
     sunElevation,
     sunOrbit,
   }
-  const rendererInput = useMemo<AtmosphericRendererInput>(() => ({ source }), [source])
+  const rendererInput = useMemo<AtmosphericRendererInput>(
+    () => ({ compositionRef, hasComposition, source }),
+    [hasComposition, source],
+  )
 
   useCanvasRenderer(canvasRef, frameSettings, rendererInput, createAtmosphericRenderer)
+
+  if (composition) {
+    return (
+      <div
+        className={className}
+        style={{ height: '100%', position: 'relative', width: '100%', ...style }}
+      >
+        <div
+          aria-hidden="true"
+          ref={compositionRef}
+          style={{
+            left: '50%',
+            pointerEvents: 'auto',
+            position: 'absolute',
+            touchAction: 'none',
+            transform: 'translateX(-50%)',
+            ...composition,
+          }}
+        />
+        <div
+          style={{
+            bottom: 0,
+            left: 0,
+            pointerEvents: 'none',
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            ...viewport,
+          }}
+        >
+          <canvas
+            aria-hidden="true"
+            ref={canvasRef}
+            style={{ display: 'block', height: '100%', pointerEvents: 'none', width: '100%' }}
+          />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <canvas

@@ -24,7 +24,15 @@ import { Venus } from '@thecuvii/solaris/venus'
 import NumberFlow, { continuous } from '@number-flow/react'
 import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router'
 import { useClipboard } from 'foxact/use-clipboard'
-import { Provider, createStore, useAtom, useAtomValue, useSetAtom, useStore } from 'jotai'
+import {
+  Provider,
+  createStore,
+  useAtom,
+  useAtomValue,
+  useSetAtom,
+  useStore,
+  type Atom,
+} from 'jotai'
 import {
   AnimatePresence,
   animate,
@@ -91,11 +99,22 @@ type PlanetTransitionPlan = {
   hold?: boolean
 }
 
-type EclipseTextLightingProperties = CSSProperties & {
-  '--eclipse-introduction-filter': string
-  '--eclipse-introduction-shadow': string
-  '--eclipse-navigation-filter': string
+type ChromeInkProperties = {
+  '--showcase-badge-ink': string
+  '--showcase-nav-ink': string
+  '--showcase-nav-ink-hover': string
+  '--showcase-nav-ink-strong': string
+  '--showcase-summary-ink': string
+  '--showcase-title-bottom': string
+  '--showcase-title-top': string
 }
+
+type EclipseTextLightingProperties = CSSProperties &
+  ChromeInkProperties & {
+    '--eclipse-introduction-filter': string
+    '--eclipse-introduction-shadow': string
+    '--eclipse-navigation-filter': string
+  }
 
 const earthModel = {
   mieExtinction: [8, 8, 8],
@@ -228,8 +247,132 @@ type ShowcaseContextValue = {
 
 const ShowcaseContext = createContext<ShowcaseContextValue | null>(null)
 
+const LIGHT_CHROME_INK: ChromeInkProperties = {
+  '--showcase-badge-ink': 'rgba(242, 232, 208, 0.5)',
+  '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
+  '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',
+  '--showcase-nav-ink-strong': '#f2e8d0',
+  '--showcase-summary-ink': 'rgba(242, 232, 208, 0.42)',
+  '--showcase-title-bottom': 'color(display-p3 0.8787 0.8708 0.8589)',
+  '--showcase-title-top': 'color(display-p3 1 1 1)',
+}
+
+function clamp01(value: number): number {
+  return Math.min(Math.max(value, 0), 1)
+}
+
+function inkMix(wash: number, light: string, dark: string): string {
+  const amount = clamp01(wash)
+  if (amount <= 0.001) return light
+  if (amount >= 0.999) return dark
+  return `color-mix(in oklch, ${light} ${((1 - amount) * 100).toFixed(1)}%, ${dark} ${(amount * 100).toFixed(1)}%)`
+}
+
+const DARK_CHROME_INK: ChromeInkProperties = {
+  '--showcase-badge-ink': 'oklch(12% 0.01 80 / 0.72)',
+  '--showcase-nav-ink': 'oklch(11% 0.01 80 / 0.82)',
+  '--showcase-nav-ink-hover': 'oklch(8% 0.01 80 / 0.94)',
+  '--showcase-nav-ink-strong': 'oklch(8% 0.012 80)',
+  '--showcase-summary-ink': 'oklch(11% 0.01 80 / 0.86)',
+  '--showcase-title-bottom': 'oklch(9% 0.01 80)',
+  '--showcase-title-top': 'oklch(13% 0.012 80)',
+}
+
+function chromeInk(wash: number): ChromeInkProperties {
+  if (wash <= 0.001) return LIGHT_CHROME_INK
+  if (wash >= 0.999) return DARK_CHROME_INK
+  return {
+    '--showcase-badge-ink': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-badge-ink'],
+      DARK_CHROME_INK['--showcase-badge-ink'],
+    ),
+    '--showcase-nav-ink': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-nav-ink'],
+      DARK_CHROME_INK['--showcase-nav-ink'],
+    ),
+    '--showcase-nav-ink-hover': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-nav-ink-hover'],
+      DARK_CHROME_INK['--showcase-nav-ink-hover'],
+    ),
+    '--showcase-nav-ink-strong': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-nav-ink-strong'],
+      DARK_CHROME_INK['--showcase-nav-ink-strong'],
+    ),
+    '--showcase-summary-ink': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-summary-ink'],
+      DARK_CHROME_INK['--showcase-summary-ink'],
+    ),
+    '--showcase-title-bottom': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-title-bottom'],
+      DARK_CHROME_INK['--showcase-title-bottom'],
+    ),
+    '--showcase-title-top': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-title-top'],
+      DARK_CHROME_INK['--showcase-title-top'],
+    ),
+  }
+}
+
+function observedSunWash({
+  exposure,
+  field,
+  glare,
+}: {
+  exposure: number
+  field: number
+  glare: number
+}): number {
+  // Physical sky is always much lighter than the indigo plate. Commit to dark
+  // ink once the field is on, instead of lingering in a mid-brown that sits
+  // on orange dusk.
+  const energy = clamp01(field) * (0.5 + clamp01(exposure / 2) * 0.35 + clamp01(glare / 1.4) * 0.15)
+  if (energy <= 0.16) return 0
+  return clamp01((energy - 0.16) / 0.18)
+}
+
+function useThrottledAtomValue<T>(target: Atom<T>, ms: number): T {
+  const store = useStore()
+  const [value, setValue] = useState(() => store.get(target))
+
+  useEffect(() => {
+    let last = 0
+    let timer = 0
+
+    function flush(): void {
+      last = performance.now()
+      setValue(store.get(target))
+    }
+
+    const unsubscribe = store.sub(target, () => {
+      const wait = ms - (performance.now() - last)
+      if (wait <= 0) {
+        window.clearTimeout(timer)
+        flush()
+        return
+      }
+      window.clearTimeout(timer)
+      timer = window.setTimeout(flush, wait)
+    })
+
+    return () => {
+      unsubscribe()
+      window.clearTimeout(timer)
+    }
+  }, [ms, store, target])
+
+  return value
+}
+
 function noneTextLighting(): EclipseTextLightingProperties {
   return {
+    ...LIGHT_CHROME_INK,
     '--eclipse-introduction-filter': 'none',
     '--eclipse-introduction-shadow': 'none',
     '--eclipse-navigation-filter': 'none',
@@ -268,6 +411,7 @@ function buildTextLighting({
   const rim = `oklch(86% 0.08 ${rimHue}`
 
   return {
+    ...LIGHT_CHROME_INK,
     '--eclipse-introduction-filter': `drop-shadow(${introductionShadowX.toFixed(2)}px ${introductionShadowY.toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-introductionShadowX * rimScale).toFixed(2)}px ${(-introductionShadowY * rimScale).toFixed(2)}px ${rimBlur.toFixed(2)}px ${rim} / ${rimAlpha.toFixed(3)}))`,
     '--eclipse-introduction-shadow': `${(introductionShadowX * detailShadowScale).toFixed(2)}px ${(introductionShadowY * detailShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)}), ${(-introductionShadowX * rimScale * detailShadowScale).toFixed(2)}px ${(-introductionShadowY * rimScale * detailShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px ${rim} / ${rimAlpha.toFixed(3)})`,
     '--eclipse-navigation-filter': `drop-shadow(${(navigationShadowX * navigationShadowScale).toFixed(2)}px ${(navigationShadowY * navigationShadowScale).toFixed(2)}px ${shadowBlur.toFixed(2)}px oklch(0% 0 0 / ${shadowAlpha.toFixed(3)})) drop-shadow(${(-navigationShadowX * rimScale * navigationShadowScale).toFixed(2)}px ${(-navigationShadowY * rimScale * navigationShadowScale).toFixed(2)}px ${rimBlur.toFixed(2)}px ${rim} / ${navigationRimAlpha.toFixed(3)}))`,
@@ -283,7 +427,7 @@ function EclipseLightingPage({
 }) {
   const eclipse = useAtomValue(eclipseHaloAtom)
   const moon = useAtomValue(moonLightingAtom)
-  const observedSun = useAtomValue(observedSunLightingAtom)
+  const observedSun = useThrottledAtomValue(observedSunLightingAtom, 80)
   const lighting =
     previewPlanet === 'lunar-eclipse'
       ? buildTextLighting({
@@ -311,19 +455,7 @@ function EclipseLightingPage({
             rimHue: 75,
           })
         : previewPlanet === 'observed-sun'
-          ? buildTextLighting({
-              haloEnergy: Math.min(
-                0.08 +
-                  Math.min(Math.max(observedSun.glare, 0), 2) * 0.42 +
-                  Math.min(Math.max(observedSun.exposure, 0), 4) * 0.06 +
-                  Math.min(Math.max(observedSun.field, 0), 1) * 0.16 +
-                  Math.min(Math.max(observedSun.duskFlush, 0), 1) * 0.06,
-                1,
-              ),
-              offsetX: 0,
-              offsetY: -Math.sin((observedSun.sunElevation * Math.PI) / 180) * 2.2,
-              rimHue: 48 + observedSun.duskFlush * 292,
-            })
+          ? { ...noneTextLighting(), ...chromeInk(observedSunWash(observedSun)) }
           : noneTextLighting()
 
   return (
@@ -355,9 +487,11 @@ export function ShowcaseLayout() {
     reducedMotion: Boolean(reduceMotion),
   }
   const expandedPreviewActive =
+    previewPlanet === 'earth' ||
     previewPlanet === 'moon' ||
     previewPlanet === 'lunar-eclipse' ||
     previewPlanet === 'observed-sun' ||
+    departingPlanet === 'earth' ||
     departingPlanet === 'moon' ||
     departingPlanet === 'lunar-eclipse' ||
     departingPlanet === 'observed-sun'
@@ -557,7 +691,8 @@ export function ShowcasePlanetPage() {
               <div
                 {...stylex.props(
                   styles.planetPreviewTransition,
-                  (previewPlanet === 'moon' ||
+                  (previewPlanet === 'earth' ||
+                    previewPlanet === 'moon' ||
                     previewPlanet === 'lunar-eclipse' ||
                     previewPlanet === 'observed-sun') &&
                     styles.planetPreviewTransitionExpanded,
@@ -808,7 +943,24 @@ function PlanetPreview({ id, settings }: { id: PlanetId; settings: PlanetSetting
 
   switch (id) {
     case 'earth':
-      return <Earth {...shared} model={earthModel} textures={textures.earth} />
+      return (
+        <Earth
+          {...shared}
+          composition={{
+            bottom: 'calc((clamp(480px, 68vh, 720px) - clamp(360px, 52vh, 590px)) / 2)',
+            height: 'clamp(360px, 52vh, 590px)',
+            width: 'calc(100% - 2 * clamp(24px, 4vw, 64px))',
+          }}
+          model={earthModel}
+          textures={textures.earth}
+          viewport={{
+            bottom: 0,
+            left: 'clamp(24px, 4vw, 64px)',
+            right: 'clamp(24px, 4vw, 64px)',
+            top: 0,
+          }}
+        />
+      )
     case 'jupiter':
       return <Jupiter {...shared} textures={textures.jupiter} />
     case 'lunar-eclipse':
@@ -1536,6 +1688,10 @@ function formatSettingValue(definition: ParameterDefinition, value: boolean | nu
   return Number(value).toFixed(getPrecision(definition.step))
 }
 
+function redactedPackageSpecifier(entry: string): string {
+  return '█'.repeat(18 + entry.length)
+}
+
 function buildExampleCode(planet: Planet, settings: PlanetSettings): string {
   const componentName = planet.componentName ?? planet.name
   const planetTextures = hasTextures(planet.id) ? textures[planet.id] : undefined
@@ -1571,7 +1727,7 @@ ${Object.entries(planetTextures)
       return `  ${definition.name}={${formatSettingValue(definition, settings[definition.name])}}`
     }),
   ].filter(Boolean)
-  return `import { ${componentName} } from '@thecuvii/solaris/${planet.packageName}'
+  return `import { ${componentName} } from '${redactedPackageSpecifier(planet.packageName)}'
 
 ${textureDeclaration}${modelDeclaration}<${componentName}
 ${propLines.join('\n')}
@@ -1677,6 +1833,19 @@ function CodeBlock({ planet }: { planet: Planet }) {
                     token.offset < end && token.offset + token.content.length > start,
                 )
                 if (!animatedValue) {
+                  if (token.content.includes('█')) {
+                    return (
+                      <span key={token.offset} style={{ color: token.color }}>
+                        {"'"}
+                        <span
+                          aria-hidden="true"
+                          {...stylex.props(styles.codeRedaction)}
+                          style={{ width: `${token.content.replaceAll("'", '').length}ch` }}
+                        />
+                        {"'"}
+                      </span>
+                    )
+                  }
                   return (
                     <span key={token.offset} style={{ color: token.color }}>
                       {token.content}
@@ -2006,6 +2175,15 @@ const styles = stylex.create({
     '--number-flow-mask-height': '0.12em',
     '--number-flow-mask-width': '0.3em',
   },
+  codeRedaction: {
+    backgroundColor: 'oklch(38% 0.008 80)',
+    borderRadius: 1.5,
+    display: 'inline-block',
+    height: '0.88em',
+    marginInline: '0.04em',
+    userSelect: 'none',
+    verticalAlign: '-0.08em',
+  },
   codeHeader: {
     alignItems: 'center',
     display: 'flex',
@@ -2324,7 +2502,7 @@ const styles = stylex.create({
   componentName: {
     backgroundColor: 'rgba(242, 232, 208, 0.065)',
     borderRadius: 999,
-    color: 'rgba(242, 232, 208, 0.5)',
+    color: 'var(--showcase-badge-ink)',
     fontFamily: '"SFMono-Regular", Consolas, monospace',
     fontSize: 10,
     paddingBlock: 6,
@@ -2591,7 +2769,7 @@ const styles = stylex.create({
     gap: 6,
     minWidth: 0,
     padding: 0,
-    textAlign: 'left',
+    textAlign: 'center',
     width: 64,
     ':focus-visible': {
       outline: '1px solid color-mix(in oklch, var(--control-accent) 28%, transparent)',
@@ -2638,10 +2816,17 @@ const styles = stylex.create({
     whiteSpace: 'nowrap',
   },
   page: {
+    '--showcase-badge-ink': 'rgba(242, 232, 208, 0.5)',
     '--showcase-inspector-width': '280px',
+    '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
+    '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',
+    '--showcase-nav-ink-strong': '#f2e8d0',
     '--showcase-picker-width': '300px',
     '--showcase-preview-top': 'round(calc(70px + clamp(24px, 4vh, 52px)), 8px)',
+    '--showcase-summary-ink': 'rgba(242, 232, 208, 0.42)',
+    '--showcase-title-bottom': 'color(display-p3 0.8787 0.8708 0.8589)',
     '--showcase-title-size': 'clamp(36px, 4vw, 52px)',
+    '--showcase-title-top': 'color(display-p3 1 1 1)',
     backgroundColor: '#07080d',
     display: 'grid',
     gridTemplateColumns: '300px minmax(400px, 1fr) 280px',
@@ -2742,7 +2927,7 @@ const styles = stylex.create({
     },
   },
   pickerAlsoAuthor: {
-    color: 'rgba(242, 232, 208, 0.38)',
+    color: 'var(--showcase-nav-ink)',
     fontSize: 10,
     lineHeight: 1.35,
   },
@@ -2752,7 +2937,7 @@ const styles = stylex.create({
     gap: 4,
   },
   pickerAlsoLabel: {
-    color: 'rgba(242, 232, 208, 0.38)',
+    color: 'var(--showcase-nav-ink)',
     fontSize: 10,
     lineHeight: 1.45,
   },
@@ -2770,15 +2955,15 @@ const styles = stylex.create({
   pickerAlsoLink: {
     alignSelf: 'flex-end',
     color: {
-      default: 'rgba(242, 232, 208, 0.62)',
-      ':hover': 'rgba(242, 232, 208, 0.88)',
-      ':focus-visible': '#ffffff',
+      default: 'var(--showcase-nav-ink-hover)',
+      ':hover': 'var(--showcase-nav-ink-strong)',
+      ':focus-visible': 'var(--showcase-nav-ink-strong)',
     },
     position: 'relative',
   },
   pickerMeta: {
     alignSelf: 'flex-end',
-    color: 'rgba(242, 232, 208, 0.38)',
+    color: 'var(--showcase-nav-ink)',
     display: 'flex',
     flex: '0 0 auto',
     flexDirection: 'column',
@@ -2798,9 +2983,9 @@ const styles = stylex.create({
   },
   pickerMetaLink: {
     color: {
-      default: 'rgba(242, 232, 208, 0.82)',
-      ':hover': '#f2e8d0',
-      ':focus-visible': '#ffffff',
+      default: 'var(--showcase-nav-ink-hover)',
+      ':hover': 'var(--showcase-nav-ink-strong)',
+      ':focus-visible': 'var(--showcase-nav-ink-strong)',
     },
     textDecorationLine: 'underline',
     textDecorationThickness: 1,
@@ -2899,9 +3084,9 @@ const styles = stylex.create({
     backgroundColor: 'transparent',
     borderWidth: 0,
     color: {
-      default: 'rgba(242, 232, 208, 0.42)',
-      ':hover': 'rgba(242, 232, 208, 0.76)',
-      ':focus-visible': '#f2e8d0',
+      default: 'var(--showcase-nav-ink)',
+      ':hover': 'var(--showcase-nav-ink-hover)',
+      ':focus-visible': 'var(--showcase-nav-ink-strong)',
     },
     cursor: 'pointer',
     display: 'grid',
@@ -2932,10 +3117,10 @@ const styles = stylex.create({
     },
   },
   planetTabSelected: {
-    color: '#f2e8d0',
+    color: 'var(--showcase-nav-ink-strong)',
   },
   planetTabIndicator: {
-    backgroundColor: '#f2e8d0',
+    backgroundColor: 'var(--showcase-nav-ink-strong)',
     borderRadius: '50%',
     height: 4,
     position: 'absolute',
@@ -3092,13 +3277,17 @@ const styles = stylex.create({
     overflow: 'visible',
   },
   summary: {
-    color: 'rgba(242, 232, 208, 0.42)',
+    color: 'var(--showcase-summary-ink)',
     fontSize: 13,
     lineHeight: 1.65,
     marginBottom: 0,
     marginTop: 8,
     maxWidth: 560,
     minHeight: 'calc(1.65em * 2)',
+    transition: 'color 180ms ease-out',
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
   },
   switchLabel: {
     alignItems: 'center',
@@ -3172,7 +3361,7 @@ const styles = stylex.create({
   title: {
     backgroundClip: 'text',
     backgroundImage:
-      'linear-gradient(180deg, color(display-p3 1 1 1) 0%, color(display-p3 0.8787 0.8708 0.8589) 100%)',
+      'linear-gradient(180deg, var(--showcase-title-top) 0%, var(--showcase-title-bottom) 100%)',
     color: 'transparent',
     fontFamily: '"Inter Variable", Inter, sans-serif',
     fontSize: 'var(--showcase-title-size)',
@@ -3192,7 +3381,7 @@ const styles = stylex.create({
   },
   wordmark: {
     alignItems: 'center',
-    color: '#f2e8d0',
+    color: 'var(--showcase-nav-ink-strong)',
     display: 'flex',
     fontSize: 13,
     fontWeight: 620,
@@ -3202,12 +3391,12 @@ const styles = stylex.create({
     textDecoration: 'none',
     ':focus-visible': {
       boxShadow: '0 2px 0 rgba(242,232,208,0.62)',
-      color: '#ffffff',
+      color: 'var(--showcase-nav-ink-strong)',
       outline: 'none',
     },
   },
   wordmarkMark: {
-    backgroundColor: '#f2e8d0',
+    backgroundColor: 'var(--showcase-nav-ink-strong)',
     borderRadius: '50%',
     boxShadow: 'inset -3px -2px 0 rgba(16,17,18,0.52)',
     height: 11,
