@@ -167,6 +167,19 @@ The source URL, output hash, processing thresholds, fitted center/radius, observ
 
 The original MIT-licensed conversion is [`sky_multiple_scattering.cpp`](https://projects.blender.org/blender/blender/src/commit/084aefd0e03ace27317e0a252ac206f3a461bd96/intern/sky/sky_multiple_scattering.cpp). The React lifecycle, WebGL2 render targets and caching, observer refraction, apparent-disk deformation, terrain-horizon composition, camera, and final display pass were implemented independently for Strata. Full research, source-code audits, selected architecture, physical boundaries, and validation criteria are recorded in `research/ground-observer-sun-rendering-survey.md`.
 
+# Observed Sun procedural model
+
+`OBSERVED SUN` renders the Sun as photographed from the Earth's surface and contains no photographic, observational, or third-party image pixels and no third-party shader code. It is a single WebGL2 pass built from published closed-form fits, implemented independently in `src/observed-sun/observed-sun.effect.tsx`:
+
+- Relative airmass uses the Kasten & Young (1989) formula; per-channel Rayleigh and aerosol zenith optical depths are order-of-magnitude sea-level values. Ozone uses the Chappuis RGB fit from Heckel / Frostbite (`0.65 : 1.88 : 0.085`), rescaled to zenith optical depth, so twilight eats green/yellow instead of red. The in-disc gradient is editorially stretched (`DISC_GRADIENT_STRETCH`). The sky is a two-airmass single-scatter closed form of Heckel’s light march: `(1 − T_view) · T_sun · phase`. The disc edge is his `softSunDisc` (gaussian core, limb roll-off, exponential halo). `duskFlush` is an editorial magenta grade on the lower disc and its glow. `field` at 0 replaces the scattering sky with a dark indigo plate.
+- Apparent elevation uses the NOAA solar-position refraction polynomial (also used by `SOLAR SKY`), applied to the disc top, centre, and bottom so the lower limb is compressed more than the upper, following A. T. Young's flattening analysis.
+- Limb darkening uses the per-wavelength power law with the Neckel exponents (0.397, 0.503, 0.652) as listed in Hillaire's 2016 Frostbite sky course notes; haze blends it toward a flat disc.
+- The circumsolar aureole is a power-law falloff from the disc edge informed by DeVore et al. (2011); the haze-softened limb follows Linskens & Bohren's observation that the disc edge merges into the aureole at high aerosol optical depth.
+- Camera glare uses the inverse-square and inverse-cube wing shapes of the Vos / Spencer et al. (1995) glare point-spread function, measured from the disc edge, plus a near-limb Gaussian and a veiling floor. Display uses the Narkowicz ACES fit already used by `SOLAR SKY`.
+- Cloud striations and seeing are animated value-noise fields; they represent no measured cloud or turbulence data.
+
+The disc centre defines the exposure reference, so absolute solar radiance is not modelled; no scattering integral, multiple scattering, star field, corona, or lens ghosts are rendered.
+
 # Titan procedural model
 
 The Titan look contains no NASA, JPL, journal, simulator, or third-party image pixels or shader code. Its deterministic 1024×512 linear RGBA source stores only low-frequency main-haze optical-depth variation, broad latitude structure, detached-layer column variation, and a northern-winter polar-hood eligibility mask. It deliberately contains no visible, near-infrared, or radar surface geography.
