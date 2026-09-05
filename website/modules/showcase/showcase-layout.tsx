@@ -11,7 +11,7 @@ import { PlanetPage } from '../planet-page/planet-page'
 import { PlanetStage } from '../planet-page/planet-stage'
 import { planetPath } from '../planet-route/planet-route'
 import { usePlanetId } from '../planet-route/use-planet-id'
-import { usePlanetChromeStyle } from '../planets/chrome-lighting'
+import { PlanetPageInk } from '../planets/chrome-lighting'
 import { PlanetWheel, SettingsSheet } from './planet-wheel'
 import { useMobileShowcase } from './use-mobile-showcase'
 import { useVisualViewport } from './use-visual-viewport'
@@ -47,7 +47,7 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
   const isMobile = useMobileShowcase()
   useVisualViewport()
   const reduceMotion = useReducedMotion()
-  const lighting = usePlanetChromeStyle(previewPlanet)
+  const pageRef = useRef<HTMLDivElement>(null)
   const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
   const chromeTransition: ChromeTransitionContext = {
     direction: transitionDirection,
@@ -128,7 +128,8 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
 
   return (
     <ShowcaseContext.Provider value={showcaseContext}>
-      <div {...stylex.props(styles.page)} style={lighting}>
+      <div ref={pageRef} {...stylex.props(styles.page)}>
+        <PlanetPageInk planetId={previewPlanet} targetRef={pageRef} />
         <PlanetPicker
           gridVisible={showGrid}
           onGridVisibleChange={setShowGrid}

@@ -20,8 +20,8 @@ import {
   applyPlanetSettingsAtom,
   isDefaultPlanetAtom,
   resetPlanetSettingsAtom,
+  setSliderGestureAtom,
   settingAtom,
-  sliderGestureAtom,
 } from './showcase-settings'
 import { track } from './track'
 
@@ -317,7 +317,7 @@ const ParameterSlider = memo(function ParameterSlider({
   const active = hovered || interacting || focused || editing
   const forceProgressHover = useMobileShowcase()
   const atMaximum = value >= max
-  const setSliderGesture = useSetAtom(sliderGestureAtom)
+  const setSliderGesture = useSetAtom(setSliderGestureAtom)
 
   function clearHoverTimer() {
     if (hoverTimerRef.current !== null) {
