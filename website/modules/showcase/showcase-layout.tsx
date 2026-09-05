@@ -320,6 +320,10 @@ const styles = stylex.create({
     '--showcase-picker-width': '300px',
     '--showcase-preview-top': 'round(calc(70px + clamp(24px, 4vh, 52px)), 8px)',
     '--showcase-summary-ink': 'rgba(242, 232, 208, 0.42)',
+    '--showcase-composition-bottom':
+      'calc((clamp(480px, 68vh, 720px) - var(--showcase-composition-height)) / 2)',
+    '--showcase-composition-height': 'clamp(360px, 52vh, 590px)',
+    '--showcase-composition-top': 'auto',
     '--showcase-title-bottom': 'color(display-p3 0.8787 0.8708 0.8589)',
     '--showcase-title-size': 'clamp(36px, 4vw, 52px)',
     '--showcase-title-top': 'color(display-p3 1 1 1)',
@@ -342,7 +346,10 @@ const styles = stylex.create({
       '--showcase-preview-top': '0px',
       '--showcase-stage-nudge':
         'calc(var(--showcase-wheel-height) + 48px + var(--visual-viewport-bottom-inset, 0px))',
-      '--showcase-title-pad': '88px',
+      '--showcase-composition-bottom': 'auto',
+      '--showcase-composition-height': 'clamp(300px, 52dvh, 460px)',
+      '--showcase-composition-top': '0px',
+      '--showcase-title-pad': '28px',
       '--showcase-wheel-height': '126px',
       display: 'flex',
       flexDirection: 'column',

@@ -74,6 +74,22 @@ function SeeAlsoLink({
   )
 }
 
+function ShowcaseWordmark({ sidebar = false }: { sidebar?: boolean }) {
+  return (
+    <Link
+      href={planetPath(defaultPlanetId)}
+      {...stylex.props(
+        styles.wordmark,
+        styles.eclipseNavigationLighting,
+        sidebar && styles.pickerWordmark,
+      )}
+    >
+      <span {...stylex.props(styles.wordmarkMark)} aria-hidden="true" />
+      Solaris
+    </Link>
+  )
+}
+
 export const PlanetPicker = memo(function PlanetPicker({
   gridVisible,
   onGridVisibleChange,
@@ -87,19 +103,12 @@ export const PlanetPicker = memo(function PlanetPicker({
 }) {
   return (
     <>
+      <header {...stylex.props(styles.mobileHeader)}>
+        <ShowcaseWordmark />
+      </header>
       <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
         <div {...stylex.props(styles.pickerNavigation)}>
-          <Link
-            href={planetPath(defaultPlanetId)}
-            {...stylex.props(
-              styles.wordmark,
-              styles.pickerWordmark,
-              styles.eclipseNavigationLighting,
-            )}
-          >
-            <span {...stylex.props(styles.wordmarkMark)} aria-hidden="true" />
-            Solaris
-          </Link>
+          <ShowcaseWordmark sidebar />
 
           <nav data-chrome-probe="nav" {...stylex.props(styles.planetList)}>
             {planets.map((planet) => (
@@ -376,21 +385,23 @@ const styles = stylex.create({
       width: '100%',
     },
   },
+  mobileHeader: {
+    display: 'none',
+    '@media (max-width: 960px)': {
+      display: 'flex',
+      flex: '0 0 auto',
+      paddingBottom: 0,
+      paddingInline: 'clamp(24px, 4vw, 64px)',
+      paddingTop: 20,
+      position: 'relative',
+    },
+  },
   pickerWordmark: {
     alignSelf: 'flex-end',
     flex: '0 0 auto',
     marginRight: 26,
     '@media (max-width: 960px)': {
-      alignSelf: 'flex-start',
-      left: 'clamp(24px, 4vw, 64px)',
-      marginLeft: 0,
-      marginRight: 0,
-      marginTop: 0,
-      pointerEvents: 'auto',
-      position: 'fixed',
-      top: 20,
-      transform: 'none',
-      zIndex: 3,
+      display: 'none',
     },
   },
   planetList: {

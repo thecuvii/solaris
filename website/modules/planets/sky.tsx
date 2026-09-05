@@ -2,7 +2,7 @@
 
 import { Sky } from '@thecuvii/solaris/sky'
 
-import { bleedViewport, expandedComposition } from '../planet-page/preview-frame'
+import { expandedComposition, skyViewport } from '../planet-page/preview-frame'
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 
 export function SkyPreview() {
@@ -22,7 +22,7 @@ export function SkyPreview() {
       <Sky
         {...usePlanetPreviewProps('sky')}
         composition={expandedComposition}
-        viewport={bleedViewport}
+        viewport={skyViewport}
       />
     </>
   )

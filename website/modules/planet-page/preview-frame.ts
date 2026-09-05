@@ -5,8 +5,9 @@ export const previewSurfaceStyle = {
 }
 
 export const expandedComposition = {
-  bottom: 'calc((clamp(480px, 68vh, 720px) - clamp(360px, 52vh, 590px)) / 2)',
-  height: 'clamp(360px, 52vh, 590px)',
+  bottom: 'var(--showcase-composition-bottom)',
+  height: 'var(--showcase-composition-height)',
+  top: 'var(--showcase-composition-top, auto)',
   width: 'calc(100% - 2 * clamp(24px, 4vw, 64px))',
 }
 
@@ -27,4 +28,10 @@ export const bleedViewport = {
 export const moonViewport = {
   ...bleedViewport,
   bottom: 'calc(var(--showcase-preview-top) + 100% - 100vh)',
+}
+
+export const skyViewport = {
+  ...bleedViewport,
+  bottom:
+    'calc(var(--showcase-preview-top) + 100% - 100dvh - var(--visual-viewport-bottom-inset, 0px))',
 }
