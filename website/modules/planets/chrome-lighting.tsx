@@ -13,14 +13,15 @@ import {
 import { useThrottledAtomValue } from '../showcase/use-throttled-atom-value'
 import { lunarEclipseChromeStyle } from './lunar-eclipse'
 import { moonChromeStyle } from './moon'
-import { observedSunChromeStyle } from './observed-sun'
+import { observedSunChromeStyle, useObservedSunChromeProbes } from './observed-sun-chrome'
 
 export function usePlanetChromeStyle(planetId: PlanetId): CSSProperties {
   const eclipse = useAtomValue(eclipseHaloAtom)
   const moon = useAtomValue(moonLightingAtom)
   const observedSun = useThrottledAtomValue(observedSunLightingAtom, 80)
+  const observedSunProbes = useObservedSunChromeProbes(planetId === 'observed-sun')
   if (planetId === 'lunar-eclipse') return lunarEclipseChromeStyle(eclipse)
   if (planetId === 'moon') return moonChromeStyle(moon)
-  if (planetId === 'observed-sun') return observedSunChromeStyle(observedSun)
+  if (planetId === 'observed-sun') return observedSunChromeStyle(observedSun, observedSunProbes)
   return noneTextLighting()
 }

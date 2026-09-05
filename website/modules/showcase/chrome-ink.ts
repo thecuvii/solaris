@@ -82,23 +82,6 @@ export function chromeInk(wash: number): ChromeInkProperties {
   }
 }
 
-export function observedSunWash({
-  exposure,
-  field,
-  glare,
-}: {
-  exposure: number
-  field: number
-  glare: number
-}): number {
-  // Physical sky is always much lighter than the indigo plate. Commit to dark
-  // ink once the field is on, instead of lingering in a mid-brown that sits
-  // on orange dusk.
-  const energy = clamp01(field) * (0.5 + clamp01(exposure / 2) * 0.35 + clamp01(glare / 1.4) * 0.15)
-  if (energy <= 0.16) return 0
-  return clamp01((energy - 0.16) / 0.18)
-}
-
 export function noneTextLighting(): EclipseTextLightingProperties {
   return {
     ...LIGHT_CHROME_INK,

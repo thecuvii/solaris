@@ -25,7 +25,10 @@ function Introduction() {
   const { planet, transitionDirection } = useShowcase()
   const reduceMotion = useReducedMotion()
   return (
-    <div {...stylex.props(styles.introduction, styles.eclipseIntroductionLighting)}>
+    <div
+      data-chrome-probe="title"
+      {...stylex.props(styles.introduction, styles.eclipseIntroductionLighting)}
+    >
       <PlanetIntroduction
         chrome={{
           direction: transitionDirection,

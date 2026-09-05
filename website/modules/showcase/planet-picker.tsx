@@ -109,7 +109,7 @@ export const PlanetPicker = memo(function PlanetPicker({
             Solaris
           </Link>
 
-          <nav {...stylex.props(styles.planetList)}>
+          <nav data-chrome-probe="nav" {...stylex.props(styles.planetList)}>
             {planets.map((planet) => (
               <Link
                 key={planet.id}

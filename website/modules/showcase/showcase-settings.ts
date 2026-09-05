@@ -47,11 +47,13 @@ export const moonLightingAtom = atom((get) => ({
 }))
 
 export const observedSunLightingAtom = atom((get) => ({
-  duskFlush: Number(get(settingAtom({ name: 'duskFlush', planetId: 'observed-sun' }))),
   exposure: Number(get(settingAtom({ name: 'exposure', planetId: 'observed-sun' }))),
   field: Number(get(settingAtom({ name: 'field', planetId: 'observed-sun' }))),
   glare: Number(get(settingAtom({ name: 'glare', planetId: 'observed-sun' }))),
+  haze: Number(get(settingAtom({ name: 'haze', planetId: 'observed-sun' }))),
+  ozone: Number(get(settingAtom({ name: 'ozone', planetId: 'observed-sun' }))),
   sunElevation: Number(get(settingAtom({ name: 'sunElevation', planetId: 'observed-sun' }))),
+  sunScale: Number(get(settingAtom({ name: 'sunScale', planetId: 'observed-sun' }))),
 }))
 
 export const applyPlanetSettingsAtom = atom(

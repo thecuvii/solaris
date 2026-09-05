@@ -437,9 +437,13 @@ function look(
   label: string,
   overrides: PlanetSettings = {},
 ): PlanetPreset {
+  const image =
+    planetId === 'observed-sun'
+      ? `/thumbnails/v1/observed-sun-${id}.avif`
+      : `/thumbnails/v1/${planetId}.avif`
   return {
     id,
-    image: `/thumbnails/v1/${planetId}.avif`,
+    image,
     label,
     values: { ...initialSettings[planetId], ...overrides },
   }
@@ -584,13 +588,13 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       cloudStreaks: 0,
       duskFlush: 0,
       exposure: 4.5,
-      field: 1,
+      field: 0.25,
       flare: 0.6,
       flareAngle: -120,
       flareRays: 0.3,
       glare: 0.5,
-      haze: 0.45,
-      ozone: 0.3,
+      haze: 0.42,
+      ozone: 0.15,
       refraction: 1,
       saturation: 1.2,
       seeingAmount: 0.15,
