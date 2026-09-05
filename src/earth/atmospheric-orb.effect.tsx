@@ -1645,9 +1645,8 @@ export function AtmosphericOrbEffect({
           ref={compositionRef}
           style={{
             left: '50%',
-            pointerEvents: 'auto',
             position: 'absolute',
-            touchAction: 'none',
+            touchAction: 'pan-y',
             transform: 'translateX(-50%)',
             ...composition,
           }}
@@ -1678,7 +1677,7 @@ export function AtmosphericOrbEffect({
       aria-hidden="true"
       className={className}
       ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'none', width: '100%', ...style }}
+      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
     />
   )
 }

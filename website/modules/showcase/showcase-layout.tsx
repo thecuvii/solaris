@@ -201,7 +201,7 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
           </AnimatePresence>
         )}
 
-        {showGrid && <LayoutGridOverlay />}
+        {process.env.NODE_ENV === 'development' && showGrid ? <LayoutGridOverlay /> : null}
       </div>
     </ShowcaseContext.Provider>
   )

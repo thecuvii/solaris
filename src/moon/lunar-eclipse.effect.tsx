@@ -787,7 +787,7 @@ export function LunarEclipseEffect({
           <canvas
             aria-hidden="true"
             ref={canvasRef}
-            style={{ display: 'block', height: '100%', touchAction: 'none', width: '100%' }}
+            style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%' }}
           />
         </div>
       </div>
@@ -799,7 +799,7 @@ export function LunarEclipseEffect({
       aria-hidden="true"
       className={className}
       ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'none', width: '100%', ...style }}
+      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
     />
   )
 }

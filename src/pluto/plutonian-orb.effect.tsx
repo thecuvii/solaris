@@ -905,7 +905,7 @@ export function PlutonianOrbEffect({
       aria-hidden="true"
       className={className}
       ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'none', width: '100%', ...style }}
+      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
     />
   )
 }

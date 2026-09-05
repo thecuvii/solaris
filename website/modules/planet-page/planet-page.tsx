@@ -128,6 +128,7 @@ const styles = stylex.create({
     overflow: 'visible',
     position: 'absolute',
     '@media (max-width: 960px)': {
+      pointerEvents: 'none',
       top: 'var(--showcase-stage-nudge)',
     },
   },

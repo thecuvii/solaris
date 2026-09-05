@@ -3,6 +3,8 @@
 import { useMemo } from 'react'
 import { AtmosphericOrbEffect, type AtmosphericOrbEffectProps } from './atmospheric-orb.effect'
 import { createEarthSurfaceSource } from './earth-surface.source'
+import { useSourceLifecycle } from '../internal/use-source-lifecycle'
+import type { SourceLifecycleProps } from '../source-lifecycle'
 
 export type EarthTextures = {
   cloud: string
@@ -13,12 +15,20 @@ export type EarthTextures = {
   roughness: string
 }
 
-export type EarthProps = Omit<AtmosphericOrbEffectProps, 'source'> & {
-  longitudeOffsetDegrees?: number
-  textures: EarthTextures
-}
+export type EarthProps = Omit<AtmosphericOrbEffectProps, 'source'> &
+  SourceLifecycleProps & {
+    longitudeOffsetDegrees?: number
+    textures: EarthTextures
+  }
 
-export function Earth({ longitudeOffsetDegrees = 0, textures, ...props }: EarthProps) {
+export function Earth({
+  longitudeOffsetDegrees = 0,
+  onError,
+  onReady,
+  onStatusChange,
+  textures,
+  ...props
+}: EarthProps) {
   const source = useMemo(
     () =>
       createEarthSurfaceSource(
@@ -32,6 +42,7 @@ export function Earth({ longitudeOffsetDegrees = 0, textures, ...props }: EarthP
       ),
     [longitudeOffsetDegrees, textures],
   )
+  useSourceLifecycle(source, { onError, onReady, onStatusChange })
 
   return <AtmosphericOrbEffect {...props} source={source} />
 }

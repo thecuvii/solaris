@@ -195,14 +195,16 @@ export const PlanetPicker = memo(function PlanetPicker({
           </div>
         </div>
       </aside>
-      <div {...stylex.props(styles.gridDock)}>
-        <ParameterSwitch
-          checked={gridVisible}
-          compact
-          label="Grid"
-          onCheckedChange={onGridVisibleChange}
-        />
-      </div>
+      {process.env.NODE_ENV === 'development' ? (
+        <div {...stylex.props(styles.gridDock)}>
+          <ParameterSwitch
+            checked={gridVisible}
+            compact
+            label="Grid"
+            onCheckedChange={onGridVisibleChange}
+          />
+        </div>
+      ) : null}
     </>
   )
 })
