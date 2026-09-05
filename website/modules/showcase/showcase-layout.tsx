@@ -326,7 +326,7 @@ const styles = stylex.create({
     backgroundColor: '#07080d',
     display: 'grid',
     gridTemplateColumns: '300px minmax(400px, 1fr) 280px',
-    minHeight: 'max(100dvh, var(--visual-viewport-height, 100dvh))',
+    minHeight: '100dvh',
     overflow: 'clip',
     '@media (min-width: 961px) and (max-width: 1080px)': {
       '--showcase-picker-width': '260px',
@@ -340,7 +340,8 @@ const styles = stylex.create({
       '--showcase-inspector-width': '0px',
       '--showcase-picker-width': '0px',
       '--showcase-preview-top': '0px',
-      '--showcase-stage-nudge': 'calc(var(--showcase-wheel-height) + 48px)',
+      '--showcase-stage-nudge':
+        'calc(var(--showcase-wheel-height) + 48px + var(--visual-viewport-bottom-inset, 0px))',
       '--showcase-title-pad': '88px',
       '--showcase-wheel-height': '126px',
       display: 'flex',

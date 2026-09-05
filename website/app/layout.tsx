@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body>
         <Script id="visual-viewport" strategy="beforeInteractive">
-          {`(function(){var v=window.visualViewport;document.documentElement.style.setProperty('--visual-viewport-height',(v?v.height:window.innerHeight)+'px')})()`}
+          {`(function(){var v=window.visualViewport,h=v?v.height:window.innerHeight,t=v?v.offsetTop:0,r=document.documentElement;r.style.setProperty('--visual-viewport-height',h+'px');r.style.setProperty('--visual-viewport-offset-top',t+'px');r.style.setProperty('--visual-viewport-bottom-inset',Math.max(0,window.innerHeight-h-t)+'px')})()`}
         </Script>
         {children}
       </body>
