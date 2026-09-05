@@ -11,6 +11,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import { getPrecision, numberFlowFormat, numberFlowTimings } from './setting-format'
+import { useMobileShowcase } from './use-mobile-showcase'
 import type { PlanetId } from './showcase-data'
 import { parameterGroupsByPlanet, planetPresets } from '../planet-params/planet-params'
 import type { ParameterDefinition, ParameterGroupId } from '../planet-params/planet-params'
@@ -303,6 +304,7 @@ const ParameterSlider = memo(function ParameterSlider({
   const [editArmed, setEditArmed] = useState(false)
   const [draftValue, setDraftValue] = useState<number | null>(value)
   const active = hovered || interacting || focused || editing
+  const forceProgressHover = useMobileShowcase()
   const atMaximum = value >= max
 
   function clearHoverTimer() {
@@ -523,7 +525,7 @@ const ParameterSlider = memo(function ParameterSlider({
             style={{ width: fillWidth }}
             {...stylex.props(
               styles.sliderIndicator,
-              active && styles.sliderIndicatorActive,
+              (forceProgressHover || active) && styles.sliderIndicatorActive,
               atMaximum && styles.sliderIndicatorAtMaximum,
             )}
           />

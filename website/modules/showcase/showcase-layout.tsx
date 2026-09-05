@@ -331,9 +331,15 @@ const styles = stylex.create({
       gridTemplateColumns: '260px minmax(320px, 1fr) 280px',
     },
     '@media (max-width: 960px)': {
+      '--showcase-canvas-left': 'calc(50% - 50vw)',
+      '--showcase-canvas-right': 'calc(50% - 50vw)',
+      '--showcase-canvas-top':
+        'calc(-1 * (var(--showcase-title-pad) + var(--showcase-stage-nudge)))',
       '--showcase-inspector-width': '0px',
       '--showcase-picker-width': '0px',
       '--showcase-preview-top': '0px',
+      '--showcase-stage-nudge': '176px',
+      '--showcase-title-pad': '88px',
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',

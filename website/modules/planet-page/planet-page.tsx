@@ -97,8 +97,7 @@ const styles = stylex.create({
     '@media (max-width: 960px)': {
       gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
       paddingBottom: 32,
-      // Leave --showcase-preview-top at 0 so bleed canvases stay off the viewport edge.
-      paddingTop: 88,
+      paddingTop: 'var(--showcase-title-pad)',
     },
   },
   previewRegion: {
@@ -120,7 +119,7 @@ const styles = stylex.create({
     gridColumn: '1 / -1',
     height: 'clamp(480px, 68vh, 720px)',
     '@media (max-width: 960px)': {
-      height: 'calc(clamp(300px, 52dvh, 460px) + 176px)',
+      height: 'calc(clamp(300px, 52dvh, 460px) + var(--showcase-stage-nudge))',
     },
   },
   stage: {
@@ -129,7 +128,7 @@ const styles = stylex.create({
     overflow: 'visible',
     position: 'absolute',
     '@media (max-width: 960px)': {
-      top: 176,
+      top: 'var(--showcase-stage-nudge)',
     },
   },
 })

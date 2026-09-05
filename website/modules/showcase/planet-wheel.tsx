@@ -1,6 +1,7 @@
 'use client'
 
 import { Drawer } from '@base-ui/react/drawer'
+import { ScrollArea } from '@base-ui/react/scroll-area'
 import * as stylex from '@stylexjs/stylex'
 import { play } from 'cuelume'
 import { animate, motion, useMotionValue, useTransform } from 'motion/react'
@@ -19,7 +20,7 @@ const VELOCITY_WINDOW_MS = 90
 const SNAP_SPRING = { type: 'spring', stiffness: 420, damping: 38, mass: 0.8 } as const
 const COAST_SPRING = { type: 'spring', stiffness: 88, damping: 16, mass: 1.15 } as const
 const PRESET_SNAP = 0.25
-const EXPANDED_SNAP = 0.5
+const EXPANDED_NUDGE_PX = 48
 // Offset at the flush snap (max 50dvh − first snap 25dvh). Morph finishes 5dvh later (0.30).
 const PRESET_TRAVEL = '25dvh'
 const MORPH_RANGE = '5dvh'
@@ -40,6 +41,26 @@ function shortestDelta(from: number, to: number) {
   let delta = ((to - from) % 360) + 360
   delta %= 360
   return delta > 180 ? delta - 360 : delta
+}
+
+function useExpandedSnapPoint(nudgePx: number): Drawer.Root.SnapPoint {
+  const [snap, setSnap] = useState<Drawer.Root.SnapPoint>(0.5)
+
+  useEffect(() => {
+    const read = () => {
+      const height = window.visualViewport?.height ?? window.innerHeight
+      setSnap(`${Math.max(0, Math.round(height * 0.5 - nudgePx))}px`)
+    }
+    read()
+    window.addEventListener('resize', read)
+    window.visualViewport?.addEventListener('resize', read)
+    return () => {
+      window.removeEventListener('resize', read)
+      window.visualViewport?.removeEventListener('resize', read)
+    }
+  }, [nudgePx])
+
+  return snap
 }
 
 function ChevronUpIcon() {
@@ -444,6 +465,7 @@ export function SettingsSheet({
   open: boolean
 }) {
   const [snapPoint, setSnapPoint] = useState<Drawer.Root.SnapPoint>(PRESET_SNAP)
+  const expandedSnap = useExpandedSnapPoint(EXPANDED_NUDGE_PX)
 
   return (
     <Drawer.Root
@@ -457,7 +479,7 @@ export function SettingsSheet({
       }}
       open={open}
       snapPoint={open ? snapPoint : null}
-      snapPoints={[PRESET_SNAP, EXPANDED_SNAP]}
+      snapPoints={[PRESET_SNAP, expandedSnap]}
       snapToSequentialPoints
       swipeDirection="down"
     >
@@ -469,7 +491,22 @@ export function SettingsSheet({
               <div {...stylex.props(styles.sheetClip)}>
                 <div {...stylex.props(styles.sheetHandle)} aria-hidden="true" />
                 <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
-                <Drawer.Content {...stylex.props(styles.sheetBody)}>{children}</Drawer.Content>
+                <Drawer.Content {...stylex.props(styles.sheetBody)}>
+                  <ScrollArea.Root {...stylex.props(styles.sheetScroll)}>
+                    <ScrollArea.Viewport {...stylex.props(styles.sheetScrollViewport)}>
+                      <ScrollArea.Content {...stylex.props(styles.sheetScrollContent)}>
+                        {children}
+                      </ScrollArea.Content>
+                    </ScrollArea.Viewport>
+                    <ScrollArea.Scrollbar
+                      keepMounted
+                      orientation="vertical"
+                      {...stylex.props(styles.sheetScrollbar)}
+                    >
+                      <ScrollArea.Thumb {...stylex.props(styles.sheetScrollbarThumb)} />
+                    </ScrollArea.Scrollbar>
+                  </ScrollArea.Root>
+                </Drawer.Content>
               </div>
             </div>
           </Drawer.Popup>
@@ -609,7 +646,9 @@ const styles = stylex.create({
     boxSizing: 'border-box',
     display: 'flex',
     flexDirection: 'column',
+    height: '50dvh',
     maxHeight: '50dvh',
+    minHeight: 0,
     outline: 'none',
     overflow: 'visible',
     paddingBottom:
@@ -644,7 +683,7 @@ const styles = stylex.create({
     '--slider-progress-bg': 'oklch(43.49% 0 0)',
     '--slider-track-bg': 'oklch(35.62% 0 0)',
     backdropFilter: 'blur(22px) saturate(0.72)',
-    backgroundColor: 'oklch(34.49% 0.0017 286.3 / 0.831)',
+    backgroundColor: 'lab(5 0 0 / 0.42)',
     borderBottomLeftRadius: `calc(${SHEET_RADIUS} * ${SHEET_PROGRESS})`,
     borderBottomRightRadius: `calc(${SHEET_RADIUS} * ${SHEET_PROGRESS})`,
     borderTopLeftRadius: 16,
@@ -698,14 +737,51 @@ const styles = stylex.create({
     },
   },
   sheetBody: {
+    display: 'flex',
+    flex: 1,
+    flexDirection: 'column',
+    minHeight: 0,
+    overflow: 'hidden',
+    touchAction: 'auto',
+  },
+  sheetScroll: {
+    display: 'flex',
+    flex: 1,
+    flexDirection: 'column',
+    minHeight: 0,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  sheetScrollViewport: {
     flex: 1,
     minHeight: 0,
-    overflowY: 'auto',
+    overflowX: 'hidden',
+    overflowY: 'scroll',
     overscrollBehavior: 'contain',
+    touchAction: 'pan-y',
+  },
+  sheetScrollContent: {
     paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))',
     paddingInline: 20,
     paddingTop: 4,
-    touchAction: 'auto',
+  },
+  sheetScrollbar: {
+    bottom: 8,
+    display: 'flex',
+    justifyContent: 'center',
+    opacity: 1,
+    pointerEvents: 'auto',
+    position: 'absolute',
+    right: 4,
+    top: 8,
+    width: 3,
+  },
+  sheetScrollbarThumb: {
+    backgroundColor: 'oklch(86.4% 0.003 84.6 / 0.42)',
+    borderRadius: 999,
+    flex: 1,
+    minHeight: 24,
+    width: '100%',
   },
   sheetHandle: {
     alignItems: 'center',
