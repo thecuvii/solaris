@@ -10,6 +10,7 @@ import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
+import { hapticPress, hapticTick } from './haptics'
 import { getPrecision, numberFlowFormat, numberFlowTimings } from './setting-format'
 import { useMobileShowcase } from './use-mobile-showcase'
 import type { PlanetId } from './showcase-data'
@@ -299,6 +300,7 @@ const ParameterSlider = memo(function ParameterSlider({
     startY: number
   } | null>(null)
   const interactingRef = useRef(false)
+  const lastHapticValueRef = useRef(value)
   const editingRef = useRef(false)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const animationRef = useRef<ReturnType<typeof animate> | null>(null)
@@ -367,6 +369,25 @@ const ParameterSlider = memo(function ParameterSlider({
     animateTo(getNormalizedValue(value), 0.1)
   }, [animateTo, getNormalizedValue, value])
 
+  function hapticForValue(nextValue: number) {
+    if (!forceProgressHover) return
+    const previous = lastHapticValueRef.current
+    if (nextValue === previous) return
+    lastHapticValueRef.current = nextValue
+    if (nextValue <= min || nextValue >= max) {
+      hapticTick(true)
+      return
+    }
+    const stepCount = (max - min) / step
+    if (stepCount <= 12) {
+      hapticTick(false)
+      return
+    }
+    const previousDecile = Math.round(getNormalizedValue(previous) * 10)
+    const nextDecile = Math.round(getNormalizedValue(nextValue) * 10)
+    if (previousDecile !== nextDecile) hapticTick(false)
+  }
+
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
     animationRef.current?.stop()
@@ -377,7 +398,9 @@ const ParameterSlider = memo(function ParameterSlider({
       startY: event.clientY,
     }
     event.currentTarget.setPointerCapture(event.pointerId)
+    lastHapticValueRef.current = value
     setGestureActive(true)
+    if (forceProgressHover) hapticPress()
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
@@ -392,7 +415,9 @@ const ParameterSlider = memo(function ParameterSlider({
     }
     if (!pointer.moved) return
 
-    onValueChange(updateFromPointer(event.clientX, false))
+    const nextValue = updateFromPointer(event.clientX, false)
+    onValueChange(nextValue)
+    hapticForValue(nextValue)
   }
 
   function handlePointerUp(event: ReactPointerEvent<HTMLDivElement>) {
@@ -401,6 +426,7 @@ const ParameterSlider = memo(function ParameterSlider({
 
     const nextValue = updateFromPointer(event.clientX, !pointer.moved)
     onValueChange(nextValue)
+    hapticForValue(nextValue)
     pointerRef.current = null
     setGestureActive(false)
     animateTo(getNormalizedValue(nextValue))

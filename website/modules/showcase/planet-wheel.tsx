@@ -8,6 +8,7 @@ import { animate, motion, useMotionValue, useTransform } from 'motion/react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
+import { hapticPress, hapticSettle, hapticTick } from './haptics'
 import { planets, type PlanetId } from './showcase-data'
 
 // Pack tighter than a full ring. The unused arc sits opposite the
@@ -130,6 +131,7 @@ function tickIndex(rotation: number) {
 function playDetent(rotation: number) {
   const major = ((tickIndex(rotation) % TICKS_PER_STEP) + TICKS_PER_STEP) % TICKS_PER_STEP === 0
   play('tick', { volume: major ? 0.48 : 0.22 })
+  hapticTick(major)
 }
 
 function planetIndexFromTarget(target: EventTarget | null) {
@@ -319,6 +321,7 @@ export function PlanetWheel({
     armSound()
     selfDrivenRef.current = true
     play('toggle', { volume: 0.4 })
+    hapticSettle()
     onSelectPlanet(id)
   }
 
@@ -384,6 +387,7 @@ export function PlanetWheel({
     stopSpin()
     armSound()
     play('press', { volume: 0.3 })
+    hapticPress()
     dragRef.current = {
       moved: false,
       planetIndex: planetIndexFromTarget(event.target),
