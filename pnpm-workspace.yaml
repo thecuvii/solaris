@@ -11,5 +11,6 @@ peerDependencyRules:
 
 allowBuilds:
   '@swc/core': true
+  core-js: false
   esbuild: true
   lightningcss: true

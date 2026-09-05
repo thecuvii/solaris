@@ -69,6 +69,7 @@
   "scripts": {
     "build": "vp pack",
     "build:website": "pnpm --filter website build",
+    "deploy": "pnpm --filter website deploy",
     "check": "vp check",
     "check:fix": "vp check --fix",
     "dev": "pnpm --filter website dev",
