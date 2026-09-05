@@ -340,7 +340,7 @@ const styles = stylex.create({
       bottom: 'auto',
       flexDirection: 'row',
       justifyContent: 'space-between',
-      paddingBottom: 'calc(24px + env(safe-area-inset-bottom, 0px))',
+      paddingBottom: 'calc(var(--showcase-stage-nudge) + env(safe-area-inset-bottom, 0px))',
       paddingInline: 'clamp(24px, 4vw, 64px)',
       paddingTop: 20,
       position: 'relative',

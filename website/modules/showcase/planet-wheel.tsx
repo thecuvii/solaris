@@ -21,10 +21,11 @@ const ORBIT_TOP = WHEEL_RADIUS - 4
 const DRAG_DEG_PER_PX = 0.48
 const OPEN_PULL = 36
 const MAX_COAST_STEPS = 6
-const COAST_SECONDS = 0.42
 const VELOCITY_WINDOW_MS = 90
+const COAST_POWER = 0.8
+const COAST_TIME_CONSTANT = 220
+const COAST_COMMIT = 12
 const SNAP_SPRING = { type: 'spring', stiffness: 420, damping: 38, mass: 0.8 } as const
-const COAST_SPRING = { type: 'spring', stiffness: 88, damping: 16, mass: 1.15 } as const
 const PRESET_SNAP = 0.25
 const EXPANDED_NUDGE_PX = 48
 // Offset at the flush snap (max 50dvh − first snap 25dvh). Morph finishes 5dvh later (0.30).
@@ -52,6 +53,17 @@ function shortestIndexDelta(from: number, to: number) {
 
 function shortestDelta(from: number, to: number) {
   return shortestIndexDelta(from / STEP, to / STEP) * STEP
+}
+
+function snapCoastTarget(projected: number, origin: number, velocity: number) {
+  let target = Math.round(projected / STEP) * STEP
+  // A live flick must settle ahead of the hand. Rounding the ballistic
+  // rest can pick the detent behind, which reads as a yank at the end.
+  if (velocity > COAST_COMMIT && target < origin) target += STEP
+  else if (velocity < -COAST_COMMIT && target > origin) target -= STEP
+  const maxTravel = STEP * MAX_COAST_STEPS
+  target = Math.min(Math.max(target, origin - maxTravel), origin + maxTravel)
+  return Math.round(target / STEP) * STEP
 }
 
 function useExpandedSnapPoint(nudgePx: number): Drawer.Root.SnapPoint {
@@ -337,10 +349,7 @@ export function PlanetWheel({
 
   function coastToRest(velocity: number) {
     const origin = rotation.get()
-    const projected = origin + velocity * COAST_SECONDS
-    const maxTravel = STEP * MAX_COAST_STEPS
-    const clamped = Math.min(Math.max(projected, origin - maxTravel), origin + maxTravel)
-    const target = Math.round(clamped / STEP) * STEP
+    const target = snapCoastTarget(origin + velocity * COAST_POWER, origin, velocity)
     spinIdRef.current += 1
     const spinId = spinIdRef.current
     spinRef.current?.stop()
@@ -349,7 +358,14 @@ export function PlanetWheel({
       selectPlanet(planets[nearestIndex(target)].id)
       return
     }
-    const spin = animate(rotation, target, { ...COAST_SPRING, velocity })
+    const spin = animate(rotation, target, {
+      type: 'inertia',
+      velocity,
+      power: COAST_POWER,
+      timeConstant: COAST_TIME_CONSTANT,
+      restDelta: 0.5,
+      modifyTarget: (projected) => snapCoastTarget(projected, origin, velocity),
+    })
     spinRef.current = spin
     void spin.then(() => {
       if (spinIdRef.current !== spinId) return
@@ -410,6 +426,7 @@ export function PlanetWheel({
       snapTo(drag.planetIndex)
       return
     }
+    drag.samples.push({ t: performance.now(), x: event.clientX })
     coastToRest(velocityFromSamples(drag.samples))
   }
 
@@ -528,7 +545,6 @@ export function SettingsSheet({
         <Drawer.Viewport {...stylex.props(styles.viewport)}>
           <Drawer.Popup {...stylex.props(styles.popup)}>
             <div {...stylex.props(styles.sheetSurface)}>
-              <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
               <div {...stylex.props(styles.sheetClip)}>
                 <div {...stylex.props(styles.sheetHandle)} aria-hidden="true" />
                 <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
@@ -549,6 +565,7 @@ export function SettingsSheet({
                   </ScrollArea.Root>
                 </Drawer.Content>
               </div>
+              <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
             </div>
           </Drawer.Popup>
         </Drawer.Viewport>
@@ -767,18 +784,18 @@ const styles = stylex.create({
     '--drawer-snap-point-offset': 'inherit',
     '--drawer-swipe-movement-y': 'inherit',
     backgroundImage:
-      'linear-gradient(to bottom, rgba(7, 8, 13, 0.88) 0%, rgba(7, 8, 13, 0) 100%), linear-gradient(to bottom, rgba(9, 12, 20, 0.55) 0%, rgba(9, 12, 20, 0) 58%), linear-gradient(to bottom, rgba(9, 12, 20, 0.28) 0%, rgba(9, 12, 20, 0) 32%)',
-    height: `calc(${FLOAT_GAP} * ${SHEET_PROGRESS} + 36px * ${SHEET_PROGRESS})`,
+      'linear-gradient(in oklch to bottom, transparent 0%, lab(5 0 0 / 0.1) 20%, lab(5 0 0 / 0.34) 46%, lab(5 0 0 / 0.14) 74%, transparent 100%)',
+    bottom: `calc(-1 * (84px + ${FLOAT_GAP}) * ${SHEET_PROGRESS})`,
+    height: `calc((116px + ${FLOAT_GAP}) * ${SHEET_PROGRESS})`,
     left: 0,
     opacity: SHEET_PROGRESS,
     pointerEvents: 'none',
     position: 'absolute',
     right: 0,
-    top: '100%',
     transitionDuration: 'inherit',
-    transitionProperty: 'opacity, height',
+    transitionProperty: 'opacity, height, bottom',
     transitionTimingFunction: 'inherit',
-    zIndex: 0,
+    zIndex: 2,
     '@media (prefers-reduced-motion: reduce)': {
       transition: 'none',
     },
