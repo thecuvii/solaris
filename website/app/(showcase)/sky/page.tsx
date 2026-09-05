@@ -1,10 +1,10 @@
 import { planetMetadata } from '../../../modules/planet-page/planet-metadata'
 import { requirePlanet } from '../../../modules/showcase/showcase-data'
 
-const observedSun = requirePlanet('observed-sun')
+const sky = requirePlanet('sky')
 
-export const metadata = planetMetadata(observedSun)
+export const metadata = planetMetadata(sky)
 
-export default function ObservedSunPage() {
+export default function SkyPage() {
   return null
 }

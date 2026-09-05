@@ -5,23 +5,19 @@ import { useAtomValue } from 'jotai'
 
 import { noneTextLighting } from '../showcase/chrome-ink'
 import type { PlanetId } from '../showcase/showcase-data'
-import {
-  eclipseHaloAtom,
-  moonLightingAtom,
-  observedSunLightingAtom,
-} from '../showcase/showcase-settings'
+import { eclipseHaloAtom, moonLightingAtom, skyLightingAtom } from '../showcase/showcase-settings'
 import { useThrottledAtomValue } from '../showcase/use-throttled-atom-value'
 import { lunarEclipseChromeStyle } from './lunar-eclipse'
 import { moonChromeStyle } from './moon'
-import { observedSunChromeStyle, useObservedSunChromeProbes } from './observed-sun-chrome'
+import { skyChromeStyle, useSkyChromeProbes } from './sky-chrome'
 
 export function usePlanetChromeStyle(planetId: PlanetId): CSSProperties {
   const eclipse = useAtomValue(eclipseHaloAtom)
   const moon = useAtomValue(moonLightingAtom)
-  const observedSun = useThrottledAtomValue(observedSunLightingAtom, 80)
-  const observedSunProbes = useObservedSunChromeProbes(planetId === 'observed-sun')
+  const sky = useThrottledAtomValue(skyLightingAtom, 80)
+  const skyProbes = useSkyChromeProbes(planetId === 'sky')
   if (planetId === 'lunar-eclipse') return lunarEclipseChromeStyle(eclipse)
   if (planetId === 'moon') return moonChromeStyle(moon)
-  if (planetId === 'observed-sun') return observedSunChromeStyle(observedSun, observedSunProbes)
+  if (planetId === 'sky') return skyChromeStyle(sky, skyProbes)
   return noneTextLighting()
 }

@@ -22,7 +22,7 @@ export type PlanetTransitionPlan = {
 const linear = 'linear' as const
 
 export function getPlanetTransitionPlan(from: PlanetId, to: PlanetId): PlanetTransitionPlan {
-  if (from === 'observed-sun' || to === 'observed-sun') {
+  if (from === 'sky' || to === 'sky') {
     return {
       duration: 0.48,
       hold: true,

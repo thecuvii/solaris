@@ -157,9 +157,9 @@ Local adaptations:
 
 The source URL, output hash, processing thresholds, fitted center/radius, observation time, tool versions, and full modification record are stored in `sun-texture-manifest.json`. Research, rejected visual models, source-code audits, and validation criteria are recorded in `research/sun-rendering-webgl-shader-survey.md`.
 
-# Observed Sun procedural model
+# Sky procedural model
 
-`OBSERVED SUN` renders the Sun as photographed from the Earth's surface and contains no photographic, observational, or third-party image pixels and no third-party shader code. It is a single WebGL2 pass built from published closed-form fits, implemented independently in `src/observed-sun/observed-sun.effect.tsx`:
+`SKY` renders the Sun as photographed from the Earth's surface and contains no photographic, observational, or third-party image pixels and no third-party shader code. It is a single WebGL2 pass built from published closed-form fits, implemented independently in `src/sky/sky.effect.tsx`:
 
 - Relative airmass uses the Kasten & Young (1989) formula; per-channel Rayleigh and aerosol zenith optical depths are order-of-magnitude sea-level values. Ozone uses the Chappuis RGB fit from Heckel / Frostbite (`0.65 : 1.88 : 0.085`), rescaled to zenith optical depth, so twilight eats green/yellow instead of red. The in-disc gradient is editorially stretched (`DISC_GRADIENT_STRETCH`). The sky is a two-airmass single-scatter closed form of Heckel’s light march: `(1 − T_view) · T_sun · phase`. The disc edge is his `softSunDisc` (gaussian core, limb roll-off, exponential halo). `duskFlush` is an editorial magenta grade on the lower disc and its glow. `field` at 0 replaces the scattering sky with a dark indigo plate.
 - Apparent elevation uses the NOAA solar-position refraction polynomial, applied to the disc top, centre, and bottom so the lower limb is compressed more than the upper, following A. T. Young's flattening analysis.

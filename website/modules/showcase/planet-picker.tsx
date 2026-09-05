@@ -6,15 +6,24 @@ import { memo, useState } from 'react'
 
 import { defaultPlanetId, planetPath } from '../planet-route/planet-route'
 import { ParameterSwitch } from './inspector'
-import { planets } from './showcase-data'
+import { planets, withSiteSource } from './showcase-data'
 import type { PlanetId } from './showcase-data'
+import { track } from './track'
 
 const alsoArrowTransition = {
   duration: 0.22,
   ease: [0.4, 0, 0.2, 1],
 } as const
 
-function SeeAlsoLink({ children, href }: { children: ReactNode; href: string }) {
+function SeeAlsoLink({
+  children,
+  href,
+  onClick,
+}: {
+  children: ReactNode
+  href: string
+  onClick?: () => void
+}) {
   const reduceMotion = useReducedMotion()
   const [active, setActive] = useState(false)
   const drawn = active ? 1 : 0
@@ -24,6 +33,7 @@ function SeeAlsoLink({ children, href }: { children: ReactNode; href: string }) 
     <a
       href={href}
       onBlur={() => setActive(false)}
+      onClick={onClick}
       onFocus={() => setActive(true)}
       onPointerEnter={() => setActive(true)}
       onPointerLeave={() => setActive(false)}
@@ -148,22 +158,37 @@ export const PlanetPicker = memo(function PlanetPicker({
           <div {...stylex.props(styles.pickerAlso, styles.eclipseNavigationLighting)}>
             <div {...stylex.props(styles.pickerAlsoLabel)}>See also</div>
             <div {...stylex.props(styles.pickerAlsoItem)}>
-              <SeeAlsoLink href="https://cobe.vercel.app/">Cobe</SeeAlsoLink>
+              <SeeAlsoLink
+                href={withSiteSource('https://cobe.vercel.app/')}
+                onClick={() => track('clicked_cobe')}
+              >
+                Cobe
+              </SeeAlsoLink>
               <span {...stylex.props(styles.pickerAlsoAuthor)}>Shu Ding</span>
             </div>
             <div {...stylex.props(styles.pickerAlsoItem)}>
-              <SeeAlsoLink href="https://www.tryspherium.com/">Spherium</SeeAlsoLink>
+              <SeeAlsoLink href={withSiteSource('https://www.tryspherium.com/')}>
+                Spherium
+              </SeeAlsoLink>
               <span {...stylex.props(styles.pickerAlsoAuthor)}>Javier Crocco</span>
             </div>
           </div>
 
           <div {...stylex.props(styles.pickerMeta)}>
-            <a href="https://github.com/thecuvii/solaris" {...stylex.props(styles.pickerMetaLink)}>
+            <a
+              href={withSiteSource('https://github.com/thecuvii/solaris')}
+              onClick={() => track('clicked_github', { target: 'repo' })}
+              {...stylex.props(styles.pickerMetaLink)}
+            >
               GitHub
             </a>
             <div>
               Made by{' '}
-              <a href="https://github.com/thecuvii" {...stylex.props(styles.pickerMetaLink)}>
+              <a
+                href={withSiteSource('https://github.com/thecuvii')}
+                onClick={() => track('clicked_cuvii')}
+                {...stylex.props(styles.pickerMetaLink)}
+              >
                 Cuvii
               </a>
             </div>

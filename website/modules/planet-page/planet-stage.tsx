@@ -9,9 +9,9 @@ import { MarsPreview } from '../planets/mars'
 import { MercuryPreview } from '../planets/mercury'
 import { MoonPreview } from '../planets/moon'
 import { NeptunePreview } from '../planets/neptune'
-import { ObservedSunPreview } from '../planets/observed-sun'
 import { PlutoPreview } from '../planets/pluto'
 import { SaturnPreview } from '../planets/saturn'
+import { SkyPreview } from '../planets/sky'
 import { SunPreview } from '../planets/sun'
 import { TitanPreview } from '../planets/titan'
 import { UranusPreview } from '../planets/uranus'
@@ -19,7 +19,7 @@ import { VenusPreview } from '../planets/venus'
 import type { PlanetId } from '../showcase/showcase-data'
 import { PlanetPreview } from './planet-preview'
 
-const expandedPlanets = new Set<PlanetId>(['earth', 'lunar-eclipse', 'moon', 'observed-sun'])
+const expandedPlanets = new Set<PlanetId>(['earth', 'lunar-eclipse', 'moon', 'sky'])
 
 const planetPreviews = {
   earth: EarthPreview,
@@ -29,9 +29,9 @@ const planetPreviews = {
   mercury: MercuryPreview,
   moon: MoonPreview,
   neptune: NeptunePreview,
-  'observed-sun': ObservedSunPreview,
   pluto: PlutoPreview,
   saturn: SaturnPreview,
+  sky: SkyPreview,
   sun: SunPreview,
   titan: TitanPreview,
   uranus: UranusPreview,

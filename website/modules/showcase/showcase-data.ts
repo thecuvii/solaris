@@ -8,9 +8,9 @@ export type PlanetId =
   | 'mercury'
   | 'moon'
   | 'neptune'
-  | 'observed-sun'
   | 'pluto'
   | 'saturn'
+  | 'sky'
   | 'sun'
   | 'titan'
   | 'uranus'
@@ -37,8 +37,16 @@ export type Planet = {
   summary: string
 }
 
+export const siteOrigin = 'https://solaris.cuvii.dev'
+
+export function withSiteSource(href: string) {
+  const url = new URL(href)
+  url.searchParams.set('utm_source', new URL(siteOrigin).host)
+  return url.toString()
+}
+
 export const githubSourceUrl = (sourceFile: string) =>
-  `https://github.com/thecuvii/solaris/blob/main/${sourceFile}`
+  withSiteSource(`https://github.com/thecuvii/solaris/blob/main/${sourceFile}`)
 
 export const planets: readonly Planet[] = [
   {
@@ -49,11 +57,10 @@ export const planets: readonly Planet[] = [
     summary: 'A data-driven solar surface with active regions, filaments, and limb emission.',
   },
   {
-    componentName: 'ObservedSun',
-    id: 'observed-sun',
-    name: 'Observed Sun',
-    packageName: 'observed-sun',
-    sourceFile: 'src/observed-sun/observed-sun.effect.tsx',
+    id: 'sky',
+    name: 'Sky',
+    packageName: 'sky',
+    sourceFile: 'src/sky/sky.effect.tsx',
     summary:
       'The Sun as photographed from the ground: haze-softened disc, refraction flattening, cloud striations, lens glare, and lens flare.',
   },

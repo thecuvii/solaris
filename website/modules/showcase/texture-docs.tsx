@@ -9,6 +9,7 @@ import { TextMorph } from 'torph/react'
 import { CopyIcon } from './example-code'
 import { getPlanetTextureAttribution, getPlanetTextureDocs, hasTextures } from './showcase-data'
 import type { PlanetId, TextureDoc, TexturedPlanetId } from './showcase-data'
+import { track } from './track'
 
 export function TextureDocs({ planetId }: { planetId: PlanetId }) {
   if (!hasTextures(planetId)) return null
@@ -23,7 +24,7 @@ export function TextureDocs({ planetId }: { planetId: PlanetId }) {
       </div>
       <ul {...stylex.props(styles.textureList)}>
         {docs.map((doc) => (
-          <TextureDocRow doc={doc} key={`${doc.key}:${doc.url}`} />
+          <TextureDocRow doc={doc} key={`${doc.key}:${doc.url}`} planetId={planetId} />
         ))}
       </ul>
       <TextureCreditCallout planetId={planetId} />
@@ -98,7 +99,7 @@ function TextureHeadingHelp() {
   )
 }
 
-function TextureDocRow({ doc }: { doc: TextureDoc }) {
+function TextureDocRow({ doc, planetId }: { doc: TextureDoc; planetId: PlanetId }) {
   const { copied, copy } = useClipboard({ timeout: 1500 })
   const file = useTextureFileMeta(doc.url)
   const reduceMotion = useReducedMotion()
@@ -141,7 +142,15 @@ function TextureDocRow({ doc }: { doc: TextureDoc }) {
       <div {...stylex.props(styles.textureActions)}>
         <Button
           aria-label={copied ? `${doc.label} URL copied` : `Copy ${doc.label} URL`}
-          onClick={() => void copy(doc.url)}
+          onClick={() => {
+            track('clicked_copy', {
+              kind: 'texture_url',
+              planet_id: planetId,
+              texture_key: doc.key,
+              texture_label: doc.label,
+            })
+            void copy(doc.url)
+          }}
           type="button"
           {...stylex.props(styles.textureAction, copied && styles.textureActionCopied)}
         >

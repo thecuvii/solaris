@@ -37,10 +37,6 @@
       "types": "./dist/neptune/index.d.mts",
       "import": "./dist/neptune/index.mjs"
     },
-    "./observed-sun": {
-      "types": "./dist/observed-sun/index.d.mts",
-      "import": "./dist/observed-sun/index.mjs"
-    },
     "./pluto": {
       "types": "./dist/pluto/index.d.mts",
       "import": "./dist/pluto/index.mjs"
@@ -48,6 +44,10 @@
     "./saturn": {
       "types": "./dist/saturn/index.d.mts",
       "import": "./dist/saturn/index.mjs"
+    },
+    "./sky": {
+      "types": "./dist/sky/index.d.mts",
+      "import": "./dist/sky/index.mjs"
     },
     "./sun": {
       "types": "./dist/sun/index.d.mts",

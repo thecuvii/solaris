@@ -1,11 +1,11 @@
 'use client'
 
-import { ObservedSun } from '@thecuvii/solaris/observed-sun'
+import { Sky } from '@thecuvii/solaris/sky'
 
 import { bleedViewport, expandedComposition } from '../planet-page/preview-frame'
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 
-export function ObservedSunPreview() {
+export function SkyPreview() {
   return (
     <>
       <div
@@ -19,8 +19,8 @@ export function ObservedSunPreview() {
           ...expandedComposition,
         }}
       />
-      <ObservedSun
-        {...usePlanetPreviewProps('observed-sun')}
+      <Sky
+        {...usePlanetPreviewProps('sky')}
         composition={expandedComposition}
         viewport={bleedViewport}
       />

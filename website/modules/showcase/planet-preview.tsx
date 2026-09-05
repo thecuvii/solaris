@@ -5,6 +5,7 @@ import { TextMorph } from 'torph/react'
 import { chromeVariants } from './planet-transition'
 import type { ChromeTransitionContext } from './planet-transition'
 import { githubSourceUrl, type Planet } from './showcase-data'
+import { track } from './track'
 
 function GitHubMark() {
   return (
@@ -40,6 +41,7 @@ export function PlanetIntroduction({
         <a
           aria-label={`View ${planet.name} source on GitHub`}
           href={githubSourceUrl(planet.sourceFile)}
+          onClick={() => track('clicked_github', { planet_id: planet.id, target: 'source' })}
           rel="noreferrer"
           target="_blank"
           {...stylex.props(styles.sourceLink, styles.eclipseTitleLighting)}

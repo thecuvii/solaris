@@ -21,6 +21,7 @@ import {
   resetPlanetSettingsAtom,
   settingAtom,
 } from './showcase-settings'
+import { track } from './track'
 
 export function Inspector({ planetId }: { planetId: PlanetId }) {
   const groups = parameterGroupsByPlanet.get(planetId) ?? []
@@ -58,7 +59,14 @@ function PresetGrid({ planetId }: { planetId: PlanetId }) {
         {presets.map((preset) => (
           <button
             key={preset.id}
-            onClick={() => applyPlanetSettings({ planetId, values: preset.values })}
+            onClick={() => {
+              track('clicked_preset', {
+                planet_id: planetId,
+                preset_id: preset.id,
+                preset_label: preset.label,
+              })
+              applyPlanetSettings({ planetId, values: preset.values })
+            }}
             type="button"
             {...stylex.props(styles.presetCard)}
           >

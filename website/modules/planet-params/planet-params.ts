@@ -273,25 +273,25 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     poseTilt(18, 40),
     unit('windScale', 0.62, { group: 'atmosphere', label: 'Wind' }),
   ],
-  'observed-sun': [
-    unit('cloudStreaks', 0.32, { group: 'atmosphere', label: 'Cloud streaks' }),
-    unit('duskFlush', 0.2, { group: 'atmosphere', label: 'Dusk flush' }),
-    number('exposure', 1.05, 0.2, 8, 0.05, { group: 'lighting', label: 'Exposure' }),
-    unit('field', 0.16, { group: 'atmosphere', label: 'Field' }),
-    amount('flare', 0.04, { group: 'lighting', label: 'Flare' }),
-    angle('flareAngle', 68, { group: 'lighting', label: 'Flare angle' }),
-    unit('flareRays', 0.37, { group: 'lighting', label: 'Flare rays' }),
-    unit('flareStar', 0.11, { group: 'lighting', label: 'Flare star' }),
-    amount('glare', 0.29, { group: 'lighting', label: 'Glare' }),
-    unit('haze', 0.34, { group: 'atmosphere', label: 'Haze' }),
-    amount('ozone', 0.24, { group: 'atmosphere', label: 'Ozone' }),
-    number('saturation', 1.23, 0, 2, 0.01, { group: 'lighting', label: 'Saturation' }),
-    number('refraction', 0.27, 0, 1.5, 0.01, { group: 'pose', label: 'Refraction' }),
-    unit('seeingAmount', 0, { group: 'motion', label: 'Seeing' }),
-    number('seeingSpeed', 1, 0, 3, 0.01, { group: 'motion', label: 'Seeing speed' }),
-    number('streakDrift', 0.83, 0, 3, 0.01, { group: 'motion', label: 'Streak drift' }),
-    sunElevation(4, 'sunElevation', { max: 70, min: -1 }),
-    number('sunScale', 0.295, 0.02, 0.6, 0.005, { group: 'pose', label: 'Disc size' }),
+  sky: [
+    unit('cloudStreaks', 0, { group: 'atmosphere', label: 'Cloud streaks' }),
+    unit('duskFlush', 0, { group: 'atmosphere', label: 'Dusk flush' }),
+    number('exposure', 1.8, 0.2, 8, 0.05, { group: 'lighting', label: 'Exposure' }),
+    unit('field', 0, { group: 'atmosphere', label: 'Field' }),
+    amount('flare', 0.02, { group: 'lighting', label: 'Flare' }),
+    angle('flareAngle', 63, { group: 'lighting', label: 'Flare angle' }),
+    unit('flareRays', 0.56, { group: 'lighting', label: 'Flare rays' }),
+    unit('flareStar', 0.25, { group: 'lighting', label: 'Flare star' }),
+    amount('glare', 0.14, { group: 'lighting', label: 'Glare' }),
+    unit('haze', 0.55, { group: 'atmosphere', label: 'Haze' }),
+    amount('ozone', 0.69, { group: 'atmosphere', label: 'Ozone' }),
+    number('saturation', 0.9, 0, 2, 0.01, { group: 'lighting', label: 'Saturation' }),
+    number('refraction', 0.5, 0, 1.5, 0.01, { group: 'pose', label: 'Refraction' }),
+    unit('seeingAmount', 0.29, { group: 'motion', label: 'Seeing' }),
+    number('seeingSpeed', 0.76, 0, 3, 0.01, { group: 'motion', label: 'Seeing speed' }),
+    number('streakDrift', 2.19, 0, 3, 0.01, { group: 'motion', label: 'Streak drift' }),
+    sunElevation(3, 'sunElevation', { max: 70, min: -1 }),
+    number('sunScale', 0.02, 0.02, 0.6, 0.005, { group: 'pose', label: 'Disc size' }),
   ],
   pluto: [
     exposure(1),
@@ -438,9 +438,7 @@ function look(
   overrides: PlanetSettings = {},
 ): PlanetPreset {
   const image =
-    planetId === 'observed-sun'
-      ? `/thumbnails/v1/observed-sun-${id}.avif`
-      : `/thumbnails/v1/${planetId}.avif`
+    planetId === 'sky' ? `/thumbnails/v1/sky-${id}.avif` : `/thumbnails/v1/${planetId}.avif`
   return {
     id,
     image,
@@ -541,8 +539,9 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       sunElevation: 2,
     }),
   ],
-  'observed-sun': [
-    look('observed-sun', 'hazy-dusk', 'Hazy dusk', {
+  sky: [
+    look('sky', 'dawn', 'Dawn'),
+    look('sky', 'hazy-dusk', 'Hazy dusk', {
       cloudStreaks: 0.1,
       duskFlush: 0,
       exposure: 0.9,
@@ -556,7 +555,7 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       sunElevation: 1.8,
       sunScale: 0.36,
     }),
-    look('observed-sun', 'telephoto', 'Telephoto sunset', {
+    look('sky', 'telephoto', 'Telephoto sunset', {
       cloudStreaks: 0.13,
       duskFlush: 0,
       exposure: 1.1,
@@ -576,7 +575,7 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       sunElevation: 2,
       sunScale: 0.36,
     }),
-    look('observed-sun', 'noon-glare', 'Noon glare', {
+    look('sky', 'noon-glare', 'Noon glare', {
       cloudStreaks: 0,
       duskFlush: 0,
       exposure: 8,
@@ -590,7 +589,7 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       sunElevation: 45,
       sunScale: 0.3,
     }),
-    look('observed-sun', 'lens-flare', 'Lens flare', {
+    look('sky', 'lens-flare', 'Lens flare', {
       cloudStreaks: 0,
       duskFlush: 0,
       exposure: 4.5,
@@ -607,7 +606,7 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       sunElevation: 3,
       sunScale: 0.025,
     }),
-    look('observed-sun', 'fog', 'Fog', {
+    look('sky', 'fog', 'Fog', {
       cloudStreaks: 0,
       duskFlush: 0.22,
       exposure: 0.45,
@@ -626,26 +625,6 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       streakDrift: 0.12,
       sunElevation: 7,
       sunScale: 0.035,
-    }),
-    look('observed-sun', 'dawn', 'Dawn', {
-      cloudStreaks: 0,
-      duskFlush: 0,
-      exposure: 1.8,
-      field: 0,
-      flare: 0.02,
-      flareAngle: 63,
-      flareRays: 0.56,
-      flareStar: 0.25,
-      glare: 0.14,
-      haze: 0.55,
-      ozone: 0.69,
-      refraction: 0.5,
-      saturation: 0.9,
-      seeingAmount: 0.29,
-      seeingSpeed: 0.76,
-      streakDrift: 2.19,
-      sunElevation: 3,
-      sunScale: 0.02,
     }),
   ],
   pluto: [

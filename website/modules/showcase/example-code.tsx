@@ -12,12 +12,13 @@ import { useMemo } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { getPrecision, numberFlowFormat, numberFlowTimings } from './setting-format'
-import { hasTextures, textures } from './showcase-data'
+import { hasTextures, siteOrigin, textures } from './showcase-data'
 import type { Planet, PlanetId } from './showcase-data'
 import { initialSettings, parameterDefinitions } from '../planet-params/planet-params'
 import type { ParameterDefinition, PlanetSettings } from '../planet-params/planet-params'
 import { planetExampleDeclarations, planetExampleProps } from '../planets/example-declarations'
 import { planetSettingsAtom, settingAtom } from './showcase-settings'
+import { track } from './track'
 
 const highlighter = createHighlighterCoreSync({
   engine: createJavaScriptRegexEngine(),
@@ -40,7 +41,7 @@ function buildExampleCode(planet: Planet, settings: PlanetSettings): string {
   const textureDeclaration = planetTextures
     ? `const textures = {
 ${Object.entries(planetTextures)
-  .map(([name, source]) => `  ${name}: '${source}',`)
+  .map(([name, source]) => `  ${name}: '${siteOrigin}${source}',`)
   .join('\n')}
 }
 
@@ -140,9 +141,10 @@ export function CodeBlock({ planet }: { planet: Planet }) {
         </div>
         <Button
           aria-label={copied ? 'Code copied' : 'Copy code'}
-          onClick={() =>
+          onClick={() => {
+            track('clicked_copy', { kind: 'code', planet_id: planet.id })
             void copy(buildExampleCode(planet, store.get(planetSettingsAtom(planet.id))))
-          }
+          }}
           type="button"
           {...stylex.props(styles.codeFile, styles.codeCopy, copied && styles.codeCopyCopied)}
         >

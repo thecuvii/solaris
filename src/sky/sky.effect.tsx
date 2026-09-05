@@ -22,18 +22,18 @@ import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-r
  * horizon to noon.
  */
 
-export type ObservedSunComposition = {
+export type SkyComposition = {
   bottom?: CSSProperties['bottom']
   height: CSSProperties['height']
   width: CSSProperties['width']
 }
 
-export type ObservedSunEffectProps = {
+export type SkyEffectProps = {
   className?: string
   /** Thin horizontal cloud/inversion striations across the low disc. */
   cloudStreaks?: number
   /** Disc layout box. The canvas can be larger so glow is not clipped. */
-  composition?: ObservedSunComposition
+  composition?: SkyComposition
   /** Editorial yellow→orange→magenta disc grade. Stays on the disc. */
   duskFlush?: number
   /** Linear scene gain relative to the disc centre before tone mapping. */
@@ -73,7 +73,7 @@ export type ObservedSunEffectProps = {
   viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
 
-type ObservedSunSettings = {
+type SkySettings = {
   cloudStreaks: number
   duskFlush: number
   exposure: number
@@ -94,7 +94,7 @@ type ObservedSunSettings = {
   sunScale: number
 }
 
-type ObservedSunResources = {
+type SkyResources = {
   program: WebGLProgram
   vertexArray: WebGLVertexArrayObject
 }
@@ -565,11 +565,11 @@ void main() {
 
 function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
   const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Observed Sun shader')
+  if (!shader) throw new Error('Unable to create Sky shader')
   gl.shaderSource(shader, source)
   gl.compileShader(shader)
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Observed Sun shader compile error'
+    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Sky shader compile error'
     gl.deleteShader(shader)
     throw new Error(message)
   }
@@ -583,12 +583,12 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
   try {
     fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
     program = gl.createProgram()
-    if (!program) throw new Error('Unable to create Observed Sun shader program')
+    if (!program) throw new Error('Unable to create Sky shader program')
     gl.attachShader(program, vertexShader)
     gl.attachShader(program, fragmentShader)
     gl.linkProgram(program)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(gl.getProgramInfoLog(program) ?? 'Unknown Observed Sun shader link error')
+      throw new Error(gl.getProgramInfoLog(program) ?? 'Unknown Sky shader link error')
     }
     return program
   } catch (error) {
@@ -600,9 +600,9 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
   }
 }
 
-function createResources(gl: WebGL2RenderingContext): ObservedSunResources {
+function createResources(gl: WebGL2RenderingContext): SkyResources {
   const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Observed Sun vertex array')
+  if (!vertexArray) throw new Error('Unable to create Sky vertex array')
   try {
     const program = createProgram(gl)
     gl.bindVertexArray(vertexArray)
@@ -613,7 +613,7 @@ function createResources(gl: WebGL2RenderingContext): ObservedSunResources {
   }
 }
 
-function deleteResources(gl: WebGL2RenderingContext, resources: ObservedSunResources): void {
+function deleteResources(gl: WebGL2RenderingContext, resources: SkyResources): void {
   gl.deleteProgram(resources.program)
   gl.deleteVertexArray(resources.vertexArray)
 }
@@ -622,7 +622,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
 }
 
-function sanitizedSettings(settings: ObservedSunSettings): ObservedSunSettings {
+function sanitizedSettings(settings: SkySettings): SkySettings {
   return {
     cloudStreaks: clamp(settings.cloudStreaks, 0, 1),
     duskFlush: clamp(settings.duskFlush, 0, 1),
@@ -645,13 +645,13 @@ function sanitizedSettings(settings: ObservedSunSettings): ObservedSunSettings {
   }
 }
 
-function createObservedSunRenderer(
+function createSkyRenderer(
   canvas: HTMLCanvasElement,
   input: {
     compositionRef: RefObject<HTMLDivElement | null>
     hasComposition: boolean
   },
-): CanvasRenderer<ObservedSunSettings> | null {
+): CanvasRenderer<SkySettings> | null {
   const { compositionRef, hasComposition } = input
   const context = canvas.getContext('webgl2', {
     alpha: false,
@@ -666,7 +666,7 @@ function createObservedSunRenderer(
 
   let contextLost = false
   let disposed = false
-  let resources: ObservedSunResources | null = createResources(gl)
+  let resources: SkyResources | null = createResources(gl)
   let startTime = performance.now()
   let compositionCenterX = 0
   let compositionCenterY = 0
@@ -695,7 +695,7 @@ function createObservedSunRenderer(
     )
   }
 
-  function render(timestamp: number, frameSettings: ObservedSunSettings): void {
+  function render(timestamp: number, frameSettings: SkySettings): void {
     if (disposed || contextLost || !resources) return
     resize()
     const settings = sanitizedSettings(frameSettings)
@@ -788,33 +788,33 @@ function createObservedSunRenderer(
   }
 }
 
-export function ObservedSunEffect({
+export function SkyEffect({
   className,
-  cloudStreaks = 0.32,
+  cloudStreaks = 0,
   composition,
-  duskFlush = 0.2,
-  exposure = 1.05,
-  field = 0.16,
-  flare = 0.04,
-  flareAngle = 68,
-  flareRays = 0.37,
-  flareStar = 0.11,
-  glare = 0.29,
-  haze = 0.34,
-  ozone = 0.24,
-  refraction = 0.27,
-  saturation = 1.23,
-  seeingAmount = 0,
-  seeingSpeed = 1,
-  streakDrift = 0.83,
+  duskFlush = 0,
+  exposure = 1.8,
+  field = 0,
+  flare = 0.02,
+  flareAngle = 63,
+  flareRays = 0.56,
+  flareStar = 0.25,
+  glare = 0.14,
+  haze = 0.55,
+  ozone = 0.69,
+  refraction = 0.5,
+  saturation = 0.9,
+  seeingAmount = 0.29,
+  seeingSpeed = 0.76,
+  streakDrift = 2.19,
   style,
-  sunElevation = 4,
-  sunScale = 0.295,
+  sunElevation = 3,
+  sunScale = 0.02,
   viewport,
-}: ObservedSunEffectProps) {
+}: SkyEffectProps) {
   const compositionRef = useRef<HTMLDivElement>(null)
   const hasComposition = composition !== undefined
-  const frameSettings: ObservedSunSettings = {
+  const frameSettings: SkySettings = {
     cloudStreaks,
     duskFlush,
     exposure,
@@ -835,7 +835,7 @@ export function ObservedSunEffect({
     sunScale,
   }
   const rendererInput = useMemo(() => ({ compositionRef, hasComposition }), [hasComposition])
-  const canvasRef = useCanvasRenderer(frameSettings, rendererInput, createObservedSunRenderer)
+  const canvasRef = useCanvasRenderer(frameSettings, rendererInput, createSkyRenderer)
 
   if (composition) {
     return (

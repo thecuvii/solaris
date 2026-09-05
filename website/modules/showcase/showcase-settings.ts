@@ -46,14 +46,14 @@ export const moonLightingAtom = atom((get) => ({
   sunElevation: Number(get(settingAtom({ name: 'sunElevation', planetId: 'moon' }))),
 }))
 
-export const observedSunLightingAtom = atom((get) => ({
-  exposure: Number(get(settingAtom({ name: 'exposure', planetId: 'observed-sun' }))),
-  field: Number(get(settingAtom({ name: 'field', planetId: 'observed-sun' }))),
-  glare: Number(get(settingAtom({ name: 'glare', planetId: 'observed-sun' }))),
-  haze: Number(get(settingAtom({ name: 'haze', planetId: 'observed-sun' }))),
-  ozone: Number(get(settingAtom({ name: 'ozone', planetId: 'observed-sun' }))),
-  sunElevation: Number(get(settingAtom({ name: 'sunElevation', planetId: 'observed-sun' }))),
-  sunScale: Number(get(settingAtom({ name: 'sunScale', planetId: 'observed-sun' }))),
+export const skyLightingAtom = atom((get) => ({
+  exposure: Number(get(settingAtom({ name: 'exposure', planetId: 'sky' }))),
+  field: Number(get(settingAtom({ name: 'field', planetId: 'sky' }))),
+  glare: Number(get(settingAtom({ name: 'glare', planetId: 'sky' }))),
+  haze: Number(get(settingAtom({ name: 'haze', planetId: 'sky' }))),
+  ozone: Number(get(settingAtom({ name: 'ozone', planetId: 'sky' }))),
+  sunElevation: Number(get(settingAtom({ name: 'sunElevation', planetId: 'sky' }))),
+  sunScale: Number(get(settingAtom({ name: 'sunScale', planetId: 'sky' }))),
 }))
 
 export const applyPlanetSettingsAtom = atom(

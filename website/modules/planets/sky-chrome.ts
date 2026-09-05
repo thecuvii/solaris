@@ -8,7 +8,7 @@ import {
   type EclipseTextLightingProperties,
 } from '../showcase/chrome-ink'
 
-export type ObservedSunLighting = {
+export type SkyLighting = {
   exposure: number
   field: number
   glare: number
@@ -118,13 +118,10 @@ function washFromLuminance(luminance: number): number {
 }
 
 /**
- * Display luminance of the Observed Sun shader at a composition-space point.
+ * Display luminance of the Sky shader at a composition-space point.
  * Matches the sky / glare / horizon path; skips seeing, streaks, and flare noise.
  */
-export function observedSunBackdropLuminance(
-  lighting: ObservedSunLighting,
-  screen: ScreenPoint,
-): number {
+export function skyBackdropLuminance(lighting: SkyLighting, screen: ScreenPoint): number {
   const sunScale = Math.max(lighting.sunScale, 1e-4)
   const angularX = screen.x * (SUN_RADIUS / sunScale)
   const angularY = screen.y * (SUN_RADIUS / sunScale)
@@ -174,8 +171,8 @@ export function observedSunBackdropLuminance(
   return dot(mapped, LUMINANCE)
 }
 
-export function observedSunRegionWash(lighting: ObservedSunLighting, screen: ScreenPoint): number {
-  return washFromLuminance(observedSunBackdropLuminance(lighting, screen))
+export function skyRegionWash(lighting: SkyLighting, screen: ScreenPoint): number {
+  return washFromLuminance(skyBackdropLuminance(lighting, screen))
 }
 
 function compositionScreen(element: Element, composition: DOMRect): ScreenPoint | null {
@@ -191,7 +188,7 @@ function compositionScreen(element: Element, composition: DOMRect): ScreenPoint 
   }
 }
 
-export function useObservedSunChromeProbes(enabled: boolean): {
+export function useSkyChromeProbes(enabled: boolean): {
   nav: ScreenPoint
   title: ScreenPoint
 } {
@@ -238,12 +235,12 @@ export function useObservedSunChromeProbes(enabled: boolean): {
   return probes
 }
 
-export function observedSunChromeStyle(
-  lighting: ObservedSunLighting,
+export function skyChromeStyle(
+  lighting: SkyLighting,
   probes: { nav: ScreenPoint; title: ScreenPoint },
 ): EclipseTextLightingProperties {
-  const navInk = chromeInk(observedSunRegionWash(lighting, probes.nav))
-  const titleInk = chromeInk(observedSunRegionWash(lighting, probes.title))
+  const navInk = chromeInk(skyRegionWash(lighting, probes.nav))
+  const titleInk = chromeInk(skyRegionWash(lighting, probes.title))
   return {
     ...noneTextLighting(),
     '--showcase-nav-ink': navInk['--showcase-nav-ink'],
