@@ -10,8 +10,14 @@ import { useEffect, useRef, useState } from 'react'
 
 import { planets, type PlanetId } from './showcase-data'
 
-const STEP = 360 / planets.length
-const RADIUS = 152
+// Pack tighter than a full ring. The unused arc sits opposite the
+// selection and stays off-screen under the dock.
+const STEP = 18
+const WHEEL_RADIUS = 240
+const WHEEL_SIZE = WHEEL_RADIUS * 2
+const RING = 56
+const RADIUS = WHEEL_RADIUS - RING / 2 + 4
+const ORBIT_TOP = WHEEL_RADIUS - 4
 const DRAG_DEG_PER_PX = 0.48
 const OPEN_PULL = 36
 const MAX_COAST_STEPS = 6
@@ -37,10 +43,15 @@ function nearestIndex(rotation: number) {
   return wrapIndex(Math.round(rotation / STEP))
 }
 
+function shortestIndexDelta(from: number, to: number) {
+  const count = planets.length
+  let delta = to - from
+  delta -= count * Math.round(delta / count)
+  return delta
+}
+
 function shortestDelta(from: number, to: number) {
-  let delta = ((to - from) % 360) + 360
-  delta %= 360
-  return delta > 180 ? delta - 360 : delta
+  return shortestIndexDelta(from / STEP, to / STEP) * STEP
 }
 
 function useExpandedSnapPoint(nudgePx: number): Drawer.Root.SnapPoint {
@@ -75,27 +86,29 @@ const TICKS_PER_STEP = 4
 const TICK_STEP = STEP / TICKS_PER_STEP
 const VISUAL_TICKS_PER_STEP = 8
 const VISUAL_TICK_STEP = STEP / VISUAL_TICKS_PER_STEP
-// On the track ring itself, along its inner edge (disc is r=124, planets at r=152).
-const TICK_INNER = 125
-const TICK_CENTER_OUTER = 131
-const TICK_MARKS = Array.from({ length: planets.length * VISUAL_TICKS_PER_STEP }, (_, index) => {
+// Ticks sit on the inner edge of the outer ring.
+const TICK_INNER = WHEEL_RADIUS - RING + 1
+const TICK_CENTER_OUTER = TICK_INNER + 6
+const TICK_COUNT = Math.round(360 / VISUAL_TICK_STEP)
+const TICK_MARKS = Array.from({ length: TICK_COUNT }, (_, index) => {
   const slot = index % VISUAL_TICKS_PER_STEP
   const kind = slot === 0 ? 'major' : slot === 4 ? 'mid' : 'minor'
   const angle = ((index * VISUAL_TICK_STEP - 90) * Math.PI) / 180
-  const outer = kind === 'major' ? 131 : kind === 'mid' ? 129.5 : 128
+  const outer =
+    kind === 'major' ? TICK_INNER + 6 : kind === 'mid' ? TICK_INNER + 4.5 : TICK_INNER + 3
   return {
     kind,
-    x1: 180 + Math.cos(angle) * TICK_INNER,
-    x2: 180 + Math.cos(angle) * outer,
-    y1: 180 + Math.sin(angle) * TICK_INNER,
-    y2: 180 + Math.sin(angle) * outer,
+    x1: WHEEL_RADIUS + Math.cos(angle) * TICK_INNER,
+    x2: WHEEL_RADIUS + Math.cos(angle) * outer,
+    y1: WHEEL_RADIUS + Math.sin(angle) * TICK_INNER,
+    y2: WHEEL_RADIUS + Math.sin(angle) * outer,
   }
 })
 const TICK_CENTER = {
-  x1: 180,
-  x2: 180,
-  y1: 180 - TICK_INNER,
-  y2: 180 - TICK_CENTER_OUTER,
+  x1: WHEEL_RADIUS,
+  x2: WHEEL_RADIUS,
+  y1: WHEEL_RADIUS - TICK_INNER,
+  y2: WHEEL_RADIUS - TICK_CENTER_OUTER,
 }
 
 function tickIndex(rotation: number) {
@@ -123,7 +136,7 @@ function WheelTicks({ rotation }: { rotation: ReturnType<typeof useMotionValue<n
       <motion.svg
         aria-hidden="true"
         style={{ rotate }}
-        viewBox="0 0 360 360"
+        viewBox={`0 0 ${WHEEL_SIZE} ${WHEEL_SIZE}`}
         {...stylex.props(styles.ticks)}
       >
         {TICK_MARKS.map((mark, index) => (
@@ -145,7 +158,11 @@ function WheelTicks({ rotation }: { rotation: ReturnType<typeof useMotionValue<n
           />
         ))}
       </motion.svg>
-      <svg aria-hidden="true" viewBox="0 0 360 360" {...stylex.props(styles.ticks)}>
+      <svg
+        aria-hidden="true"
+        viewBox={`0 0 ${WHEEL_SIZE} ${WHEEL_SIZE}`}
+        {...stylex.props(styles.ticks)}
+      >
         <line
           stroke="color-mix(in oklch, var(--control-accent) 58%, white)"
           strokeLinecap="round"
@@ -173,11 +190,11 @@ function WheelPlanet({
 }) {
   const planet = planets[index]
   const x = useTransform(rotation, (value) => {
-    const angle = ((index * STEP - value - 90) * Math.PI) / 180
+    const angle = ((shortestIndexDelta(value / STEP, index) * STEP - 90) * Math.PI) / 180
     return Math.cos(angle) * RADIUS
   })
   const y = useTransform(rotation, (value) => {
-    const angle = ((index * STEP - value - 90) * Math.PI) / 180
+    const angle = ((shortestIndexDelta(value / STEP, index) * STEP - 90) * Math.PI) / 180
     return Math.sin(angle) * RADIUS
   })
   const scale = useTransform(rotation, (value) => {
@@ -430,49 +447,51 @@ export function PlanetWheel({
         </div>
       </div>
 
-      <button
-        aria-expanded={settingsOpen}
-        aria-label={settingsOpen ? 'Close settings' : 'Open settings'}
-        onClick={() => {
-          if (suppressGearClickRef.current) {
-            suppressGearClickRef.current = false
-            return
-          }
-          play('toggle', { volume: 0.32 })
-          onSettingsOpenChange(!settingsOpen)
-        }}
-        onPointerDown={(event) => {
-          if (event.button !== 0) return
-          event.currentTarget.setPointerCapture(event.pointerId)
-          dragRef.current = {
-            moved: false,
-            planetIndex: null,
-            pointerId: event.pointerId,
-            pulled: false,
-            samples: [{ t: performance.now(), x: event.clientX }],
-            startRotation: rotation.get(),
-            startX: event.clientX,
-            startY: event.clientY,
-          }
-        }}
-        onPointerMove={(event) => {
-          const drag = dragRef.current
-          if (!drag || drag.pointerId !== event.pointerId) return
-          const dy = event.clientY - drag.startY
-          if (dy < -OPEN_PULL) {
-            drag.pulled = true
-            suppressGearClickRef.current = true
-            openSettings()
-          }
-        }}
-        onPointerUp={() => {
-          dragRef.current = null
-        }}
-        type="button"
-        {...stylex.props(styles.gear, settingsOpen && styles.gearOpen)}
-      >
-        <ChevronUpIcon />
-      </button>
+      <div {...stylex.props(styles.chrome)}>
+        <button
+          aria-expanded={settingsOpen}
+          aria-label={settingsOpen ? 'Close settings' : 'Open settings'}
+          onClick={() => {
+            if (suppressGearClickRef.current) {
+              suppressGearClickRef.current = false
+              return
+            }
+            play('toggle', { volume: 0.32 })
+            onSettingsOpenChange(!settingsOpen)
+          }}
+          onPointerDown={(event) => {
+            if (event.button !== 0) return
+            event.currentTarget.setPointerCapture(event.pointerId)
+            dragRef.current = {
+              moved: false,
+              planetIndex: null,
+              pointerId: event.pointerId,
+              pulled: false,
+              samples: [{ t: performance.now(), x: event.clientX }],
+              startRotation: rotation.get(),
+              startX: event.clientX,
+              startY: event.clientY,
+            }
+          }}
+          onPointerMove={(event) => {
+            const drag = dragRef.current
+            if (!drag || drag.pointerId !== event.pointerId) return
+            const dy = event.clientY - drag.startY
+            if (dy < -OPEN_PULL) {
+              drag.pulled = true
+              suppressGearClickRef.current = true
+              openSettings()
+            }
+          }}
+          onPointerUp={() => {
+            dragRef.current = null
+          }}
+          type="button"
+          {...stylex.props(styles.gear, settingsOpen && styles.gearOpen)}
+        >
+          <ChevronUpIcon />
+        </button>
+      </div>
     </div>
   )
 }
@@ -540,18 +559,18 @@ export function SettingsSheet({
 
 const styles = stylex.create({
   bezel: {
-    height: 360,
+    height: WHEEL_SIZE,
     left: '50%',
     pointerEvents: 'none',
     position: 'absolute',
     top: -4,
     transform: 'translateX(-50%)',
-    width: 360,
+    width: WHEEL_SIZE,
   },
   disc: {
     backgroundColor: 'color-mix(in oklch, var(--control-accent) 72%, black)',
     borderRadius: '50%',
-    inset: 56,
+    inset: RING,
     position: 'absolute',
   },
   // Same two mixes and lip as the reset chip. The ramp runs across the
@@ -567,9 +586,9 @@ const styles = stylex.create({
     position: 'absolute',
   },
   dock: {
-    bottom: 0,
+    bottom: 32,
     display: 'none',
-    height: 'calc(128px + env(safe-area-inset-bottom, 0px))',
+    height: 'var(--showcase-wheel-height, 126px)',
     left: 0,
     pointerEvents: 'none',
     position: 'fixed',
@@ -579,6 +598,17 @@ const styles = stylex.create({
       display: 'block',
     },
   },
+  chrome: {
+    alignItems: 'center',
+    bottom: 16,
+    display: 'flex',
+    justifyContent: 'center',
+    left: '50%',
+    pointerEvents: 'none',
+    position: 'fixed',
+    transform: 'translateX(-50%)',
+    zIndex: 3,
+  },
   gear: {
     alignItems: 'center',
     appearance: 'none',
@@ -587,7 +617,6 @@ const styles = stylex.create({
       'linear-gradient(in oklch 180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 81%, black) 100%)',
     borderWidth: 0,
     borderRadius: '50%',
-    bottom: 'calc(14px + env(safe-area-inset-bottom, 0px))',
     boxShadow: {
       default: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
       ':focus-visible':
@@ -598,14 +627,10 @@ const styles = stylex.create({
     display: 'grid',
     height: 36,
     justifyContent: 'center',
-    left: '50%',
     padding: 0,
     placeItems: 'center',
     pointerEvents: 'auto',
-    position: 'absolute',
-    transform: 'translateX(-50%)',
     width: 36,
-    zIndex: 3,
     ':focus-visible': {
       outline: 'none',
     },
@@ -628,7 +653,7 @@ const styles = stylex.create({
     left: '50%',
     pointerEvents: 'none',
     position: 'absolute',
-    top: 176,
+    top: ORBIT_TOP,
     width: 0,
   },
   planet: {
