@@ -464,8 +464,8 @@ export function SettingsSheet({
       <Drawer.Portal>
         <Drawer.Viewport {...stylex.props(styles.viewport)}>
           <Drawer.Popup {...stylex.props(styles.popup)}>
-            <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
             <div {...stylex.props(styles.sheetSurface)}>
+              <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
               <div {...stylex.props(styles.sheetClip)}>
                 <div {...stylex.props(styles.sheetHandle)} aria-hidden="true" />
                 <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
@@ -678,17 +678,16 @@ const styles = stylex.create({
     '--drawer-snap-point-offset': 'inherit',
     '--drawer-swipe-movement-y': 'inherit',
     backgroundImage:
-      'linear-gradient(to top, rgba(7, 8, 13, 0.88) 0%, rgba(7, 8, 13, 0) 100%), linear-gradient(to top, rgba(9, 12, 20, 0.55) 0%, rgba(9, 12, 20, 0) 58%), linear-gradient(to top, rgba(9, 12, 20, 0.28) 0%, rgba(9, 12, 20, 0) 32%)',
-    // Sit on the visible viewport bottom (content-box edge), behind the card.
-    bottom: 'calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y))',
+      'linear-gradient(to bottom, rgba(7, 8, 13, 0.88) 0%, rgba(7, 8, 13, 0) 100%), linear-gradient(to bottom, rgba(9, 12, 20, 0.55) 0%, rgba(9, 12, 20, 0) 58%), linear-gradient(to bottom, rgba(9, 12, 20, 0.28) 0%, rgba(9, 12, 20, 0) 32%)',
     height: `calc(${FLOAT_GAP} * ${SHEET_PROGRESS} + 36px * ${SHEET_PROGRESS})`,
-    left: FLOAT_GAP,
+    left: 0,
     opacity: SHEET_PROGRESS,
     pointerEvents: 'none',
     position: 'absolute',
-    right: FLOAT_GAP,
+    right: 0,
+    top: '100%',
     transitionDuration: 'inherit',
-    transitionProperty: 'opacity, height, bottom',
+    transitionProperty: 'opacity, height',
     transitionTimingFunction: 'inherit',
     zIndex: 0,
     '@media (prefers-reduced-motion: reduce)': {
