@@ -2,6 +2,7 @@
 
 import { Drawer } from '@base-ui/react/drawer'
 import * as stylex from '@stylexjs/stylex'
+import { play } from 'cuelume'
 import { animate, motion, useMotionValue, useTransform } from 'motion/react'
 import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -12,6 +13,11 @@ const STEP = 360 / planets.length
 const RADIUS = 152
 const DRAG_DEG_PER_PX = 0.48
 const OPEN_PULL = 36
+const MAX_COAST_STEPS = 6
+const COAST_SECONDS = 0.42
+const VELOCITY_WINDOW_MS = 90
+const SNAP_SPRING = { type: 'spring', stiffness: 420, damping: 38, mass: 0.8 } as const
+const COAST_SPRING = { type: 'spring', stiffness: 88, damping: 16, mass: 1.15 } as const
 const PRESET_SNAP = 0.25
 const EXPANDED_SNAP = 0.5
 // Offset at the flush snap (max 50dvh − first snap 25dvh). Morph finishes 5dvh later (0.30).
@@ -44,60 +50,40 @@ function ChevronUpIcon() {
   )
 }
 
-// Ring track: recessed dots on the bezel; faint ticks along the disc edge.
+// Dial scale engraved on the track's inner lip, hugging the recessed face.
+// Each planet slot is subdivided into TICKS_PER_STEP so minor ticks always
+// line up with the detents. The scale stops at r=136, short of the smallest
+// planet disc (~r 141), so nothing ever runs through a planet.
+const TICKS_PER_STEP = 4
+const TICK_STEP = STEP / TICKS_PER_STEP
+const TICK_OUTER = 136
+
+function tickIndex(rotation: number) {
+  return Math.round(rotation / TICK_STEP)
+}
+
+function playDetent(rotation: number) {
+  const major = ((tickIndex(rotation) % TICKS_PER_STEP) + TICKS_PER_STEP) % TICKS_PER_STEP === 0
+  play('tick', { volume: major ? 0.48 : 0.22 })
+}
+
 function WheelTicks() {
   return (
     <svg aria-hidden="true" viewBox="0 0 360 360" {...stylex.props(styles.ticks)}>
-      <defs>
-        <linearGradient
-          gradientUnits="userSpaceOnUse"
-          id="solaris-wheel-inner-hairline"
-          x1="56"
-          x2="304"
-          y1="0"
-          y2="0"
-        >
-          <stop offset="0" stopColor="#fff" stopOpacity="0" />
-          <stop offset="0.5" stopColor="#fff" stopOpacity="1" />
-          <stop offset="1" stopColor="#fff" stopOpacity="0" />
-        </linearGradient>
-        <mask id="solaris-wheel-inner-hairline-mask" maskUnits="userSpaceOnUse">
-          <rect fill="url(#solaris-wheel-inner-hairline)" height="360" width="360" x="0" y="0" />
-        </mask>
-      </defs>
-      <circle
-        cx={180}
-        cy={180}
-        fill="none"
-        mask="url(#solaris-wheel-inner-hairline-mask)"
-        r={124}
-        stroke="rgba(120, 120, 128, 0.12)"
-        strokeWidth={1}
-      />
-      {Array.from({ length: 72 }, (_, index) => {
-        const angle = (index * 5 * Math.PI) / 180
-        const cx = 180 + Math.cos(angle) * RADIUS
-        const cy = 180 + Math.sin(angle) * RADIUS
-        return (
-          <g key={index}>
-            <circle cx={cx} cy={cy + 0.7} fill="rgba(255, 255, 255, 0.07)" r={1.7} />
-            <circle cx={cx} cy={cy} fill="#07080b" r={1.7} />
-          </g>
-        )
-      })}
-      {Array.from({ length: 48 }, (_, index) => {
-        const angle = (index * 7.5 * Math.PI) / 180
-        const inner = index % 4 === 0 ? 104 : 110
-        const outer = 116
+      {Array.from({ length: planets.length * TICKS_PER_STEP }, (_, index) => {
+        const major = index % TICKS_PER_STEP === 0
+        const angle = (((index * STEP) / TICKS_PER_STEP - 90) * Math.PI) / 180
+        const inner = major ? 131 : 133.5
         return (
           <line
             key={`tick-${index}`}
-            stroke="rgba(242, 232, 208, 0.09)"
-            strokeWidth={0.7}
+            stroke={major ? 'rgba(242, 232, 208, 0.18)' : 'rgba(242, 232, 208, 0.08)'}
+            strokeLinecap="round"
+            strokeWidth={major ? 1 : 0.55}
             x1={180 + Math.cos(angle) * inner}
-            x2={180 + Math.cos(angle) * outer}
+            x2={180 + Math.cos(angle) * TICK_OUTER}
             y1={180 + Math.sin(angle) * inner}
-            y2={180 + Math.sin(angle) * outer}
+            y2={180 + Math.sin(angle) * TICK_OUTER}
           />
         )
       })}
@@ -175,15 +161,49 @@ export function PlanetWheel({
   )
   const rotation = useMotionValue(selectedIndex * STEP)
   const dragRef = useRef<{
+    moved: boolean
     pointerId: number
+    pulled: boolean
+    samples: { t: number; x: number }[]
     startRotation: number
     startX: number
     startY: number
-    pulled: boolean
   } | null>(null)
   const suppressGearClickRef = useRef(false)
+  const ignorePlanetClickRef = useRef(false)
+  const lastTickRef = useRef(tickIndex(selectedIndex * STEP))
+  const armedRef = useRef(false)
+  const selfDrivenRef = useRef(false)
+  const spinIdRef = useRef(0)
+  const spinRef = useRef<{ stop: () => void } | null>(null)
+
+  function armSound() {
+    if (armedRef.current) return
+    armedRef.current = true
+    lastTickRef.current = tickIndex(rotation.get())
+  }
+
+  function stopSpin() {
+    spinIdRef.current += 1
+    spinRef.current?.stop()
+    spinRef.current = null
+  }
 
   useEffect(() => {
+    return rotation.on('change', (value) => {
+      if (!armedRef.current) return
+      const next = tickIndex(value)
+      if (next === lastTickRef.current) return
+      lastTickRef.current = next
+      playDetent(value)
+    })
+  }, [rotation])
+
+  useEffect(() => {
+    if (selfDrivenRef.current) {
+      selfDrivenRef.current = false
+      return
+    }
     const target = selectedIndex * STEP
     const current = rotation.get()
     const next = current + shortestDelta(current, target)
@@ -191,23 +211,80 @@ export function PlanetWheel({
       rotation.set(next)
       return
     }
-    animate(rotation, next, { type: 'spring', stiffness: 420, damping: 38, mass: 0.8 })
+    stopSpin()
+    spinRef.current = animate(rotation, next, SNAP_SPRING)
   }, [reducedMotion, rotation, selectedIndex])
+
+  function selectPlanet(id: PlanetId) {
+    armSound()
+    selfDrivenRef.current = true
+    play('toggle', { volume: 0.4 })
+    onSelectPlanet(id)
+  }
 
   function snapTo(index: number) {
     const current = rotation.get()
     const target = current + shortestDelta(current, wrapIndex(index) * STEP)
+    stopSpin()
     if (reducedMotion) rotation.set(target)
-    else animate(rotation, target, { type: 'spring', stiffness: 420, damping: 38, mass: 0.8 })
-    onSelectPlanet(planets[wrapIndex(index)].id)
+    else spinRef.current = animate(rotation, target, SNAP_SPRING)
+    selectPlanet(planets[wrapIndex(index)].id)
+  }
+
+  function velocityFromSamples(samples: { t: number; x: number }[]) {
+    if (samples.length < 2) return 0
+    const latest = samples[samples.length - 1]
+    const windowStart = latest.t - VELOCITY_WINDOW_MS
+    let earliest = samples[0]
+    for (let i = 0; i < samples.length; i += 1) {
+      if (samples[i].t >= windowStart) {
+        earliest = samples[i]
+        break
+      }
+    }
+    const dt = latest.t - earliest.t
+    if (dt < 12) return 0
+    return ((earliest.x - latest.x) * DRAG_DEG_PER_PX) / (dt / 1000)
+  }
+
+  function coastToRest(velocity: number) {
+    const origin = rotation.get()
+    const projected = origin + velocity * COAST_SECONDS
+    const maxTravel = STEP * MAX_COAST_STEPS
+    const clamped = Math.min(Math.max(projected, origin - maxTravel), origin + maxTravel)
+    const target = Math.round(clamped / STEP) * STEP
+    spinIdRef.current += 1
+    const spinId = spinIdRef.current
+    spinRef.current?.stop()
+    if (reducedMotion) {
+      rotation.set(target)
+      selectPlanet(planets[nearestIndex(target)].id)
+      return
+    }
+    const spin = animate(rotation, target, { ...COAST_SPRING, velocity })
+    spinRef.current = spin
+    void spin.then(() => {
+      if (spinIdRef.current !== spinId) return
+      selectPlanet(planets[nearestIndex(rotation.get())].id)
+    })
+  }
+
+  function openSettings() {
+    play('toggle', { volume: 0.32 })
+    onSettingsOpenChange(true)
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0 || settingsOpen) return
     event.currentTarget.setPointerCapture(event.pointerId)
+    stopSpin()
+    armSound()
+    play('press', { volume: 0.3 })
     dragRef.current = {
+      moved: false,
       pointerId: event.pointerId,
       pulled: false,
+      samples: [{ t: performance.now(), x: event.clientX }],
       startRotation: rotation.get(),
       startX: event.clientX,
       startY: event.clientY,
@@ -221,10 +298,16 @@ export function PlanetWheel({
     const dy = event.clientY - drag.startY
     if (!drag.pulled && dy < -OPEN_PULL && Math.abs(dy) > Math.abs(dx) + 6) {
       drag.pulled = true
-      onSettingsOpenChange(true)
+      openSettings()
       return
     }
     if (drag.pulled) return
+    if (Math.abs(dx) > 4) drag.moved = true
+    const now = performance.now()
+    drag.samples.push({ t: now, x: event.clientX })
+    while (drag.samples.length > 1 && now - drag.samples[0].t > VELOCITY_WINDOW_MS) {
+      drag.samples.shift()
+    }
     rotation.set(drag.startRotation - dx * DRAG_DEG_PER_PX)
   }
 
@@ -233,7 +316,8 @@ export function PlanetWheel({
     if (!drag || drag.pointerId !== event.pointerId) return
     dragRef.current = null
     if (drag.pulled) return
-    snapTo(nearestIndex(rotation.get()))
+    if (drag.moved) ignorePlanetClickRef.current = true
+    coastToRest(velocityFromSamples(drag.samples))
   }
 
   return (
@@ -246,6 +330,8 @@ export function PlanetWheel({
         {...stylex.props(styles.surface)}
       >
         <div {...stylex.props(styles.bezel)} aria-hidden="true">
+          <span {...stylex.props(styles.track)} />
+          <span {...stylex.props(styles.disc)} />
           <WheelTicks />
           <span {...stylex.props(styles.notch)} />
         </div>
@@ -255,7 +341,13 @@ export function PlanetWheel({
             <WheelPlanet
               index={index}
               key={planet.id}
-              onSelect={onSelectPlanet}
+              onSelect={(id) => {
+                if (ignorePlanetClickRef.current) {
+                  ignorePlanetClickRef.current = false
+                  return
+                }
+                snapTo(planets.findIndex((planet) => planet.id === id))
+              }}
               rotation={rotation}
               selected={planet.id === selectedPlanet}
             />
@@ -271,14 +363,17 @@ export function PlanetWheel({
             suppressGearClickRef.current = false
             return
           }
+          play('toggle', { volume: 0.32 })
           onSettingsOpenChange(!settingsOpen)
         }}
         onPointerDown={(event) => {
           if (event.button !== 0) return
           event.currentTarget.setPointerCapture(event.pointerId)
           dragRef.current = {
+            moved: false,
             pointerId: event.pointerId,
             pulled: false,
+            samples: [{ t: performance.now(), x: event.clientX }],
             startRotation: rotation.get(),
             startX: event.clientX,
             startY: event.clientY,
@@ -291,7 +386,7 @@ export function PlanetWheel({
           if (dy < -OPEN_PULL) {
             drag.pulled = true
             suppressGearClickRef.current = true
-            onSettingsOpenChange(true)
+            openSettings()
           }
         }}
         onPointerUp={() => {
@@ -353,15 +448,6 @@ export function SettingsSheet({
 
 const styles = stylex.create({
   bezel: {
-    backgroundColor: '#0c0d10',
-    // Disc (0–124px) with a soft dark lip, then the matte ring underneath.
-    backgroundImage:
-      'radial-gradient(circle at 50% 50%, #1a1b20 0px, #16171b 64px, #131418 108px, rgba(0, 0, 0, 0.18) 123px, transparent 124px), linear-gradient(180deg, #14151a 0%, #0b0c0f 100%)',
-    borderRadius: '50%',
-    borderWidth: 0,
-    boxShadow:
-      'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(255, 255, 255, 0.04), 0 12px 30px rgba(0, 0, 0, 0.5)',
-    boxSizing: 'border-box',
     height: 360,
     left: '50%',
     pointerEvents: 'none',
@@ -369,6 +455,21 @@ const styles = stylex.create({
     top: -4,
     transform: 'translateX(-50%)',
     width: 360,
+  },
+  disc: {
+    backgroundColor: 'color-mix(in oklch, var(--control-accent) 72%, black)',
+    borderRadius: '50%',
+    inset: 56,
+    position: 'absolute',
+  },
+  track: {
+    backgroundColor: 'transparent',
+    backgroundImage:
+      'linear-gradient(in oklch 180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 81%, black) 100%)',
+    borderRadius: '50%',
+    boxShadow: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
+    inset: 0,
+    position: 'absolute',
   },
   dock: {
     bottom: 0,
@@ -386,20 +487,21 @@ const styles = stylex.create({
   gear: {
     alignItems: 'center',
     appearance: 'none',
-    backgroundColor: '#1b1c21',
+    backgroundColor: 'transparent',
     backgroundImage:
-      'radial-gradient(circle at 50% 40%, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 70%), linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(0, 0, 0, 0.22) 100%)',
-    borderColor: 'rgba(255, 255, 255, 0.045)',
+      'linear-gradient(in oklch 180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 81%, black) 100%)',
+    borderWidth: 0,
     borderRadius: '50%',
-    borderStyle: 'solid',
-    borderWidth: 1,
     bottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
-    boxShadow:
-      'inset 0 1px 0 rgba(255, 255, 255, 0.06), inset 0 -1px 1px rgba(0, 0, 0, 0.28), 0 2px 6px rgba(0, 0, 0, 0.22)',
-    color: 'rgba(242, 232, 208, 0.82)',
+    boxShadow: {
+      default: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
+      ':focus-visible':
+        'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset, 0 0 0 3px color-mix(in oklch, var(--control-accent) 22%, transparent)',
+    },
+    color: 'oklch(86.4% 0.003 84.6)',
     cursor: 'pointer',
     display: 'grid',
-    height: 40,
+    height: 36,
     justifyContent: 'center',
     left: '50%',
     padding: 0,
@@ -407,11 +509,10 @@ const styles = stylex.create({
     pointerEvents: 'auto',
     position: 'absolute',
     transform: 'translateX(-50%)',
-    width: 40,
+    width: 36,
     zIndex: 3,
     ':focus-visible': {
-      outline: '2px solid #f2e8d0',
-      outlineOffset: 3,
+      outline: 'none',
     },
   },
   gearIcon: {
@@ -428,12 +529,12 @@ const styles = stylex.create({
     color: '#f2e8d0',
   },
   notch: {
-    backgroundColor: 'rgba(242, 232, 208, 0.3)',
+    backgroundColor: 'rgba(242, 232, 208, 0.45)',
     borderRadius: 1,
     height: 6,
     left: '50%',
     position: 'absolute',
-    top: 6,
+    top: 1,
     transform: 'translateX(-50%)',
     width: 2,
   },
@@ -474,6 +575,7 @@ const styles = stylex.create({
     height: 36,
     objectFit: 'contain',
     pointerEvents: 'none',
+    position: 'relative',
     width: 36,
   },
   popup: {

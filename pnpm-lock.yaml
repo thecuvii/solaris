@@ -167,6 +167,9 @@ importers:
       '@thecuvii/solaris':
         specifier: workspace:*
         version: link:..
+      cuelume:
+        specifier: ^0.2.2
+        version: 0.2.2
       foxact:
         specifier: 0.3.10
         version: 0.3.10(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -1432,6 +1435,9 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  cuelume@0.2.2:
+    resolution: {integrity: sha512-TiNzJRjhddjC4jy4M7sv63V/86VaFhdIs6iHUCrc4CKhqypaxRBv1aedCBGebrz/cO7nroPkEfqHe/P7fOE2GQ==}
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -3026,6 +3032,8 @@ snapshots:
   css-mediaquery@0.1.2: {}
 
   csstype@3.2.3: {}
+
+  cuelume@0.2.2: {}
 
   debug@4.4.3:
     dependencies:
