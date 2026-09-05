@@ -76,14 +76,11 @@ const styles = stylex.create({
     },
   },
   introduction: {
-    gridColumn: '1 / span 6',
+    gridColumn: '1 / -1',
     minWidth: 0,
     paddingBottom: 20,
     position: 'relative',
     zIndex: 1,
-    '@media (max-width: 1279px)': {
-      gridColumn: '1 / -1',
-    },
   },
   panel: {
     columnGap: 24,

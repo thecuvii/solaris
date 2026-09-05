@@ -33,14 +33,19 @@ export type Planet = {
   id: PlanetId
   name: string
   packageName: string
+  sourceFile: string
   summary: string
 }
+
+export const githubSourceUrl = (sourceFile: string) =>
+  `https://github.com/thecuvii/solaris/blob/main/${sourceFile}`
 
 export const planets: readonly Planet[] = [
   {
     id: 'sun',
     name: 'Sun',
     packageName: 'sun',
+    sourceFile: 'src/sun/solar-orb.effect.tsx',
     summary: 'A data-driven solar surface with active regions, filaments, and limb emission.',
   },
   {
@@ -48,6 +53,7 @@ export const planets: readonly Planet[] = [
     id: 'observed-sun',
     name: 'Observed Sun',
     packageName: 'observed-sun',
+    sourceFile: 'src/observed-sun/observed-sun.effect.tsx',
     summary:
       'The Sun as photographed from the ground: haze-softened disc, refraction flattening, cloud striations, lens glare, and lens flare.',
   },
@@ -55,24 +61,28 @@ export const planets: readonly Planet[] = [
     id: 'mercury',
     name: 'Mercury',
     packageName: 'mercury',
+    sourceFile: 'src/mercury/mercurial-orb.effect.tsx',
     summary: 'A cratered, airless surface with topographic relief and severe grazing light.',
   },
   {
     id: 'venus',
     name: 'Venus',
     packageName: 'venus',
+    sourceFile: 'src/venus/venusian-orb.effect.tsx',
     summary: 'Dense sulfur clouds with super-rotating flow, haze, and forward scattering.',
   },
   {
     id: 'earth',
     name: 'Earth',
     packageName: 'earth',
+    sourceFile: 'src/earth/atmospheric-orb.effect.tsx',
     summary: 'Layered atmosphere, moving clouds, ocean glint, and emissive city lights.',
   },
   {
     id: 'moon',
     name: 'Moon',
     packageName: 'moon',
+    sourceFile: 'src/moon/lunar-orb.effect.tsx',
     summary: 'High-relief lunar shading with opposition surge, earthshine, and grazing shadows.',
   },
   {
@@ -80,48 +90,56 @@ export const planets: readonly Planet[] = [
     id: 'lunar-eclipse',
     name: 'Lunar Eclipse',
     packageName: 'moon',
+    sourceFile: 'src/moon/lunar-eclipse.effect.tsx',
     summary: 'A lunar eclipse with refracted atmospheric light, soft penumbra, and relief shadows.',
   },
   {
     id: 'mars',
     name: 'Mars',
     packageName: 'mars',
+    sourceFile: 'src/mars/martian-orb.effect.tsx',
     summary: 'A dusty photometric surface with topographic relief and a thin blue aureole.',
   },
   {
     id: 'jupiter',
     name: 'Jupiter',
     packageName: 'jupiter',
+    sourceFile: 'src/jupiter/jovian-orb.effect.tsx',
     summary: 'Layered cloud bands, zonal flow, and a controllable Great Red Spot vortex.',
   },
   {
     id: 'saturn',
     name: 'Saturn',
     packageName: 'saturn',
+    sourceFile: 'src/saturn/saturn-orb.effect.tsx',
     summary: 'Oblate atmosphere, translucent rings, and physically linked ring shadows.',
   },
   {
     id: 'titan',
     name: 'Titan',
     packageName: 'titan',
+    sourceFile: 'src/titan/titanian-orb.effect.tsx',
     summary: 'A dense nitrogen atmosphere with layered haze, polar hood, and forward scattering.',
   },
   {
     id: 'uranus',
     name: 'Uranus',
     packageName: 'uranus',
+    sourceFile: 'src/uranus/uranian-orb.effect.tsx',
     summary: 'A pale ice giant with subtle bands, polar haze, and an extreme axial tilt.',
   },
   {
     id: 'neptune',
     name: 'Neptune',
     packageName: 'neptune',
+    sourceFile: 'src/neptune/neptunian-orb.effect.tsx',
     summary: 'A deep blue atmosphere with high-altitude clouds, storms, and zonal winds.',
   },
   {
     id: 'pluto',
     name: 'Pluto',
     packageName: 'pluto',
+    sourceFile: 'src/pluto/plutonian-orb.effect.tsx',
     summary: 'An icy dwarf planet with albedo variation, rugged relief, and a tenuous haze.',
   },
 ]
