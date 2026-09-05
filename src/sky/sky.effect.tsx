@@ -94,8 +94,34 @@ type SkySettings = {
   sunScale: number
 }
 
+type SkyUniforms = {
+  cloudStreaks: WebGLUniformLocation | null
+  compositionCenter: WebGLUniformLocation | null
+  compositionScale: WebGLUniformLocation | null
+  duskFlush: WebGLUniformLocation | null
+  exposure: WebGLUniformLocation | null
+  field: WebGLUniformLocation | null
+  flare: WebGLUniformLocation | null
+  flareAngle: WebGLUniformLocation | null
+  flareRays: WebGLUniformLocation | null
+  flareStar: WebGLUniformLocation | null
+  glare: WebGLUniformLocation | null
+  haze: WebGLUniformLocation | null
+  ozone: WebGLUniformLocation | null
+  refraction: WebGLUniformLocation | null
+  resolution: WebGLUniformLocation | null
+  saturation: WebGLUniformLocation | null
+  seeingAmount: WebGLUniformLocation | null
+  seeingSpeed: WebGLUniformLocation | null
+  streakDrift: WebGLUniformLocation | null
+  sunElevation: WebGLUniformLocation | null
+  sunScale: WebGLUniformLocation | null
+  time: WebGLUniformLocation | null
+}
+
 type SkyResources = {
   program: WebGLProgram
+  uniforms: SkyUniforms
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -600,13 +626,40 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
   }
 }
 
+function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): SkyUniforms {
+  return {
+    cloudStreaks: gl.getUniformLocation(program, 'uCloudStreaks'),
+    compositionCenter: gl.getUniformLocation(program, 'uCompositionCenter'),
+    compositionScale: gl.getUniformLocation(program, 'uCompositionScale'),
+    duskFlush: gl.getUniformLocation(program, 'uDuskFlush'),
+    exposure: gl.getUniformLocation(program, 'uExposure'),
+    field: gl.getUniformLocation(program, 'uField'),
+    flare: gl.getUniformLocation(program, 'uFlare'),
+    flareAngle: gl.getUniformLocation(program, 'uFlareAngle'),
+    flareRays: gl.getUniformLocation(program, 'uFlareRays'),
+    flareStar: gl.getUniformLocation(program, 'uFlareStar'),
+    glare: gl.getUniformLocation(program, 'uGlare'),
+    haze: gl.getUniformLocation(program, 'uHaze'),
+    ozone: gl.getUniformLocation(program, 'uOzone'),
+    refraction: gl.getUniformLocation(program, 'uRefraction'),
+    resolution: gl.getUniformLocation(program, 'uResolution'),
+    saturation: gl.getUniformLocation(program, 'uSaturation'),
+    seeingAmount: gl.getUniformLocation(program, 'uSeeingAmount'),
+    seeingSpeed: gl.getUniformLocation(program, 'uSeeingSpeed'),
+    streakDrift: gl.getUniformLocation(program, 'uStreakDrift'),
+    sunElevation: gl.getUniformLocation(program, 'uSunElevation'),
+    sunScale: gl.getUniformLocation(program, 'uSunScale'),
+    time: gl.getUniformLocation(program, 'uTime'),
+  }
+}
+
 function createResources(gl: WebGL2RenderingContext): SkyResources {
   const vertexArray = gl.createVertexArray()
   if (!vertexArray) throw new Error('Unable to create Sky vertex array')
   try {
     const program = createProgram(gl)
     gl.bindVertexArray(vertexArray)
-    return { program, vertexArray }
+    return { program, uniforms: getUniforms(gl, program), vertexArray }
   } catch (error) {
     gl.deleteVertexArray(vertexArray)
     throw error
@@ -671,6 +724,9 @@ function createSkyRenderer(
   let compositionCenterX = 0
   let compositionCenterY = 0
   let compositionScale = 1
+  let lastFrameSettings: SkySettings | null = null
+  let lastSanitized: SkySettings | null = null
+  const visualViewport = window.visualViewport
 
   function resize(): void {
     const bounds = canvas.getBoundingClientRect()
@@ -695,11 +751,17 @@ function createSkyRenderer(
     )
   }
 
+  function settingsForFrame(frameSettings: SkySettings): SkySettings {
+    if (lastFrameSettings === frameSettings && lastSanitized) return lastSanitized
+    lastFrameSettings = frameSettings
+    lastSanitized = sanitizedSettings(frameSettings)
+    return lastSanitized
+  }
+
   function render(timestamp: number, frameSettings: SkySettings): void {
     if (disposed || contextLost || !resources) return
-    resize()
-    const settings = sanitizedSettings(frameSettings)
-    const { program, vertexArray } = resources
+    const settings = settingsForFrame(frameSettings)
+    const { program, uniforms, vertexArray } = resources
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, canvas.width, canvas.height)
@@ -708,35 +770,28 @@ function createSkyRenderer(
     gl.useProgram(program)
     gl.bindVertexArray(vertexArray)
 
-    const uniform1f = (name: string, value: number) => {
-      gl.uniform1f(gl.getUniformLocation(program, name), value)
-    }
-    uniform1f('uCloudStreaks', settings.cloudStreaks)
-    gl.uniform2f(
-      gl.getUniformLocation(program, 'uCompositionCenter'),
-      compositionCenterX,
-      compositionCenterY,
-    )
-    uniform1f('uCompositionScale', compositionScale)
-    uniform1f('uDuskFlush', settings.duskFlush)
-    uniform1f('uExposure', settings.exposure)
-    uniform1f('uField', settings.field)
-    uniform1f('uFlare', settings.flare)
-    uniform1f('uFlareAngle', settings.flareAngle)
-    uniform1f('uFlareRays', settings.flareRays)
-    uniform1f('uFlareStar', settings.flareStar)
-    uniform1f('uGlare', settings.glare)
-    uniform1f('uHaze', settings.haze)
-    uniform1f('uOzone', settings.ozone)
-    uniform1f('uRefraction', settings.refraction)
-    gl.uniform2f(gl.getUniformLocation(program, 'uResolution'), canvas.width, canvas.height)
-    uniform1f('uSaturation', settings.saturation)
-    uniform1f('uSeeingAmount', settings.seeingAmount)
-    uniform1f('uSeeingSpeed', settings.seeingSpeed)
-    uniform1f('uStreakDrift', settings.streakDrift)
-    uniform1f('uSunElevation', settings.sunElevation)
-    uniform1f('uSunScale', settings.sunScale)
-    uniform1f('uTime', (timestamp - startTime) / 1000)
+    gl.uniform1f(uniforms.cloudStreaks, settings.cloudStreaks)
+    gl.uniform2f(uniforms.compositionCenter, compositionCenterX, compositionCenterY)
+    gl.uniform1f(uniforms.compositionScale, compositionScale)
+    gl.uniform1f(uniforms.duskFlush, settings.duskFlush)
+    gl.uniform1f(uniforms.exposure, settings.exposure)
+    gl.uniform1f(uniforms.field, settings.field)
+    gl.uniform1f(uniforms.flare, settings.flare)
+    gl.uniform1f(uniforms.flareAngle, settings.flareAngle)
+    gl.uniform1f(uniforms.flareRays, settings.flareRays)
+    gl.uniform1f(uniforms.flareStar, settings.flareStar)
+    gl.uniform1f(uniforms.glare, settings.glare)
+    gl.uniform1f(uniforms.haze, settings.haze)
+    gl.uniform1f(uniforms.ozone, settings.ozone)
+    gl.uniform1f(uniforms.refraction, settings.refraction)
+    gl.uniform2f(uniforms.resolution, canvas.width, canvas.height)
+    gl.uniform1f(uniforms.saturation, settings.saturation)
+    gl.uniform1f(uniforms.seeingAmount, settings.seeingAmount)
+    gl.uniform1f(uniforms.seeingSpeed, settings.seeingSpeed)
+    gl.uniform1f(uniforms.streakDrift, settings.streakDrift)
+    gl.uniform1f(uniforms.sunElevation, settings.sunElevation)
+    gl.uniform1f(uniforms.sunScale, settings.sunScale)
+    gl.uniform1f(uniforms.time, (timestamp - startTime) / 1000)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }
@@ -755,18 +810,30 @@ function createSkyRenderer(
     resize()
   }
 
+  function bindResizeListeners(): void {
+    resizeObserver.observe(canvas)
+    if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
+    window.addEventListener('resize', resize)
+    visualViewport?.addEventListener('resize', resize)
+    visualViewport?.addEventListener('scroll', resize)
+  }
+
+  function unbindResizeListeners(): void {
+    resizeObserver.disconnect()
+    window.removeEventListener('resize', resize)
+    visualViewport?.removeEventListener('resize', resize)
+    visualViewport?.removeEventListener('scroll', resize)
+  }
+
   const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
-  window.addEventListener('resize', resize)
+  bindResizeListeners()
   canvas.addEventListener('webglcontextlost', handleContextLost)
   canvas.addEventListener('webglcontextrestored', handleContextRestored)
   try {
     resize()
   } catch (error) {
     disposed = true
-    resizeObserver.disconnect()
-    window.removeEventListener('resize', resize)
+    unbindResizeListeners()
     canvas.removeEventListener('webglcontextlost', handleContextLost)
     canvas.removeEventListener('webglcontextrestored', handleContextRestored)
     if (resources) deleteResources(gl, resources)
@@ -778,8 +845,7 @@ function createSkyRenderer(
     render,
     dispose(): void {
       disposed = true
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', resize)
+      unbindResizeListeners()
       canvas.removeEventListener('webglcontextlost', handleContextLost)
       canvas.removeEventListener('webglcontextrestored', handleContextRestored)
       if (!contextLost && resources) deleteResources(gl, resources)

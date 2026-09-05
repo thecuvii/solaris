@@ -21,6 +21,7 @@ import {
   isDefaultPlanetAtom,
   resetPlanetSettingsAtom,
   settingAtom,
+  sliderGestureAtom,
 } from './showcase-settings'
 import { track } from './track'
 
@@ -316,6 +317,7 @@ const ParameterSlider = memo(function ParameterSlider({
   const active = hovered || interacting || focused || editing
   const forceProgressHover = useMobileShowcase()
   const atMaximum = value >= max
+  const setSliderGesture = useSetAtom(sliderGestureAtom)
 
   function clearHoverTimer() {
     if (hoverTimerRef.current !== null) {
@@ -327,6 +329,7 @@ const ParameterSlider = memo(function ParameterSlider({
   function setGestureActive(next: boolean) {
     interactingRef.current = next
     setInteracting(next)
+    setSliderGesture(next)
   }
 
   const animateTo = useCallback(
@@ -366,8 +369,9 @@ const ParameterSlider = memo(function ParameterSlider({
     pointerRef.current = null
     interactingRef.current = false
     setInteracting(false)
+    setSliderGesture(false)
     animateTo(getNormalizedValue(value), 0.1)
-  }, [animateTo, getNormalizedValue, value])
+  }, [animateTo, getNormalizedValue, setSliderGesture, value])
 
   function hapticForValue(nextValue: number) {
     if (!forceProgressHover) return

@@ -56,6 +56,8 @@ export const skyLightingAtom = atom((get) => ({
   sunScale: Number(get(settingAtom({ name: 'sunScale', planetId: 'sky' }))),
 }))
 
+export const sliderGestureAtom = atom(false)
+
 export const applyPlanetSettingsAtom = atom(
   null,
   (get, set, { planetId, values }: { planetId: PlanetId; values: PlanetSettings }) => {
