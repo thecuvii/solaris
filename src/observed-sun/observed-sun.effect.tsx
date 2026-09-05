@@ -180,16 +180,38 @@ float valueNoise2(vec2 p) {
   );
 }
 
-float fbm1(float x) {
-  return 0.5 * valueNoise1(x) +
-    0.3 * valueNoise1(x * 2.13 + 5.2) +
-    0.2 * valueNoise1(x * 4.31 + 9.7);
-}
-
 float fbm2(vec2 p) {
   return 0.55 * valueNoise2(p) +
     0.3 * valueNoise2(p * 2.07 + vec2(3.1, 7.7)) +
     0.15 * valueNoise2(p * 4.19 + vec2(9.3, 1.7));
+}
+
+// One cirrus sheet: long filaments across the view, broken along their length.
+// x is density, y is a silver-lining mask that peaks on the filament edge.
+vec2 cirrusSheet(
+  vec2 field,
+  float tilt,
+  float alongScale,
+  float acrossScale,
+  float drift,
+  float seed
+) {
+  float cosine = cos(tilt);
+  float sine = sin(tilt);
+  float along = field.x * cosine + field.y * sine;
+  float across = -field.x * sine + field.y * cosine;
+  vec2 p = vec2(along * alongScale + drift, across * acrossScale + seed);
+  vec2 warp = vec2(
+    fbm2(p * 0.42 + vec2(seed, 4.6)),
+    fbm2(p * 0.42 + vec2(9.1, seed))
+  ) - 0.5;
+  p += warp * 0.62;
+  float body = fbm2(p);
+  float grain = fbm2(p * 2.35 + vec2(14.0, seed));
+  float band = smoothstep(0.36, 0.56, body) * (1.0 - smoothstep(0.64, 0.9, body));
+  float breakup = smoothstep(0.22, 0.68, fbm2(vec2(along * 0.18 + drift * 0.22, across * 1.15 + seed)));
+  band *= mix(0.5, 1.0, grain) * breakup;
+  return vec2(band, band * (1.0 - band) * 4.0);
 }
 
 // NOAA solar-position refraction in degrees for a true elevation in degrees.
@@ -429,15 +451,18 @@ void main() {
   vec3 posterRamp = mix(vec3(1.16, 1.06, 0.34), vec3(1.08, 0.50, 0.08), toAmber);
   posterRamp = mix(posterRamp, vec3(1.04, 0.12, 0.44), toMagenta);
 
-  // Thin horizontal cloud layers: 1D noise along apparent elevation.
-  float layerProximity = exp(-max(apparentElev, 0.0) / 6.0);
+  // Cirrus / stratus: a few anisotropic sheets, not 1D scanlines.
+  float streakHeight = mix(0.28, 1.0, exp(-max(discApparentElev, 0.0) / 11.0));
   float drift = uTime * uStreakDrift;
-  float streakCoordinate = discApparentElev * 16.0 + 0.12 * sin(angular.x * 4.0 + 1.3) +
-    drift * 0.03;
-  float streakNoise = fbm1(streakCoordinate);
-  float streakEnvelope = fbm1(discApparentElev * 2.6 + 17.3 + drift * 0.01);
-  float streakDensity = smoothstep(0.42, 0.72, streakNoise) * (0.35 + 0.65 * streakEnvelope);
-  float streaks = 1.0 - uCloudStreaks * 0.6 * streakDensity * layerProximity;
+  vec2 streakField = vec2(angular.x, discApparentElev);
+  vec2 sheetA = cirrusSheet(streakField, 0.045, 0.42, 11.0, drift * 0.085, 3.2);
+  vec2 sheetB = cirrusSheet(streakField, -0.08, 0.28, 16.5, drift * 0.13, 18.7);
+  vec2 sheetC = cirrusSheet(streakField, 0.12, 0.2, 22.0, drift * 0.055, 41.4);
+  float streakOptical = (sheetA.x * 0.72 + sheetB.x * 0.5 + sheetC.x * 0.32) * streakHeight;
+  float streakLining = (sheetA.y * 0.7 + sheetB.y * 0.45 + sheetC.y * 0.28) * streakHeight;
+  float streakDepth = streakOptical * uCloudStreaks;
+  float streaks = exp(-streakDepth * 1.85);
+  float skyStreaks = exp(-streakDepth * 0.42);
 
   // Two-airmass single scatter (Heckel light-march, closed form for a ground observer).
   vec3 viewTransmittance = transmittance(apparentElev);
@@ -513,7 +538,9 @@ void main() {
   // Haze softens the skyline into a fog band instead of a ruled edge.
   float horizonSoft = pixelAngle + uHaze * 1.2;
   float horizonMask = mix(1.0, smoothstep(-horizonSoft, horizonSoft, apparentElev), uField);
-  vec3 above = sky + discRadiance * sunShape * streaks * mix(directSunFactor, 1.0, uDuskFlush);
+  vec3 above = sky * mix(1.0, skyStreaks, 0.62) +
+    discRadiance * sunShape * streaks * mix(directSunFactor, 1.0, uDuskFlush) +
+    glowTint * streakLining * sunShape * uCloudStreaks * 0.2 * mix(directSunFactor, 1.0, uDuskFlush);
   // Backlit terrain is a silhouette; it takes only a whisper of skylight.
   vec3 ground = sky * 0.025 + vec3(0.004, 0.003, 0.004);
   vec3 scene = mix(ground, above, horizonMask) + glare + flareEnergy;
