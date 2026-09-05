@@ -36,13 +36,10 @@ function shortestDelta(from: number, to: number) {
   return delta > 180 ? delta - 360 : delta
 }
 
-function GearIcon() {
+function ChevronUpIcon() {
   return (
-    <svg aria-hidden="true" viewBox="0 0 24 24" {...stylex.props(styles.gearIcon)}>
-      <path
-        d="M12 8.4a3.6 3.6 0 1 0 0 7.2 3.6 3.6 0 0 0 0-7.2Zm8.1 4.2c0-.4.3-.8.7-1l.6-.2-.6-1.8-.6.1c-.4.1-.8 0-1.1-.3l-.4-.5c-.2-.3-.3-.7-.1-1.1l.2-.6-1.8-.6-.2.6c-.1.4-.5.7-.9.7h-.6c-.4 0-.8-.3-.9-.7l-.2-.6-1.8.6.2.6c.1.4 0 .8-.3 1.1l-.5.4c-.3.2-.7.3-1.1.1l-.6-.2-.6 1.8.6.2c.4.1.7.5.7 1v.6c0 .4-.3.8-.7 1l-.6.2.6 1.8.6-.1c.4-.1.8 0 1.1.3l.4.5c.2.3.3.7.1 1.1l-.2.6 1.8.6.2-.6c.1-.4.5-.7.9-.7h.6c.4 0 .8.3.9.7l.2.6 1.8-.6-.2-.6c-.1-.4 0-.8.3-1.1l.5-.4c.3-.2.7-.3 1.1-.1l.6.2.6-1.8-.6-.2c-.4-.2-.7-.6-.7-1v-.6Z"
-        fill="currentColor"
-      />
+    <svg aria-hidden="true" viewBox="0 0 16 16" {...stylex.props(styles.gearIcon)}>
+      <path d="M3.5 10.25 8 5.75l4.5 4.5" />
     </svg>
   )
 }
@@ -303,7 +300,7 @@ export function PlanetWheel({
         type="button"
         {...stylex.props(styles.gear, settingsOpen && styles.gearOpen)}
       >
-        <GearIcon />
+        <ChevronUpIcon />
       </button>
     </div>
   )
@@ -419,8 +416,13 @@ const styles = stylex.create({
   },
   gearIcon: {
     display: 'block',
-    height: 18,
-    width: 18,
+    fill: 'none',
+    height: 16,
+    stroke: 'currentColor',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+    strokeWidth: 1.5,
+    width: 16,
   },
   gearOpen: {
     color: '#f2e8d0',
