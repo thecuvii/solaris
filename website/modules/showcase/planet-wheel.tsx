@@ -693,6 +693,9 @@ const styles = stylex.create({
     pointerEvents: 'auto',
     position: 'absolute',
     top: -22,
+    userSelect: 'none',
+    WebkitTapHighlightColor: 'transparent',
+    WebkitTouchCallout: 'none',
     width: 44,
     ':focus-visible': {
       outline: '2px solid #f2e8d0',
@@ -708,6 +711,9 @@ const styles = stylex.create({
     objectFit: 'contain',
     pointerEvents: 'none',
     position: 'relative',
+    userSelect: 'none',
+    WebkitTouchCallout: 'none',
+    WebkitUserDrag: 'none',
     width: 36,
   },
   popup: {
