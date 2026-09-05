@@ -66,9 +66,9 @@ function PresetGrid({ planetId }: { planetId: PlanetId }) {
               <img
                 alt=""
                 draggable={false}
-                height={64}
+                height={56}
                 src={preset.image}
-                width={64}
+                width={56}
                 {...stylex.props(styles.presetImage)}
               />
             </span>
@@ -865,7 +865,7 @@ const styles = stylex.create({
     minWidth: 0,
     padding: 0,
     textAlign: 'center',
-    width: 64,
+    width: 56,
     ':focus-visible': {
       outline: '1px solid color-mix(in oklch, var(--control-accent) 28%, transparent)',
       outlineOffset: 2,
@@ -879,16 +879,15 @@ const styles = stylex.create({
     boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 0 0 1px rgba(255, 255, 255, 0.04)',
     boxSizing: 'border-box',
     display: 'block',
-    height: 64,
+    height: 56,
     overflow: 'hidden',
-    padding: 8,
     position: 'relative',
-    width: 64,
+    width: 56,
   },
   presetGrid: {
     display: 'grid',
-    gap: 8,
-    gridTemplateColumns: 'repeat(auto-fill, 64px)',
+    gap: 10,
+    gridTemplateColumns: 'repeat(auto-fill, 56px)',
     paddingBlock: 4,
   },
   presetImage: {

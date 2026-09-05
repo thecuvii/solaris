@@ -355,7 +355,7 @@ const styles = stylex.create({
     marginRight: 26,
     '@media (max-width: 960px)': {
       alignSelf: 'flex-start',
-      left: 'calc(clamp(24px, 4vw, 64px) + 20px)',
+      left: 'clamp(24px, 4vw, 64px)',
       marginLeft: 0,
       marginRight: 0,
       marginTop: 0,
