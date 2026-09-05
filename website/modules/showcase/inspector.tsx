@@ -1,5 +1,6 @@
 import { Button } from '@base-ui/react/button'
 import { NumberField } from '@base-ui/react/number-field'
+import { PreviewCard } from '@base-ui/react/preview-card'
 import { Slider } from '@base-ui/react/slider'
 import { Switch } from '@base-ui/react/switch'
 import * as stylex from '@stylexjs/stylex'
@@ -12,7 +13,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { getPrecision, numberFlowFormat, numberFlowTimings } from './setting-format'
 import type { PlanetId } from './showcase-data'
 import { parameterGroupsByPlanet, planetPresets } from '../planet-params/planet-params'
-import type { ParameterDefinition } from '../planet-params/planet-params'
+import type { ParameterDefinition, ParameterGroupId } from '../planet-params/planet-params'
 import {
   applyPlanetSettingsAtom,
   isDefaultPlanetAtom,
@@ -31,6 +32,7 @@ export function Inspector({ planetId }: { planetId: PlanetId }) {
           <ParameterGroup
             key={group.id}
             definitions={group.definitions}
+            id={group.id}
             label={group.label}
             planetId={planetId}
           />
@@ -48,7 +50,9 @@ function PresetGrid({ planetId }: { planetId: PlanetId }) {
 
   return (
     <section {...stylex.props(styles.parameterGroup)}>
-      <h2 {...stylex.props(styles.groupTitle)}>Preset</h2>
+      <div {...stylex.props(styles.groupHeading)}>
+        <h2 {...stylex.props(styles.groupTitle)}>Preset</h2>
+      </div>
       <div aria-label="Preset" {...stylex.props(styles.presetGrid)}>
         {presets.map((preset) => (
           <button
@@ -93,22 +97,68 @@ function ResetSettingsButton({ planetId }: { planetId: PlanetId }) {
 
 function ParameterGroup({
   definitions,
+  id,
   label,
   planetId,
 }: {
   definitions: readonly ParameterDefinition[]
+  id: ParameterGroupId
   label: string
   planetId: PlanetId
 }) {
   return (
     <section {...stylex.props(styles.parameterGroup)}>
-      <h2 {...stylex.props(styles.groupTitle)}>{label}</h2>
+      <div {...stylex.props(styles.groupHeading)}>
+        <h2 {...stylex.props(styles.groupTitle)}>{label}</h2>
+        {id === 'pose' && planetId === 'pluto' ? <PlutoCoverageHelp /> : null}
+      </div>
       <div {...stylex.props(styles.controlGroup)}>
         {definitions.map((definition) => (
           <ParameterControl key={definition.name} definition={definition} planetId={planetId} />
         ))}
       </div>
     </section>
+  )
+}
+
+function PlutoCoverageHelp() {
+  return (
+    <PreviewCard.Root>
+      <PreviewCard.Trigger
+        closeDelay={150}
+        delay={200}
+        render={<button type="button" />}
+        {...stylex.props(styles.groupHelpTrigger)}
+      >
+        what's this?
+      </PreviewCard.Trigger>
+      <PreviewCard.Portal>
+        <PreviewCard.Positioner
+          align="start"
+          side="left"
+          sideOffset={8}
+          {...stylex.props(styles.groupHelpPositioner)}
+        >
+          <PreviewCard.Popup {...stylex.props(styles.groupHelpPopup)}>
+            <p {...stylex.props(styles.groupHelpCopy)}>
+              New Horizons never mapped the whole globe. Unobserved terrain is a low-frequency fill
+              with no relief, so yaw and tilt onto that side look soft.
+            </p>
+            <p {...stylex.props(styles.groupHelpCopy)}>
+              That is missing coverage, not a shader blur.
+            </p>
+            <a
+              href="https://www.jpl.nasa.gov/images/pia11707-pluto-color-map/"
+              rel="noreferrer"
+              target="_blank"
+              {...stylex.props(styles.groupHelpLink)}
+            >
+              Learn more
+            </a>
+          </PreviewCard.Popup>
+        </PreviewCard.Positioner>
+      </PreviewCard.Portal>
+    </PreviewCard.Root>
   )
 }
 
@@ -614,18 +664,96 @@ const styles = stylex.create({
     paddingBlock: 4,
     paddingInline: 0,
   },
-  groupTitle: {
+  groupHeading: {
     alignItems: 'center',
-    color: 'rgba(242, 232, 208, 0.66)',
     display: 'flex',
+    gap: 8,
+    height: 36,
+    minWidth: 0,
+    width: '100%',
+  },
+  groupHelpCopy: {
+    margin: 0,
+    textWrap: 'pretty',
+  },
+  groupHelpLink: {
+    color: 'rgba(242, 232, 208, 0.78)',
+    fontWeight: 550,
+    textDecoration: {
+      default: 'underline',
+      ':hover': 'underline',
+      ':focus-visible': 'underline',
+    },
+    textUnderlineOffset: 3,
+    width: 'fit-content',
+    ':focus-visible': {
+      outline: 'none',
+    },
+  },
+  groupHelpPopup: {
+    backgroundColor: '#12151c',
+    borderRadius: 12,
+    boxShadow:
+      'inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 16px 40px rgba(0, 0, 0, 0.32)',
+    boxSizing: 'border-box',
+    color: 'rgba(242, 232, 208, 0.72)',
+    display: 'flex',
+    flexDirection: 'column',
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 13,
+    gap: 8,
+    lineHeight: 1.5,
+    maxWidth: 248,
+    padding: 14,
+    transformOrigin: 'var(--transform-origin)',
+    transition: 'opacity 160ms ease-out, transform 160ms ease-out',
+    width: 'max-content',
+    ':is([data-starting-style], [data-ending-style])': {
+      opacity: 0,
+      transform: 'scale(0.96)',
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  groupHelpPositioner: {
+    zIndex: 200,
+  },
+  groupHelpTrigger: {
+    appearance: 'none',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    color: {
+      default: 'rgba(242, 232, 208, 0.42)',
+      ':hover': 'rgba(242, 232, 208, 0.78)',
+      ':focus-visible': 'rgba(242, 232, 208, 0.78)',
+    },
+    cursor: 'pointer',
+    flexShrink: 0,
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 12,
+    fontWeight: 500,
+    letterSpacing: '-0.01em',
+    lineHeight: 1.2,
+    margin: 0,
+    padding: 0,
+    textDecoration: {
+      default: 'none',
+      ':focus-visible': 'underline',
+    },
+    textUnderlineOffset: 3,
+    transition: 'color 140ms ease-out',
+    ':focus-visible': {
+      outline: 'none',
+    },
+  },
+  groupTitle: {
+    color: 'rgba(242, 232, 208, 0.66)',
     fontSize: 13,
     fontWeight: 600,
-    height: 36,
     lineHeight: 1,
     margin: 0,
-    paddingInline: 0,
-    textAlign: 'left',
-    width: '100%',
+    minWidth: 0,
   },
   inspectorGroups: {
     display: 'flex',
