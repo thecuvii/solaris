@@ -50,13 +50,23 @@ function ChevronUpIcon() {
   )
 }
 
-// Dial scale engraved on the track's inner lip, hugging the recessed face.
-// Each planet slot is subdivided into TICKS_PER_STEP so minor ticks always
-// line up with the detents. The scale stops at r=136, short of the smallest
-// planet disc (~r 141), so nothing ever runs through a planet.
 const TICKS_PER_STEP = 4
 const TICK_STEP = STEP / TICKS_PER_STEP
-const TICK_OUTER = 136
+// On the track ring itself, along its inner edge (disc is r=124, planets at r=152).
+const TICK_INNER = 125
+const TICK_MARKS = Array.from({ length: planets.length * TICKS_PER_STEP }, (_, index) => {
+  const slot = index % TICKS_PER_STEP
+  const kind = slot === 0 ? 'major' : slot === 2 ? 'mid' : 'minor'
+  const angle = ((index * TICK_STEP - 90) * Math.PI) / 180
+  const outer = kind === 'major' ? 131 : kind === 'mid' ? 129.5 : 128
+  return {
+    kind,
+    x1: 180 + Math.cos(angle) * TICK_INNER,
+    x2: 180 + Math.cos(angle) * outer,
+    y1: 180 + Math.sin(angle) * TICK_INNER,
+    y2: 180 + Math.sin(angle) * outer,
+  }
+})
 
 function tickIndex(rotation: number) {
   return Math.round(rotation / TICK_STEP)
@@ -67,27 +77,43 @@ function playDetent(rotation: number) {
   play('tick', { volume: major ? 0.48 : 0.22 })
 }
 
-function WheelTicks() {
+function planetIndexFromTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return null
+  const node = target.closest('[data-planet-index]')
+  if (!node) return null
+  const index = Number(node.getAttribute('data-planet-index'))
+  return Number.isInteger(index) ? index : null
+}
+
+function WheelTicks({ rotation }: { rotation: ReturnType<typeof useMotionValue<number>> }) {
+  const rotate = useTransform(rotation, (value) => -value)
+
   return (
-    <svg aria-hidden="true" viewBox="0 0 360 360" {...stylex.props(styles.ticks)}>
-      {Array.from({ length: planets.length * TICKS_PER_STEP }, (_, index) => {
-        const major = index % TICKS_PER_STEP === 0
-        const angle = (((index * STEP) / TICKS_PER_STEP - 90) * Math.PI) / 180
-        const inner = major ? 131 : 133.5
-        return (
-          <line
-            key={`tick-${index}`}
-            stroke={major ? 'rgba(242, 232, 208, 0.18)' : 'rgba(242, 232, 208, 0.08)'}
-            strokeLinecap="round"
-            strokeWidth={major ? 1 : 0.55}
-            x1={180 + Math.cos(angle) * inner}
-            x2={180 + Math.cos(angle) * TICK_OUTER}
-            y1={180 + Math.sin(angle) * inner}
-            y2={180 + Math.sin(angle) * TICK_OUTER}
-          />
-        )
-      })}
-    </svg>
+    <motion.svg
+      aria-hidden="true"
+      style={{ rotate }}
+      viewBox="0 0 360 360"
+      {...stylex.props(styles.ticks)}
+    >
+      {TICK_MARKS.map((mark, index) => (
+        <line
+          key={`tick-${index}`}
+          stroke={
+            mark.kind === 'major'
+              ? 'color-mix(in oklch, var(--control-accent) 58%, white)'
+              : mark.kind === 'mid'
+                ? 'color-mix(in oklch, var(--control-accent) 72%, white)'
+                : 'color-mix(in oklch, var(--control-accent) 82%, white)'
+          }
+          strokeLinecap="round"
+          strokeWidth={mark.kind === 'major' ? 1.15 : mark.kind === 'mid' ? 0.75 : 0.5}
+          x1={mark.x1}
+          x2={mark.x2}
+          y1={mark.y1}
+          y2={mark.y2}
+        />
+      ))}
+    </motion.svg>
   )
 }
 
@@ -124,6 +150,7 @@ function WheelPlanet({
     <motion.button
       aria-current={selected ? 'true' : undefined}
       aria-label={planet.name}
+      data-planet-index={index}
       onClick={() => onSelect(planet.id)}
       style={{ opacity, scale, x, y }}
       type="button"
@@ -162,6 +189,7 @@ export function PlanetWheel({
   const rotation = useMotionValue(selectedIndex * STEP)
   const dragRef = useRef<{
     moved: boolean
+    planetIndex: number | null
     pointerId: number
     pulled: boolean
     samples: { t: number; x: number }[]
@@ -282,6 +310,7 @@ export function PlanetWheel({
     play('press', { volume: 0.3 })
     dragRef.current = {
       moved: false,
+      planetIndex: planetIndexFromTarget(event.target),
       pointerId: event.pointerId,
       pulled: false,
       samples: [{ t: performance.now(), x: event.clientX }],
@@ -316,7 +345,11 @@ export function PlanetWheel({
     if (!drag || drag.pointerId !== event.pointerId) return
     dragRef.current = null
     if (drag.pulled) return
-    if (drag.moved) ignorePlanetClickRef.current = true
+    ignorePlanetClickRef.current = true
+    if (!drag.moved && drag.planetIndex != null) {
+      snapTo(drag.planetIndex)
+      return
+    }
     coastToRest(velocityFromSamples(drag.samples))
   }
 
@@ -332,8 +365,7 @@ export function PlanetWheel({
         <div {...stylex.props(styles.bezel)} aria-hidden="true">
           <span {...stylex.props(styles.track)} />
           <span {...stylex.props(styles.disc)} />
-          <WheelTicks />
-          <span {...stylex.props(styles.notch)} />
+          <WheelTicks rotation={rotation} />
         </div>
 
         <div {...stylex.props(styles.orbit)}>
@@ -371,6 +403,7 @@ export function PlanetWheel({
           event.currentTarget.setPointerCapture(event.pointerId)
           dragRef.current = {
             moved: false,
+            planetIndex: null,
             pointerId: event.pointerId,
             pulled: false,
             samples: [{ t: performance.now(), x: event.clientX }],
@@ -527,16 +560,6 @@ const styles = stylex.create({
   },
   gearOpen: {
     color: '#f2e8d0',
-  },
-  notch: {
-    backgroundColor: 'rgba(242, 232, 208, 0.45)',
-    borderRadius: 1,
-    height: 6,
-    left: '50%',
-    position: 'absolute',
-    top: 1,
-    transform: 'translateX(-50%)',
-    width: 2,
   },
   orbit: {
     height: 0,
@@ -726,5 +749,7 @@ const styles = stylex.create({
   ticks: {
     inset: 0,
     position: 'absolute',
+    transformBox: 'view-box',
+    transformOrigin: 'center',
   },
 })
