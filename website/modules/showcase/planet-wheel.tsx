@@ -73,12 +73,15 @@ function ChevronUpIcon() {
 
 const TICKS_PER_STEP = 4
 const TICK_STEP = STEP / TICKS_PER_STEP
+const VISUAL_TICKS_PER_STEP = 8
+const VISUAL_TICK_STEP = STEP / VISUAL_TICKS_PER_STEP
 // On the track ring itself, along its inner edge (disc is r=124, planets at r=152).
 const TICK_INNER = 125
-const TICK_MARKS = Array.from({ length: planets.length * TICKS_PER_STEP }, (_, index) => {
-  const slot = index % TICKS_PER_STEP
-  const kind = slot === 0 ? 'major' : slot === 2 ? 'mid' : 'minor'
-  const angle = ((index * TICK_STEP - 90) * Math.PI) / 180
+const TICK_CENTER_OUTER = 131
+const TICK_MARKS = Array.from({ length: planets.length * VISUAL_TICKS_PER_STEP }, (_, index) => {
+  const slot = index % VISUAL_TICKS_PER_STEP
+  const kind = slot === 0 ? 'major' : slot === 4 ? 'mid' : 'minor'
+  const angle = ((index * VISUAL_TICK_STEP - 90) * Math.PI) / 180
   const outer = kind === 'major' ? 131 : kind === 'mid' ? 129.5 : 128
   return {
     kind,
@@ -88,6 +91,12 @@ const TICK_MARKS = Array.from({ length: planets.length * TICKS_PER_STEP }, (_, i
     y2: 180 + Math.sin(angle) * outer,
   }
 })
+const TICK_CENTER = {
+  x1: 180,
+  x2: 180,
+  y1: 180 - TICK_INNER,
+  y2: 180 - TICK_CENTER_OUTER,
+}
 
 function tickIndex(rotation: number) {
   return Math.round(rotation / TICK_STEP)
@@ -110,31 +119,44 @@ function WheelTicks({ rotation }: { rotation: ReturnType<typeof useMotionValue<n
   const rotate = useTransform(rotation, (value) => -value)
 
   return (
-    <motion.svg
-      aria-hidden="true"
-      style={{ rotate }}
-      viewBox="0 0 360 360"
-      {...stylex.props(styles.ticks)}
-    >
-      {TICK_MARKS.map((mark, index) => (
+    <>
+      <motion.svg
+        aria-hidden="true"
+        style={{ rotate }}
+        viewBox="0 0 360 360"
+        {...stylex.props(styles.ticks)}
+      >
+        {TICK_MARKS.map((mark, index) => (
+          <line
+            key={`tick-${index}`}
+            stroke={
+              mark.kind === 'major'
+                ? 'color-mix(in oklch, var(--control-accent) 78%, white)'
+                : mark.kind === 'mid'
+                  ? 'color-mix(in oklch, var(--control-accent) 88%, white)'
+                  : 'color-mix(in oklch, var(--control-accent) 92%, white)'
+            }
+            strokeLinecap="round"
+            strokeWidth={mark.kind === 'major' ? 1.15 : mark.kind === 'mid' ? 0.75 : 0.5}
+            x1={mark.x1}
+            x2={mark.x2}
+            y1={mark.y1}
+            y2={mark.y2}
+          />
+        ))}
+      </motion.svg>
+      <svg aria-hidden="true" viewBox="0 0 360 360" {...stylex.props(styles.ticks)}>
         <line
-          key={`tick-${index}`}
-          stroke={
-            mark.kind === 'major'
-              ? 'color-mix(in oklch, var(--control-accent) 58%, white)'
-              : mark.kind === 'mid'
-                ? 'color-mix(in oklch, var(--control-accent) 72%, white)'
-                : 'color-mix(in oklch, var(--control-accent) 82%, white)'
-          }
+          stroke="color-mix(in oklch, var(--control-accent) 58%, white)"
           strokeLinecap="round"
-          strokeWidth={mark.kind === 'major' ? 1.15 : mark.kind === 'mid' ? 0.75 : 0.5}
-          x1={mark.x1}
-          x2={mark.x2}
-          y1={mark.y1}
-          y2={mark.y2}
+          strokeWidth={1.15}
+          x1={TICK_CENTER.x1}
+          x2={TICK_CENTER.x2}
+          y1={TICK_CENTER.y1}
+          y2={TICK_CENTER.y2}
         />
-      ))}
-    </motion.svg>
+      </svg>
+    </>
   )
 }
 
@@ -565,7 +587,7 @@ const styles = stylex.create({
       'linear-gradient(in oklch 180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 81%, black) 100%)',
     borderWidth: 0,
     borderRadius: '50%',
-    bottom: 'calc(6px + env(safe-area-inset-bottom, 0px))',
+    bottom: 'calc(14px + env(safe-area-inset-bottom, 0px))',
     boxShadow: {
       default: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
       ':focus-visible':
