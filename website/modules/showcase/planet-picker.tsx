@@ -1,7 +1,7 @@
 import * as stylex from '@stylexjs/stylex'
 import Link from 'next/link'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { memo, useState } from 'react'
 
 import { defaultPlanetId, planetPath } from '../planet-route/planet-route'
@@ -67,38 +67,20 @@ function SeeAlsoLink({ children, href }: { children: ReactNode; href: string }) 
 export const PlanetPicker = memo(function PlanetPicker({
   gridVisible,
   onGridVisibleChange,
-  onSelectPlanet,
   reducedMotion,
   selectedPlanet,
 }: {
   gridVisible: boolean
   onGridVisibleChange: (visible: boolean) => void
-  onSelectPlanet: (planet: PlanetId) => void
   reducedMotion: boolean
   selectedPlanet: PlanetId
 }) {
-  function selectPlanetFromLink(event: ReactMouseEvent<HTMLAnchorElement>, planet: PlanetId) {
-    if (
-      event.defaultPrevented ||
-      event.button !== 0 ||
-      event.metaKey ||
-      event.altKey ||
-      event.ctrlKey ||
-      event.shiftKey
-    ) {
-      return
-    }
-    event.preventDefault()
-    onSelectPlanet(planet)
-  }
-
   return (
     <>
       <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
         <div {...stylex.props(styles.pickerNavigation)}>
           <Link
             href={planetPath(defaultPlanetId)}
-            onClick={(event) => selectPlanetFromLink(event, defaultPlanetId)}
             {...stylex.props(
               styles.wordmark,
               styles.pickerWordmark,
@@ -114,7 +96,6 @@ export const PlanetPicker = memo(function PlanetPicker({
               <Link
                 key={planet.id}
                 href={planetPath(planet.id)}
-                onClick={(event) => selectPlanetFromLink(event, planet.id)}
                 {...stylex.props(
                   styles.planetTab,
                   selectedPlanet === planet.id && styles.planetTabSelected,

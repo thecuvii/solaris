@@ -182,6 +182,13 @@ export const textures = {
   venus: { cloudStructure: '/textures/v1/venus/venus-cloud-structure.webp' },
 } as const satisfies Record<TexturedPlanetId, Record<string, string>>
 
+export type TextureAttribution = {
+  license: string
+  licenseHref?: string
+  source: string
+  sourceHref?: string
+}
+
 export type TextureDoc = {
   description: string
   filename: string
@@ -190,6 +197,69 @@ export type TextureDoc = {
   label: string
   packed: boolean
   url: string
+}
+
+const nasaMediaGuidelines = 'https://www.nasa.gov/nasa-brand-center/images-and-media/'
+const ccBy40 = 'https://creativecommons.org/licenses/by/4.0/'
+
+export const textureAttribution: Record<TexturedPlanetId, TextureAttribution> = {
+  earth: {
+    license: 'CC BY 4.0',
+    licenseHref: ccBy40,
+    source: 'Solar System Scope (INOVE). Based on NASA Blue Marble.',
+    sourceHref: 'https://www.solarsystemscope.com/textures/',
+  },
+  jupiter: {
+    license: 'CC BY 4.0',
+    licenseHref: ccBy40,
+    source: 'Hubble OPAL 2019 global map. NASA, ESA, A. Simon, M.H. Wong.',
+    sourceHref: 'https://science.nasa.gov/asset/hubble/jupiter-global-map-2019/',
+  },
+  'lunar-eclipse': {
+    license: 'NASA media guidelines',
+    licenseHref: nasaMediaGuidelines,
+    source: 'NASA CGI Moon Kit. LROC WAC and LOLA via SVS.',
+    sourceHref: 'https://svs.gsfc.nasa.gov/4720/',
+  },
+  mars: {
+    license: 'Public domain (USGS); NASA media guidelines (MOLA)',
+    source: 'USGS Viking color mosaic; NASA MOLA topography.',
+    sourceHref: 'https://planetarymaps.usgs.gov/mosaic/Mars_Viking_ClrMosaic_global_925m.tif',
+  },
+  mercury: {
+    license: 'Public domain. Cite the MESSENGER / USGS authors.',
+    source: 'USGS MESSENGER MDIS color mosaic and global DEM.',
+    sourceHref:
+      'https://astrogeology.usgs.gov/search/map/mercury_messenger_mdis_global_color_mosaic_665m',
+  },
+  moon: {
+    license: 'NASA media guidelines',
+    licenseHref: nasaMediaGuidelines,
+    source: 'NASA CGI Moon Kit. LROC WAC and LOLA via SVS.',
+    sourceHref: 'https://svs.gsfc.nasa.gov/4720/',
+  },
+  pluto: {
+    license: 'NASA media guidelines; USGS DEM has no access constraints',
+    source: 'New Horizons PIA11707 color map; USGS LORRI-MVIC DEM.',
+    sourceHref: 'https://www.jpl.nasa.gov/images/pia11707-pluto-color-map/',
+  },
+  saturn: {
+    license: 'NASA media guidelines; rings are original',
+    source: 'NASA 3D Resources fictional map; ring extents from PDS tables.',
+    sourceHref: 'https://science.nasa.gov/3d-resources/saturn/',
+  },
+  sun: {
+    license: 'NASA media guidelines',
+    licenseHref: nasaMediaGuidelines,
+    source: 'SDO/AIA 304 Å SVS Jewelbox sequence.',
+    sourceHref: 'https://svs.gsfc.nasa.gov/3983/',
+  },
+  venus: {
+    license: 'NASA copyright-free imagery policy',
+    licenseHref: nasaMediaGuidelines,
+    source: 'NASA/JPL/Seal Mariner 10 cylindrical cloud map.',
+    sourceHref: 'https://solarviews.com/cap/venus/venuscyl4.htm',
+  },
 }
 
 type TextureDocNote = Pick<TextureDoc, 'description' | 'label' | 'packed'>
@@ -343,6 +413,10 @@ export function requirePlanet(id: PlanetId): Planet {
 
 export function getPlanetTextureUrls(id: PlanetId | undefined): string[] {
   return id && hasTextures(id) ? Object.values(textures[id]) : []
+}
+
+export function getPlanetTextureAttribution(id: TexturedPlanetId): TextureAttribution {
+  return textureAttribution[id]
 }
 
 export function getPlanetTextureDocs(id: PlanetId): readonly TextureDoc[] {

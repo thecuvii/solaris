@@ -66,7 +66,7 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
       setTransitionDirection(nextIndex > currentIndex ? 1 : -1)
       setPlan(getPlanetTransitionPlan(currentPlanet, nextPlanet))
       if (updateRoute) {
-        router.push(planetPath(nextPlanet), { scroll: false })
+        router.push(planetPath(nextPlanet))
       }
     },
     [router],
@@ -77,7 +77,7 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
       if (nextPlanet === selectedPlanetRef.current) {
         queuedPlanetRef.current = null
         if (nextPlanet !== selectedPlanet) {
-          router.push(planetPath(nextPlanet), { scroll: false })
+          router.push(planetPath(nextPlanet))
         }
         return
       }
@@ -130,7 +130,6 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
         <PlanetPicker
           gridVisible={showGrid}
           onGridVisibleChange={setShowGrid}
-          onSelectPlanet={selectPlanet}
           reducedMotion={Boolean(reduceMotion)}
           selectedPlanet={previewPlanet}
         />

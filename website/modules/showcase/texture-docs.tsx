@@ -7,10 +7,12 @@ import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { CopyIcon } from './example-code'
-import { getPlanetTextureDocs } from './showcase-data'
-import type { PlanetId, TextureDoc } from './showcase-data'
+import { getPlanetTextureAttribution, getPlanetTextureDocs, hasTextures } from './showcase-data'
+import type { PlanetId, TextureDoc, TexturedPlanetId } from './showcase-data'
 
 export function TextureDocs({ planetId }: { planetId: PlanetId }) {
+  if (!hasTextures(planetId)) return null
+
   const docs = getPlanetTextureDocs(planetId)
 
   return (
@@ -19,18 +21,48 @@ export function TextureDocs({ planetId }: { planetId: PlanetId }) {
         <h2 {...stylex.props(styles.textureHeading)}>Textures</h2>
         <TextureHeadingHelp />
       </div>
-      {docs.length === 0 ? (
-        <p {...stylex.props(styles.textureEmpty)}>
-          No texture files. Atmosphere and surface structure are generated in the shader.
-        </p>
-      ) : (
-        <ul {...stylex.props(styles.textureList)}>
-          {docs.map((doc) => (
-            <TextureDocRow doc={doc} key={`${doc.key}:${doc.url}`} />
-          ))}
-        </ul>
-      )}
+      <ul {...stylex.props(styles.textureList)}>
+        {docs.map((doc) => (
+          <TextureDocRow doc={doc} key={`${doc.key}:${doc.url}`} />
+        ))}
+      </ul>
+      <TextureCreditCallout planetId={planetId} />
     </section>
+  )
+}
+
+function TextureCreditCallout({ planetId }: { planetId: TexturedPlanetId }) {
+  const credit = getPlanetTextureAttribution(planetId)
+
+  return (
+    <aside aria-label="Texture source and license" {...stylex.props(styles.textureCallout)}>
+      <dl {...stylex.props(styles.textureCalloutList)}>
+        <CreditField href={credit.sourceHref} label="Source" value={credit.source} />
+        <CreditField href={credit.licenseHref} label="License" value={credit.license} />
+      </dl>
+    </aside>
+  )
+}
+
+function CreditField({ href, label, value }: { href?: string; label: string; value: string }) {
+  return (
+    <div {...stylex.props(styles.textureCalloutRow)}>
+      <dt {...stylex.props(styles.textureCalloutTerm)}>{label}</dt>
+      <dd {...stylex.props(styles.textureCalloutValue)}>
+        {href ? (
+          <a
+            href={href}
+            rel="noreferrer"
+            target="_blank"
+            {...stylex.props(styles.textureCalloutLink)}
+          >
+            {value}
+          </a>
+        ) : (
+          value
+        )}
+      </dd>
+    </div>
   )
 }
 
@@ -269,6 +301,66 @@ const styles = stylex.create({
       gridRow: 3,
     },
   },
+  textureCallout: {
+    backgroundColor: 'rgba(7, 8, 13, 0.32)',
+    borderRadius: 10,
+    boxSizing: 'border-box',
+    fontSize: 11,
+    marginTop: 8,
+    minWidth: 0,
+    paddingBlock: 12,
+    paddingInlineEnd: 14,
+    paddingInlineStart: 0,
+    width: '100%',
+  },
+  textureCalloutLink: {
+    color: 'inherit',
+    textDecoration: {
+      default: 'none',
+      ':hover': 'underline',
+      ':focus-visible': 'underline',
+    },
+    textUnderlineOffset: 3,
+    ':focus-visible': {
+      outline: 'none',
+    },
+  },
+  textureCalloutList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    margin: 0,
+    minWidth: 0,
+  },
+  textureCalloutRow: {
+    alignItems: 'baseline',
+    display: 'flex',
+    gap: 16,
+    minWidth: 0,
+  },
+  textureCalloutTerm: {
+    color: 'rgba(242, 232, 208, 0.38)',
+    flexShrink: 0,
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 11,
+    fontWeight: 550,
+    letterSpacing: '-0.01em',
+    lineHeight: 1.45,
+    margin: 0,
+    width: 56,
+  },
+  textureCalloutValue: {
+    color: 'rgba(242, 232, 208, 0.72)',
+    flex: 1,
+    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: '-0.01em',
+    lineHeight: 1.45,
+    margin: 0,
+    minWidth: 0,
+    textWrap: 'pretty',
+  },
   textureCopy: {
     display: 'flex',
     flex: 1,
@@ -291,15 +383,6 @@ const styles = stylex.create({
     margin: 0,
     textWrap: 'pretty',
   },
-  textureEmpty: {
-    color: 'rgba(242, 232, 208, 0.5)',
-    fontFamily: '"Inter Variable", Inter, sans-serif',
-    fontSize: 13,
-    lineHeight: 1.5,
-    margin: 0,
-    paddingBlock: 12,
-    textWrap: 'pretty',
-  },
   textureHeading: {
     color: 'rgba(242, 232, 208, 0.82)',
     fontFamily: '"Inter Variable", Inter, sans-serif',
@@ -315,7 +398,7 @@ const styles = stylex.create({
     display: 'flex',
     gap: 8,
     minWidth: 0,
-    paddingBottom: 8,
+    paddingBottom: 12,
     paddingTop: 32,
     width: '100%',
   },
