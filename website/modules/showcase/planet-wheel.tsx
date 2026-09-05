@@ -495,13 +495,13 @@ const styles = stylex.create({
     inset: 56,
     position: 'absolute',
   },
-  // Same pigment as the settings chip. The 360px disc is clipped to a
-  // ~56px-thick ring, so the chip's 0–100% falloff is packed into the
-  // first ~20% and a lip-tinted ellipse replaces the chip's own height.
+  // Same two mixes and lip as the reset chip. The ramp runs across the
+  // ring (outer = chip top, inner = chip bottom) so iso-lines follow the
+  // arc instead of cutting the box as a rectangle or a 12-o'clock spot.
   track: {
     backgroundColor: 'color-mix(in oklch, var(--control-accent) 84%, black)',
     backgroundImage:
-      'radial-gradient(ellipse 94% 20% at 50% 0%, oklch(85.45% 0 0 / 0.12) 0%, oklch(85.45% 0 0 / 0.04) 42%, transparent 74%), linear-gradient(in oklch 180deg, color-mix(in oklch, var(--control-accent) 90%, white) 0%, color-mix(in oklch, var(--control-accent) 88%, black) 10%, color-mix(in oklch, var(--control-accent) 81%, black) 20%, color-mix(in oklch, var(--control-accent) 80%, black) 100%)',
+      'radial-gradient(in oklch circle closest-side at 50% 50%, color-mix(in oklch, var(--control-accent) 81%, black) 0%, color-mix(in oklch, var(--control-accent) 81%, black) 74%, color-mix(in oklch, var(--control-accent) 90%, black) 99%, var(--control-accent) 100%)',
     borderRadius: '50%',
     boxShadow: 'oklch(85.45% 0 0 / 0.2118) 0 1px 0 inset',
     inset: 0,

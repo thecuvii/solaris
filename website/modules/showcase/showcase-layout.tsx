@@ -236,7 +236,9 @@ const styles = stylex.create({
     paddingBlock: 0,
     paddingInline: 'clamp(24px, 4vw, 64px)',
     '@media (max-width: 960px)': {
+      flex: '1 1 auto',
       gridColumn: 'auto',
+      order: 0,
     },
   },
   gridOverlay: {
@@ -332,7 +334,8 @@ const styles = stylex.create({
       '--showcase-inspector-width': '0px',
       '--showcase-picker-width': '0px',
       '--showcase-preview-top': '0px',
-      display: 'block',
+      display: 'flex',
+      flexDirection: 'column',
       overflow: 'hidden',
     },
   },
