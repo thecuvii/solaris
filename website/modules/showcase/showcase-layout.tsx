@@ -14,6 +14,7 @@ import { usePlanetId } from '../planet-route/use-planet-id'
 import { usePlanetChromeStyle } from '../planets/chrome-lighting'
 import { PlanetWheel, SettingsSheet } from './planet-wheel'
 import { useMobileShowcase } from './use-mobile-showcase'
+import { useVisualViewport } from './use-visual-viewport'
 import { Inspector } from './inspector'
 import { PlanetPicker } from './planet-picker'
 import { chromeVariants, getPlanetTransitionPlan, planetPreviewVariants } from './planet-transition'
@@ -44,6 +45,7 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
   const [showGrid, setShowGrid] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const isMobile = useMobileShowcase()
+  useVisualViewport()
   const reduceMotion = useReducedMotion()
   const lighting = usePlanetChromeStyle(previewPlanet)
   const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
@@ -324,7 +326,7 @@ const styles = stylex.create({
     backgroundColor: '#07080d',
     display: 'grid',
     gridTemplateColumns: '300px minmax(400px, 1fr) 280px',
-    minHeight: '100dvh',
+    minHeight: 'max(100dvh, var(--visual-viewport-height, 100dvh))',
     overflow: 'clip',
     '@media (min-width: 961px) and (max-width: 1080px)': {
       '--showcase-picker-width': '260px',

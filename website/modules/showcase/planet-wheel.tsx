@@ -607,9 +607,9 @@ const styles = stylex.create({
     position: 'absolute',
   },
   dock: {
-    bottom: 0,
+    bottom: 'calc(-1 * env(safe-area-inset-bottom, 0px))',
     display: 'none',
-    height: 'var(--showcase-wheel-height, 126px)',
+    height: 'calc(var(--showcase-wheel-height, 126px) + env(safe-area-inset-bottom, 0px))',
     left: 0,
     pointerEvents: 'none',
     position: 'fixed',

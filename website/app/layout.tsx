@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
+import Script from 'next/script'
 
 import './globals.css'
 
@@ -16,7 +17,12 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Script id="visual-viewport" strategy="beforeInteractive">
+          {`(function(){var v=window.visualViewport;document.documentElement.style.setProperty('--visual-viewport-height',(v?v.height:window.innerHeight)+'px')})()`}
+        </Script>
+        {children}
+      </body>
     </html>
   )
 }

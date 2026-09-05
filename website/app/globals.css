@@ -24,7 +24,19 @@
   body {
     background: #07080d;
     min-height: 100%;
-    min-height: 100dvh;
+    min-height: max(100dvh, var(--visual-viewport-height, 100dvh));
+  }
+
+  @supports (-webkit-touch-callout: none) {
+    html,
+    body {
+      min-height: -webkit-fill-available;
+      min-height: max(
+        -webkit-fill-available,
+        calc(100dvh + env(safe-area-inset-bottom, 0px)),
+        var(--visual-viewport-height, 100dvh)
+      );
+    }
   }
 
   body {
@@ -44,6 +56,18 @@
 
   input[type='range']:focus-visible {
     outline: none;
+  }
+
+  body::after {
+    background: #07080d;
+    bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
+    content: '';
+    height: calc(env(safe-area-inset-bottom, 0px) + 80px);
+    left: 0;
+    pointer-events: none;
+    position: fixed;
+    right: 0;
+    z-index: -1;
   }
 }
 
