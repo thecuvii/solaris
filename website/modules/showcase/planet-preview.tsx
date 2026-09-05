@@ -126,7 +126,7 @@ const styles = stylex.create({
     fontSize: 'var(--showcase-title-size)',
     fontWeight: 590,
     letterSpacing: '-0.045em',
-    lineHeight: 1,
+    lineHeight: 1.18,
     marginBottom: 0,
     marginInline: 0,
     marginTop: '-0.12em',
@@ -139,6 +139,7 @@ const styles = stylex.create({
     display: 'flex',
     justifyContent: 'space-between',
     minWidth: 0,
+    overflow: 'visible',
     width: '100%',
   },
 })

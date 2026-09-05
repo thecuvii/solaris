@@ -53,5 +53,8 @@
   background: inherit;
   background-clip: text;
   color: inherit;
+  line-height: inherit;
+  overflow: visible;
+  padding-bottom: 0.22em;
   -webkit-background-clip: text;
 }

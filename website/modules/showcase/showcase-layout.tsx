@@ -340,7 +340,8 @@ const styles = stylex.create({
       '--showcase-canvas-left': 'calc(50% - 50vw)',
       '--showcase-canvas-right': 'calc(50% - 50vw)',
       '--showcase-canvas-top':
-        'calc(-1 * (var(--showcase-title-pad) + var(--showcase-stage-nudge)))',
+        'calc(-1 * (var(--showcase-header-height) + var(--showcase-title-pad) + var(--showcase-stage-nudge)))',
+      '--showcase-header-height': 'calc(13px + 12px + env(safe-area-inset-top, 0px))',
       '--showcase-inspector-width': '0px',
       '--showcase-picker-width': '0px',
       '--showcase-preview-top': '0px',

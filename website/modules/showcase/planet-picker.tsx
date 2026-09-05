@@ -235,6 +235,7 @@ const styles = stylex.create({
     '@media (max-width: 960px)': {
       left: 'auto',
       right: 'clamp(24px, 4vw, 64px)',
+      top: 'calc(12px + env(safe-area-inset-top, 0px))',
     },
   },
   picker: {
@@ -388,11 +389,12 @@ const styles = stylex.create({
   mobileHeader: {
     display: 'none',
     '@media (max-width: 960px)': {
+      backgroundColor: 'transparent',
       display: 'flex',
       flex: '0 0 auto',
       paddingBottom: 0,
       paddingInline: 'clamp(24px, 4vw, 64px)',
-      paddingTop: 20,
+      paddingTop: 'calc(12px + env(safe-area-inset-top, 0px))',
       position: 'relative',
     },
   },
