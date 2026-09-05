@@ -603,7 +603,7 @@ const styles = stylex.create({
     position: 'absolute',
   },
   dock: {
-    bottom: 32,
+    bottom: 0,
     display: 'none',
     height: 'var(--showcase-wheel-height, 126px)',
     left: 0,
@@ -617,7 +617,7 @@ const styles = stylex.create({
   },
   chrome: {
     alignItems: 'center',
-    bottom: 16,
+    bottom: 'calc(16px + env(safe-area-inset-bottom, 0px))',
     display: 'flex',
     justifyContent: 'center',
     left: '50%',

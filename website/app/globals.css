@@ -22,12 +22,13 @@
 
   html,
   body {
+    background: #07080d;
     min-height: 100%;
+    min-height: 100dvh;
   }
 
   body {
     margin: 0;
-    background: #07080d;
     color: #f2e8d0;
     font-family: 'Inter Variable', Inter, sans-serif;
     font-size: 13px;
