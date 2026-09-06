@@ -31,6 +31,7 @@ export function SkyPreview() {
       */}
       <div
         aria-hidden="true"
+        data-chrome-probe="fade"
         style={{
           background: 'linear-gradient(to bottom, rgba(7, 8, 13, 0), #07080d)',
           bottom: skyViewport.bottom,

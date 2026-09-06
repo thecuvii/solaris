@@ -1,8 +1,7 @@
 import * as stylex from '@stylexjs/stylex'
 import Link from 'next/link'
-import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import type { ReactNode } from 'react'
-import { memo, useState } from 'react'
+import { AnimatePresence, motion } from 'motion/react'
+import { memo } from 'react'
 
 import { defaultPlanetId, planetPath } from '../planet-route/planet-route'
 import { ParameterSwitch } from './inspector'
@@ -10,73 +9,10 @@ import { planets, withSiteSource } from './showcase-data'
 import type { PlanetId } from './showcase-data'
 import { track } from './track'
 
-const alsoArrowTransition = {
-  duration: 0.22,
-  ease: [0.4, 0, 0.2, 1],
-} as const
-
-function SeeAlsoLink({
-  children,
-  href,
-  onClick,
-}: {
-  children: ReactNode
-  href: string
-  onClick?: () => void
-}) {
-  const reduceMotion = useReducedMotion()
-  const [active, setActive] = useState(false)
-  const drawn = active ? 1 : 0
-  const transition = reduceMotion ? { duration: 0 } : alsoArrowTransition
-
-  return (
-    <a
-      href={href}
-      onBlur={() => setActive(false)}
-      onClick={onClick}
-      onFocus={() => setActive(true)}
-      onPointerEnter={() => setActive(true)}
-      onPointerLeave={() => setActive(false)}
-      rel="noreferrer"
-      target="_blank"
-      {...stylex.props(styles.pickerMetaLink, styles.pickerAlsoLink)}
-    >
-      {children}
-      <svg aria-hidden="true" viewBox="0 0 18 18" {...stylex.props(styles.pickerAlsoArrow)}>
-        <g
-          fill="none"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={1.25}
-        >
-          <motion.path
-            animate={{ opacity: drawn, pathLength: drawn }}
-            d="M3.75 14.25 14.25 3.75"
-            initial={false}
-            transition={transition}
-          />
-          <motion.path
-            animate={{ opacity: drawn, pathLength: drawn }}
-            d="M8.24 3.75 14.25 3.75"
-            initial={false}
-            transition={transition}
-          />
-          <motion.path
-            animate={{ opacity: drawn, pathLength: drawn }}
-            d="M14.25 9.76 14.25 3.75"
-            initial={false}
-            transition={transition}
-          />
-        </g>
-      </svg>
-    </a>
-  )
-}
-
 function ShowcaseWordmark({ sidebar = false }: { sidebar?: boolean }) {
   return (
     <Link
+      data-chrome-probe={sidebar ? 'nav-row' : undefined}
       href={planetPath(defaultPlanetId)}
       {...stylex.props(
         styles.wordmark,
@@ -114,6 +50,7 @@ export const PlanetPicker = memo(function PlanetPicker({
             {planets.map((planet) => (
               <Link
                 key={planet.id}
+                data-chrome-probe="nav-row"
                 href={planetPath(planet.id)}
                 {...stylex.props(
                   styles.planetTab,
@@ -164,40 +101,7 @@ export const PlanetPicker = memo(function PlanetPicker({
             ))}
           </nav>
 
-          <div {...stylex.props(styles.pickerAlso, styles.eclipseNavigationLighting)}>
-            <div {...stylex.props(styles.pickerAlsoLabel)}>See also</div>
-            <div {...stylex.props(styles.pickerAlsoItem)}>
-              <SeeAlsoLink
-                href={withSiteSource('https://cobe.vercel.app/')}
-                onClick={() => track('clicked_cobe')}
-              >
-                Cobe
-              </SeeAlsoLink>
-              <span {...stylex.props(styles.pickerAlsoAuthor)}>Shu Ding</span>
-            </div>
-            <div {...stylex.props(styles.pickerAlsoItem)}>
-              <SeeAlsoLink href={withSiteSource('https://www.tryspherium.com/')}>
-                Spherium
-              </SeeAlsoLink>
-              <span {...stylex.props(styles.pickerAlsoAuthor)}>Javier Crocco</span>
-            </div>
-            <div {...stylex.props(styles.pickerAlsoItem)}>
-              <SeeAlsoLink href={withSiteSource('https://gps-01.dmytro.fyi/')}>GPS 01</SeeAlsoLink>
-              <span {...stylex.props(styles.pickerAlsoAuthor)}>Dmytro Kondakov</span>
-            </div>
-            <div {...stylex.props(styles.pickerAlsoItem)}>
-              <SeeAlsoLink
-                href={withSiteSource(
-                  'https://blog.maximeheckel.com/posts/on-rendering-the-sky-sunsets-and-planets/',
-                )}
-              >
-                Blog series
-              </SeeAlsoLink>
-              <span {...stylex.props(styles.pickerAlsoAuthor)}>Maxime Heckel</span>
-            </div>
-          </div>
-
-          <div {...stylex.props(styles.pickerMeta)}>
+          <div data-chrome-probe="nav-row" {...stylex.props(styles.pickerMeta)}>
             <a
               href={withSiteSource('https://github.com/thecuvii/solaris')}
               onClick={() => track('clicked_github', { target: 'repo' })}
@@ -276,68 +180,6 @@ const styles = stylex.create({
       zIndex: 'auto',
     },
   },
-  pickerAlso: {
-    alignSelf: 'flex-end',
-    display: 'flex',
-    flex: '0 0 auto',
-    flexDirection: 'column',
-    fontSize: 11,
-    gap: 10,
-    marginRight: 29,
-    marginTop: 12,
-    paddingRight: 0,
-    paddingTop: 12,
-    textAlign: 'right',
-    width: 180,
-    '@media (max-width: 960px)': {
-      alignSelf: 'flex-start',
-      marginLeft: 0,
-      marginRight: 0,
-      marginTop: 0,
-      minWidth: 0,
-      paddingTop: 0,
-      textAlign: 'left',
-      width: 'auto',
-    },
-  },
-  pickerAlsoArrow: {
-    display: 'block',
-    height: 11,
-    left: 'calc(100% + 3px)',
-    overflow: 'visible',
-    pointerEvents: 'none',
-    position: 'absolute',
-    top: '50%',
-    transform: 'translateY(-50%)',
-    width: 11,
-  },
-  pickerAlsoAuthor: {
-    color: 'var(--showcase-nav-ink)',
-    fontSize: 10,
-    lineHeight: 1.35,
-  },
-  pickerAlsoItem: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-  },
-  pickerAlsoLabel: {
-    color: 'var(--showcase-nav-ink)',
-    fontSize: 10,
-    lineHeight: 1.45,
-  },
-  pickerAlsoLink: {
-    alignSelf: 'flex-end',
-    color: {
-      default: 'var(--showcase-nav-ink-hover)',
-      ':hover': 'var(--showcase-nav-ink-strong)',
-      ':focus-visible': 'var(--showcase-nav-ink-strong)',
-    },
-    position: 'relative',
-    '@media (max-width: 960px)': {
-      alignSelf: 'flex-start',
-    },
-  },
   pickerMeta: {
     alignSelf: 'flex-end',
     color: 'var(--showcase-nav-ink)',
@@ -387,7 +229,7 @@ const styles = stylex.create({
       alignItems: 'flex-start',
       bottom: 'auto',
       flexDirection: 'row',
-      justifyContent: 'space-between',
+      justifyContent: 'flex-end',
       paddingBottom: 'calc(var(--showcase-stage-nudge) + env(safe-area-inset-bottom, 0px))',
       paddingInline: 'clamp(24px, 4vw, 64px)',
       paddingTop: 20,

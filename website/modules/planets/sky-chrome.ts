@@ -35,7 +35,10 @@ const PI = Math.PI
 const NAV_FALLBACK: ScreenRect = { bottom: -1.4, left: -2.7, right: -1.9, top: 1.6 }
 const TITLE_FALLBACK: ScreenRect = { bottom: 0.9, left: -0.9, right: 0.5, top: 1.6 }
 const CODE_FALLBACK: ScreenRect = { bottom: -2.1, left: -0.8, right: 0.8, top: -1.5 }
-const CODE_FROST_LIFT = 0.1
+// The code header sits on `rgba(7, 8, 13, 0.55)` (see codeSectionFlat), so the
+// sky shows through at 45% over a near-black fill. Display-luminance terms.
+const CODE_FILL_PASS = 0.45
+const CODE_FILL_LUMINANCE = 0.001
 
 function clamp01(value: number): number {
   return Math.min(Math.max(value, 0), 1)
@@ -194,29 +197,59 @@ function compositionBounds(element: Element, composition: DOMRect): ScreenRect |
   }
 }
 
-function regionWash(lighting: SkyLighting, region: ScreenRect, luminanceLift = 0): number {
+/** Vertical band (composition y) covered by the bottom fade-out gradient. */
+type FadeBand = { bottom: number; top: number }
+
+function regionWash(
+  lighting: SkyLighting,
+  region: ScreenRect,
+  // Maps the raw sky luminance to what is actually seen behind the text, e.g.
+  // through a translucent fill or the bottom fade.
+  seen: (luminance: number, point: ScreenPoint) => number = (luminance) => luminance,
+): number {
   let maxWash = 0
   for (let column = 0; column < 3; column += 1) {
     for (let row = 0; row < 3; row += 1) {
       const x = region.left + ((region.right - region.left) * column) / 2
       const y = region.bottom + ((region.top - region.bottom) * row) / 2
+      const point = { x, y }
       maxWash = Math.max(
         maxWash,
-        washFromLuminance(Math.min(1, skyBackdropLuminance(lighting, { x, y }) + luminanceLift)),
+        washFromLuminance(Math.min(1, seen(skyBackdropLuminance(lighting, point), point))),
       )
     }
   }
   return maxWash
 }
 
-export function useSkyChromeProbes(enabled: boolean): {
+/** Attenuates the sky by the bottom gradient (transparent at top, opaque at bottom). */
+function throughFade(luminance: number, y: number, fade: FadeBand | null): number {
+  if (!fade || fade.top <= fade.bottom) return luminance
+  const cover = clamp01((fade.top - y) / (fade.top - fade.bottom))
+  return luminance * (1 - cover)
+}
+
+function throughCodeFill(luminance: number, point: ScreenPoint, fade: FadeBand | null): number {
+  return throughFade(luminance, point.y, fade) * CODE_FILL_PASS + CODE_FILL_LUMINANCE
+}
+
+export type SkyChromeProbes = {
   code: ScreenRect
+  fade: FadeBand | null
   nav: ScreenRect
+  /** One rect per `[data-chrome-probe="nav-row"]`, in DOM order. */
+  navRows: ScreenRect[]
   title: ScreenRect
-} {
-  const [probes, setProbes] = useState({
+}
+
+const EMPTY_ROWS: ScreenRect[] = []
+
+export function useSkyChromeProbes(enabled: boolean): SkyChromeProbes {
+  const [probes, setProbes] = useState<SkyChromeProbes>({
     code: CODE_FALLBACK,
+    fade: null,
     nav: NAV_FALLBACK,
+    navRows: EMPTY_ROWS,
     title: TITLE_FALLBACK,
   })
 
@@ -228,17 +261,38 @@ export function useSkyChromeProbes(enabled: boolean): {
       const nav = document.querySelector('[data-chrome-probe="nav"]')
       const title = document.querySelector('[data-chrome-probe="title"]')
       const code = document.querySelector('[data-chrome-probe="code"]')
+      const fade = document.querySelector('[data-chrome-probe="fade"]')
+      const navRows = document.querySelectorAll('[data-chrome-probe="nav-row"]')
       if (!composition || !nav || !title) return
       const compositionRect = composition.getBoundingClientRect()
       if (compositionRect.width < 2 || compositionRect.height < 2) return
       const navScreen = compositionBounds(nav, compositionRect)
       const titleScreen = compositionBounds(title, compositionRect)
       const codeScreen = code ? compositionBounds(code, compositionRect) : null
+      const fadeScreen = fade ? compositionBounds(fade, compositionRect) : null
+      const rowScreens: ScreenRect[] = []
+      for (const row of navRows) {
+        const bounds = compositionBounds(row, compositionRect)
+        if (bounds) rowScreens.push(bounds)
+      }
       setProbes((current) => ({
         code: codeScreen ?? current.code,
+        fade: fadeScreen ? { bottom: fadeScreen.bottom, top: fadeScreen.top } : current.fade,
         nav: navScreen ?? current.nav,
+        navRows: rowScreens.length === navRows.length ? rowScreens : current.navRows,
         title: titleScreen ?? current.title,
       }))
+    }
+
+    // The chrome is fixed while the canvas scrolls with the page, so the
+    // relative geometry changes on scroll too. Coalesce to one read per frame.
+    let scrollFrame = 0
+    function onScroll(): void {
+      if (scrollFrame) return
+      scrollFrame = window.requestAnimationFrame(() => {
+        scrollFrame = 0
+        measure()
+      })
     }
 
     measure()
@@ -250,16 +304,21 @@ export function useSkyChromeProbes(enabled: boolean): {
     const nav = document.querySelector('[data-chrome-probe="nav"]')
     const title = document.querySelector('[data-chrome-probe="title"]')
     const code = document.querySelector('[data-chrome-probe="code"]')
+    const fade = document.querySelector('[data-chrome-probe="fade"]')
     if (composition) observer.observe(composition)
     if (nav) observer.observe(nav)
     if (title) observer.observe(title)
     if (code) observer.observe(code)
+    if (fade) observer.observe(fade)
     window.addEventListener('resize', measure)
+    window.addEventListener('scroll', onScroll, { passive: true })
     return () => {
       window.cancelAnimationFrame(frame)
+      window.cancelAnimationFrame(scrollFrame)
       window.clearTimeout(later)
       observer.disconnect()
       window.removeEventListener('resize', measure)
+      window.removeEventListener('scroll', onScroll)
     }
   }, [enabled])
 
@@ -268,11 +327,17 @@ export function useSkyChromeProbes(enabled: boolean): {
 
 export function skyChromeStyle(
   lighting: SkyLighting,
-  probes: { code: ScreenRect; nav: ScreenRect; title: ScreenRect },
+  probes: SkyChromeProbes,
 ): EclipseTextLightingProperties {
-  const codeInk = chromeInk(regionWash(lighting, probes.code, CODE_FROST_LIFT))
-  const navInk = chromeInk(regionWash(lighting, probes.nav))
-  const titleInk = chromeInk(regionWash(lighting, probes.title))
+  const codeInk = chromeInk(
+    regionWash(lighting, probes.code, (luminance, point) =>
+      throughCodeFill(luminance, point, probes.fade),
+    ),
+  )
+  const seen = (luminance: number, point: ScreenPoint) =>
+    throughFade(luminance, point.y, probes.fade)
+  const navInk = chromeInk(regionWash(lighting, probes.nav, seen))
+  const titleInk = chromeInk(regionWash(lighting, probes.title, seen))
   return {
     ...noneTextLighting(),
     '--showcase-code-ink': codeInk['--showcase-code-ink'],
@@ -285,4 +350,28 @@ export function skyChromeStyle(
     '--showcase-title-bottom': titleInk['--showcase-title-bottom'],
     '--showcase-title-top': titleInk['--showcase-title-top'],
   }
+}
+
+export type SkyNavRowInk = {
+  '--showcase-nav-ink': string
+  '--showcase-nav-ink-hover': string
+  '--showcase-nav-ink-strong': string
+}
+
+/**
+ * Per-row nav ink. The sidebar spans from bright sky at the top to the dark
+ * page below the canvas, so a single ink for the whole column cannot work;
+ * each row is judged against the sky directly behind it.
+ */
+export function skyNavRowInks(lighting: SkyLighting, probes: SkyChromeProbes): SkyNavRowInk[] {
+  return probes.navRows.map((row) => {
+    const ink = chromeInk(
+      regionWash(lighting, row, (luminance, point) => throughFade(luminance, point.y, probes.fade)),
+    )
+    return {
+      '--showcase-nav-ink': ink['--showcase-nav-ink'],
+      '--showcase-nav-ink-hover': ink['--showcase-nav-ink-hover'],
+      '--showcase-nav-ink-strong': ink['--showcase-nav-ink-strong'],
+    }
+  })
 }

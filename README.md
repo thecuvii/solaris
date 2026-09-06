@@ -40,3 +40,10 @@ import { Moon } from '@thecuvii/solaris/moon'
 
 Texture provenance for the documentation examples is recorded in
 `website/public/textures/v1/CREDITS.md`.
+
+## See also
+
+- [Cobe](https://cobe.vercel.app/) — Shu Ding
+- [Spherium](https://www.tryspherium.com/) — Javier Crocco
+- [GPS 01](https://gps-01.dmytro.fyi/) — Dmytro Kondakov
+- [On Rendering the Sky, Sunsets and Planets](https://blog.maximeheckel.com/posts/on-rendering-the-sky-sunsets-and-planets/) — Maxime Heckel

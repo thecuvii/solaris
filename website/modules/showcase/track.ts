@@ -3,7 +3,6 @@
 import posthog from 'posthog-js'
 
 type TrackProperties = {
-  clicked_cobe: undefined
   clicked_copy: {
     kind: 'code' | 'texture_url'
     planet_id: string
@@ -23,11 +22,7 @@ type TrackProperties = {
 }
 
 // Outbound links can unload the page before the default batch flush.
-const outboundEvents = new Set<keyof TrackProperties>([
-  'clicked_cobe',
-  'clicked_cuvii',
-  'clicked_github',
-])
+const outboundEvents = new Set<keyof TrackProperties>(['clicked_cuvii', 'clicked_github'])
 
 export function track<Name extends keyof TrackProperties>(
   name: Name,
