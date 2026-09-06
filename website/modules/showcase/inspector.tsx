@@ -11,6 +11,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import { hapticPress, hapticTick } from './haptics'
+import { PosePad, splitPosePad } from './pose-pad'
 import { getPrecision, numberFlowFormat, numberFlowTimings } from './setting-format'
 import { useMobileShowcase } from './use-mobile-showcase'
 import type { PlanetId } from './showcase-data'
@@ -131,6 +132,8 @@ function ParameterGroup({
   label: string
   planetId: PlanetId
 }) {
+  const { pad, rest } = splitPosePad(definitions)
+
   return (
     <section {...stylex.props(styles.parameterGroup)}>
       <div {...stylex.props(styles.groupHeading)}>
@@ -140,7 +143,8 @@ function ParameterGroup({
         {id === 'pose' && planetId === 'pluto' ? <PlutoCoverageHelp /> : null}
       </div>
       <div {...stylex.props(styles.controlGroup)}>
-        {definitions.map((definition) => (
+        {pad ? <PosePad planetId={planetId} tilt={pad.tilt} yaw={pad.yaw} /> : null}
+        {rest.map((definition) => (
           <ParameterControl key={definition.name} definition={definition} planetId={planetId} />
         ))}
       </div>
