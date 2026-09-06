@@ -1,10 +1,6 @@
-import { planetMetadata } from '../../../modules/planet-page/planet-metadata'
-import { requirePlanet } from '../../../modules/showcase/showcase-data'
+import { planetRoute } from '../../../modules/planet-page/planet-route'
 
-const mars = requirePlanet('mars')
+const { default: MarsPage, metadata } = planetRoute('mars')
 
-export const metadata = planetMetadata(mars)
-
-export default function MarsPage() {
-  return null
-}
+export { metadata }
+export default MarsPage

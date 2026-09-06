@@ -1,10 +1,6 @@
-import { planetMetadata } from '../../../modules/planet-page/planet-metadata'
-import { requirePlanet } from '../../../modules/showcase/showcase-data'
+import { planetRoute } from '../../../modules/planet-page/planet-route'
 
-const earth = requirePlanet('earth')
+const { default: EarthPage, metadata } = planetRoute('earth')
 
-export const metadata = planetMetadata(earth)
-
-export default function EarthPage() {
-  return null
-}
+export { metadata }
+export default EarthPage

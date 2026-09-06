@@ -1,3 +1,4 @@
+import { PreviewCard } from '@base-ui/react/preview-card'
 import * as stylex from '@stylexjs/stylex'
 import Link from 'next/link'
 import { AnimatePresence, motion } from 'motion/react'
@@ -8,6 +9,17 @@ import { ParameterSwitch } from './inspector'
 import { planets, withSiteSource } from './showcase-data'
 import type { PlanetId } from './showcase-data'
 import { track } from './track'
+
+const seeAlso = [
+  { credit: 'Shu Ding', href: 'https://cobe.vercel.app/', title: 'Cobe' },
+  { credit: 'Javier Crocco', href: 'https://www.tryspherium.com/', title: 'Spherium' },
+  { credit: 'Dmytro Kondakov', href: 'https://gps-01.dmytro.fyi/', title: 'GPS 01' },
+  {
+    credit: 'Maxime Heckel',
+    href: 'https://blog.maximeheckel.com/posts/on-rendering-the-sky-sunsets-and-planets/',
+    title: 'Blog series',
+  },
+] as const
 
 function ShowcaseWordmark({ sidebar = false }: { sidebar?: boolean }) {
   return (
@@ -119,6 +131,7 @@ export const PlanetPicker = memo(function PlanetPicker({
                 Cuvii
               </a>
             </div>
+            <SeeAlsoLinks />
           </div>
         </div>
       </aside>
@@ -135,6 +148,47 @@ export const PlanetPicker = memo(function PlanetPicker({
     </>
   )
 })
+
+function SeeAlsoLinks() {
+  return (
+    <PreviewCard.Root>
+      <PreviewCard.Trigger
+        closeDelay={150}
+        delay={200}
+        render={<button type="button" />}
+        {...stylex.props(styles.seeAlsoTrigger)}
+      >
+        More resources
+      </PreviewCard.Trigger>
+      <PreviewCard.Portal>
+        <PreviewCard.Positioner
+          align="center"
+          side="top"
+          sideOffset={8}
+          {...stylex.props(styles.seeAlsoPositioner)}
+        >
+          <PreviewCard.Popup {...stylex.props(styles.seeAlsoPopup)}>
+            {seeAlso.map((resource) => (
+              <a
+                href={resource.href}
+                key={resource.href}
+                onClick={() =>
+                  track('clicked_resource', { href: resource.href, title: resource.title })
+                }
+                rel="noreferrer"
+                target="_blank"
+                {...stylex.props(styles.seeAlsoLink)}
+              >
+                <span {...stylex.props(styles.seeAlsoTitle)}>{resource.title}</span>
+                <span {...stylex.props(styles.seeAlsoCredit)}>by {resource.credit}</span>
+              </a>
+            ))}
+          </PreviewCard.Popup>
+        </PreviewCard.Positioner>
+      </PreviewCard.Portal>
+    </PreviewCard.Root>
+  )
+}
 
 const styles = stylex.create({
   eclipseNavigationLighting: {
@@ -215,6 +269,93 @@ const styles = stylex.create({
     transition: 'color 140ms ease-out',
     ':focus-visible': {
       outline: 'none',
+    },
+  },
+  seeAlsoCredit: {
+    color: 'rgba(242, 232, 208, 0.42)',
+    fontSize: 11,
+    fontWeight: 500,
+    lineHeight: 1.3,
+  },
+  seeAlsoLink: {
+    alignItems: 'baseline',
+    color: 'inherit',
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.35em',
+    minWidth: 0,
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
+    ':focus-visible': {
+      outline: 'none',
+    },
+    ':focus-visible > span:first-child': {
+      color: '#f2e8d0',
+    },
+    '@media (hover: hover) and (pointer: fine)': {
+      ':hover > span:first-child': {
+        color: '#f2e8d0',
+      },
+    },
+  },
+  seeAlsoPopup: {
+    backgroundColor: '#12151c',
+    borderRadius: 12,
+    boxShadow:
+      'inset 0 1px 0 rgba(255, 255, 255, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 16px 40px rgba(0, 0, 0, 0.32)',
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    fontFamily: 'var(--font-sans)',
+    gap: 10,
+    padding: 14,
+    transformOrigin: 'var(--transform-origin)',
+    transition: 'opacity 160ms ease-out, transform 160ms ease-out',
+    width: 'max-content',
+    ':is([data-starting-style], [data-ending-style])': {
+      opacity: 0,
+      transform: 'scale(0.96)',
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  seeAlsoPositioner: {
+    zIndex: 200,
+  },
+  seeAlsoTitle: {
+    color: 'rgba(242, 232, 208, 0.82)',
+    fontSize: 11,
+    fontWeight: 500,
+    lineHeight: 1.3,
+  },
+  seeAlsoTrigger: {
+    appearance: 'none',
+    alignSelf: 'flex-end',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    color: {
+      default: 'var(--showcase-nav-ink-hover)',
+      ':hover': 'var(--showcase-nav-ink-strong)',
+      ':focus-visible': 'var(--showcase-nav-ink-strong)',
+    },
+    cursor: 'pointer',
+    font: 'inherit',
+    margin: 0,
+    padding: 0,
+    textDecorationLine: {
+      default: 'underline',
+      ':hover': 'underline',
+      ':focus-visible': 'underline',
+    },
+    textDecorationThickness: 1,
+    textUnderlineOffset: 3,
+    transition: 'color 140ms ease-out',
+    ':focus-visible': {
+      outline: 'none',
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
     },
   },
   pickerNavigation: {

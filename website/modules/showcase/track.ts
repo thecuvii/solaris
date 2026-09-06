@@ -19,10 +19,18 @@ type TrackProperties = {
     preset_id: string
     preset_label: string
   }
+  clicked_resource: {
+    href: string
+    title: string
+  }
 }
 
 // Outbound links can unload the page before the default batch flush.
-const outboundEvents = new Set<keyof TrackProperties>(['clicked_cuvii', 'clicked_github'])
+const outboundEvents = new Set<keyof TrackProperties>([
+  'clicked_cuvii',
+  'clicked_github',
+  'clicked_resource',
+])
 
 export function track<Name extends keyof TrackProperties>(
   name: Name,

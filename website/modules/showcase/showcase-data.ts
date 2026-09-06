@@ -1,5 +1,3 @@
-import { preloadTextureImages } from '@thecuvii/solaris'
-
 export type PlanetId =
   | 'earth'
   | 'jupiter'
@@ -441,12 +439,6 @@ export function getPlanetTextureDocs(id: PlanetId): readonly TextureDoc[] {
       url,
     }
   })
-}
-
-export function preloadPlanetTextures(id: PlanetId): void {
-  const urls = getPlanetTextureUrls(id)
-  if (urls.length === 0) return
-  void preloadTextureImages(urls).catch(() => {})
 }
 
 export function hasTextures(id: PlanetId): id is TexturedPlanetId {

@@ -4,7 +4,6 @@ export {
   getPlanetTextureUrls,
   isPlanetId,
   planets,
-  preloadPlanetTextures,
   requirePlanet,
 } from './showcase-data'
 export type { Planet, PlanetId } from './showcase-data'

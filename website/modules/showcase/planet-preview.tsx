@@ -181,13 +181,12 @@ const styles = stylex.create({
     marginBottom: 0,
     marginInline: 0,
     marginTop: 0,
-    // Torph wraps each glyph in an inline-block with the same 0.22em pad as
-    // this heading. Without a reserved box the title grows ~0.22em when those
-    // spans appear, the summary drops, and the page height changes.
-    minHeight: 'calc(var(--showcase-title-size) * 1.18 + 0.44em)',
+    // Torph SSR is a plain text node. After mount each glyph is an
+    // inline-block with padding-bottom 0.22em (globals.css) — no top pad.
+    // Reserve that 0.22em so the box does not grow and drop the summary.
+    minHeight: 'calc(var(--showcase-title-size) * 1.18 + 0.22em)',
     minWidth: 0,
     overflow: 'visible',
-    paddingBottom: '0.22em',
   },
   titleRow: {
     alignItems: 'center',

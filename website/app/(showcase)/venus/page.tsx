@@ -1,10 +1,6 @@
-import { planetMetadata } from '../../../modules/planet-page/planet-metadata'
-import { requirePlanet } from '../../../modules/showcase/showcase-data'
+import { planetRoute } from '../../../modules/planet-page/planet-route'
 
-const venus = requirePlanet('venus')
+const { default: VenusPage, metadata } = planetRoute('venus')
 
-export const metadata = planetMetadata(venus)
-
-export default function VenusPage() {
-  return null
-}
+export { metadata }
+export default VenusPage

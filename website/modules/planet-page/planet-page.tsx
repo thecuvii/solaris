@@ -7,13 +7,10 @@ import { useReducedMotion } from 'motion/react'
 
 import { CodeBlock } from '../showcase/example-code'
 import { PlanetIntroduction } from '../showcase/planet-preview'
-import { preloadPlanetTextures } from '../showcase/showcase-data'
 import { useShowcase } from '../showcase/showcase-context'
 import { TextureDocs } from '../showcase/texture-docs'
 
 function PlanetPageRoot({ children }: { children: ReactNode }) {
-  const { planet } = useShowcase()
-  preloadPlanetTextures(planet.id)
   return <div {...stylex.props(styles.panel)}>{children}</div>
 }
 

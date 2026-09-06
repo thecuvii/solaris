@@ -1,10 +1,6 @@
-import { planetMetadata } from '../../../modules/planet-page/planet-metadata'
-import { requirePlanet } from '../../../modules/showcase/showcase-data'
+import { planetRoute } from '../../../modules/planet-page/planet-route'
 
-const sun = requirePlanet('sun')
+const { default: SunPage, metadata } = planetRoute('sun')
 
-export const metadata = planetMetadata(sun)
-
-export default function SunPage() {
-  return null
-}
+export { metadata }
+export default SunPage

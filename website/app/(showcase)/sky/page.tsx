@@ -1,10 +1,6 @@
-import { planetMetadata } from '../../../modules/planet-page/planet-metadata'
-import { requirePlanet } from '../../../modules/showcase/showcase-data'
+import { planetRoute } from '../../../modules/planet-page/planet-route'
 
-const sky = requirePlanet('sky')
+const { default: SkyPage, metadata } = planetRoute('sky')
 
-export const metadata = planetMetadata(sky)
-
-export default function SkyPage() {
-  return null
-}
+export { metadata }
+export default SkyPage

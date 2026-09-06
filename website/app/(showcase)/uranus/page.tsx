@@ -1,10 +1,6 @@
-import { planetMetadata } from '../../../modules/planet-page/planet-metadata'
-import { requirePlanet } from '../../../modules/showcase/showcase-data'
+import { planetRoute } from '../../../modules/planet-page/planet-route'
 
-const uranus = requirePlanet('uranus')
+const { default: UranusPage, metadata } = planetRoute('uranus')
 
-export const metadata = planetMetadata(uranus)
-
-export default function UranusPage() {
-  return null
-}
+export { metadata }
+export default UranusPage

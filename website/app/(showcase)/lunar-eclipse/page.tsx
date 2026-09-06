@@ -1,10 +1,6 @@
-import { planetMetadata } from '../../../modules/planet-page/planet-metadata'
-import { requirePlanet } from '../../../modules/showcase/showcase-data'
+import { planetRoute } from '../../../modules/planet-page/planet-route'
 
-const lunarEclipse = requirePlanet('lunar-eclipse')
+const { default: LunarEclipsePage, metadata } = planetRoute('lunar-eclipse')
 
-export const metadata = planetMetadata(lunarEclipse)
-
-export default function LunarEclipsePage() {
-  return null
-}
+export { metadata }
+export default LunarEclipsePage
