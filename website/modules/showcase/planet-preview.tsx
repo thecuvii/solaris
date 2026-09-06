@@ -122,7 +122,7 @@ const styles = stylex.create({
     backgroundImage:
       'linear-gradient(180deg, var(--showcase-title-top) 0%, var(--showcase-title-bottom) 100%)',
     color: 'transparent',
-    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontFamily: 'var(--font-sans)',
     fontSize: 'var(--showcase-title-size)',
     fontWeight: 590,
     letterSpacing: '-0.045em',

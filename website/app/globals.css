@@ -1,14 +1,8 @@
-@font-face {
-  font-family: 'Inter Variable';
-  font-style: normal;
-  font-display: swap;
-  font-weight: 100 900;
-  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
-    format('woff2-variations');
-}
-
 :root {
   --control-accent: oklch(31.32% 0 0);
+  /* --font-inter is injected by next/font (see app/fonts.ts); it already
+     includes the size-adjusted fallback. sans-serif is a last resort. */
+  --font-sans: var(--font-inter), sans-serif;
 }
 
 @layer reset, priority1, priority2, priority3;
@@ -30,7 +24,7 @@
   body {
     margin: 0;
     color: #f2e8d0;
-    font-family: 'Inter Variable', Inter, sans-serif;
+    font-family: var(--font-sans);
     font-size: 13px;
     -webkit-font-smoothing: antialiased;
   }

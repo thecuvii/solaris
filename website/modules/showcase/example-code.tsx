@@ -299,7 +299,7 @@ const styles = stylex.create({
     alignItems: 'center',
     color: 'rgba(242, 232, 208, 0.5)',
     display: 'flex',
-    fontFamily: '"Inter Variable", Inter, sans-serif',
+    fontFamily: 'var(--font-sans)',
     fontSize: 11,
     fontWeight: 550,
     gap: 6,
