@@ -25,7 +25,10 @@ const DOCK_HEIGHT = 56
 const ITEM_SIZE = 44
 const ITEM_GAP = 8
 const TICKS_PER_STEP = 4
-const TICKS_PER_LOOP = planets.length * TICKS_PER_STEP
+// Embla disables `loop` when one copy cannot fill the viewport. Three copies
+// keep the strip loopable on tablet-width docks, not just phones.
+const LOOP_COPIES = 3
+const TICKS_PER_LOOP = planets.length * LOOP_COPIES * TICKS_PER_STEP
 // Strip edge band that the mask fades out; planets here count as out of view.
 const EDGE_FADE = 40
 const WHEEL_COOLDOWN_MS = 280
@@ -67,11 +70,28 @@ function tickFromProgress(progress: number) {
 
 function isSlideInView(api: EmblaCarouselType, index: number) {
   const viewport = api.rootNode().getBoundingClientRect()
-  const slide = api.slideNodes()[index]?.getBoundingClientRect()
-  if (!slide) return false
   const halfBand = viewport.width / 2 - ITEM_SIZE / 2 - EDGE_FADE
   const viewportCenter = viewport.left + viewport.width / 2
-  return Math.abs(slide.left + slide.width / 2 - viewportCenter) <= halfBand
+  return api.slideNodes().some((node) => {
+    if (Number(node.getAttribute('data-planet-index')) !== index) return false
+    const slide = node.getBoundingClientRect()
+    return Math.abs(slide.left + slide.width / 2 - viewportCenter) <= halfBand
+  })
+}
+
+function nearestSnap(api: EmblaCarouselType, planetIndex: number) {
+  const current = api.selectedScrollSnap()
+  const count = api.scrollSnapList().length
+  let best = planetIndex
+  let bestDist = Infinity
+  for (let snap = planetIndex; snap < count; snap += planets.length) {
+    const dist = Math.abs(snap - current)
+    if (dist < bestDist) {
+      bestDist = dist
+      best = snap
+    }
+  }
+  return best
 }
 
 /**
@@ -231,7 +251,7 @@ function PlanetStrip({
       return
     }
     if (isSlideInView(emblaApi, selectedIndex)) return
-    emblaApi.scrollTo(selectedIndex, reducedMotion)
+    emblaApi.scrollTo(nearestSnap(emblaApi, selectedIndex), reducedMotion)
   }, [emblaApi, reducedMotion, selectedIndex])
 
   useEffect(() => {
@@ -291,6 +311,8 @@ function PlanetStrip({
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return
+    // Drawer viewport listens on the parent; keep this gesture off its swipe.
+    event.stopPropagation()
     dragRef.current = { x: event.clientX, y: event.clientY }
     ignoreClickRef.current = false
     armSound()
@@ -299,6 +321,7 @@ function PlanetStrip({
   }
 
   function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    event.stopPropagation()
     const drag = dragRef.current
     if (!drag) return
     if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= DRAG_SLOP) {
@@ -317,17 +340,26 @@ function PlanetStrip({
         <div
           ref={emblaRef}
           aria-label="Celestial objects"
+          data-base-ui-swipe-ignore=""
           onClick={onStripClick}
           onPointerCancel={onPointerUp}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onTouchMove={(event) => event.stopPropagation()}
+          onTouchStart={(event) => event.stopPropagation()}
           {...stylex.props(styles.strip)}
         >
           <div {...stylex.props(styles.stripTrack)}>
-            {planets.map((planet, index) => (
-              <DockPlanet index={index} key={planet.id} selected={planet.id === selectedPlanet} />
-            ))}
+            {Array.from({ length: LOOP_COPIES }, (_, copy) =>
+              planets.map((planet, index) => (
+                <DockPlanet
+                  index={index}
+                  key={`${copy}-${planet.id}`}
+                  selected={planet.id === selectedPlanet}
+                />
+              )),
+            )}
           </div>
         </div>
       </div>
