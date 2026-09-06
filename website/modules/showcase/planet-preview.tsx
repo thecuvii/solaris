@@ -163,7 +163,10 @@ const styles = stylex.create({
     zIndex: 0,
   },
   titleStack: {
-    marginTop: '-0.12em',
+    // Cap-top of the display title. `em` on this wrapper is the body size, so
+    // pin to `--showcase-title-size` or the pull is only ~2px. 0.24 covers
+    // Inter's ascent above caps plus half of line-height 1.18.
+    marginTop: 'calc(var(--showcase-title-size) * -0.24)',
     minWidth: 0,
     overflow: 'visible',
     position: 'relative',

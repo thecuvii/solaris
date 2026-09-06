@@ -380,11 +380,22 @@ export function PlanetDock({
   const [mode, setMode] = useState<DockMode>('dock')
   const [probe, setProbe] = useState<HTMLDivElement | null>(null)
   const popupRef = useRef<HTMLDivElement>(null)
+  const sheetViewportRef = useRef<HTMLDivElement>(null)
+  const skipSheetScrollRef = useRef(true)
   // Base UI writes `--drawer-snap-point-offset: 0px` until it has measured the
   // popup and viewport, which paints the full sheet for a frame and then
   // animates it *down* into the dock. Hold the popup below the viewport until
   // the offset is real, then let the normal transition slide it up.
   const [placed, setPlaced] = useState(false)
+
+  useLayoutEffect(() => {
+    if (skipSheetScrollRef.current) {
+      skipSheetScrollRef.current = false
+      return
+    }
+    const viewport = sheetViewportRef.current
+    if (viewport) viewport.scrollTop = 0
+  }, [selectedPlanet])
 
   useEffect(() => {
     if (placed) return
@@ -479,7 +490,10 @@ export function PlanetDock({
                   <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
                   <Drawer.Content {...stylex.props(styles.sheetBody)}>
                     <ScrollArea.Root {...stylex.props(styles.sheetScroll)}>
-                      <ScrollArea.Viewport {...stylex.props(styles.sheetScrollViewport)}>
+                      <ScrollArea.Viewport
+                        ref={sheetViewportRef}
+                        {...stylex.props(styles.sheetScrollViewport)}
+                      >
                         <ScrollArea.Content {...stylex.props(styles.sheetScrollContent)}>
                           {children}
                         </ScrollArea.Content>

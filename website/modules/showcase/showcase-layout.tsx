@@ -5,7 +5,15 @@ import { useRouter } from 'next/navigation'
 import { Provider } from 'jotai'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { ReactNode } from 'react'
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
 import { PlanetPage } from '../planet-page/planet-page'
 import { PlanetStage } from '../planet-page/planet-stage'
@@ -48,6 +56,8 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
   useVisualViewport()
   const reduceMotion = useReducedMotion()
   const pageRef = useRef<HTMLDivElement>(null)
+  const inspectorRef = useRef<HTMLElement>(null)
+  const skipScrollResetRef = useRef(true)
   const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
   const chromeTransition: ChromeTransitionContext = {
     direction: transitionDirection,
@@ -68,7 +78,7 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
       setTransitionDirection(nextIndex > currentIndex ? 1 : -1)
       setPlan(getPlanetTransitionPlan(currentPlanet, nextPlanet))
       if (updateRoute) {
-        router.push(planetPath(nextPlanet))
+        router.push(planetPath(nextPlanet), { scroll: false })
       }
     },
     [router],
@@ -79,7 +89,7 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
       if (nextPlanet === selectedPlanetRef.current) {
         queuedPlanetRef.current = null
         if (nextPlanet !== selectedPlanet) {
-          router.push(planetPath(nextPlanet))
+          router.push(planetPath(nextPlanet), { scroll: false })
         }
         return
       }
@@ -117,6 +127,15 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     syncRoutePlanet(selectedPlanet)
   }, [selectedPlanet])
+
+  useLayoutEffect(() => {
+    if (skipScrollResetRef.current) {
+      skipScrollResetRef.current = false
+      return
+    }
+    window.scrollTo({ behavior: 'instant', left: 0, top: 0 })
+    inspectorRef.current?.scrollTo({ behavior: 'instant', left: 0, top: 0 })
+  }, [previewPlanet])
 
   const showcaseContext = useMemo<ShowcaseContextValue>(
     () => ({
@@ -187,6 +206,7 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
           <AnimatePresence custom={chromeTransition} initial={false}>
             <motion.aside
               key={presentedPlanet}
+              ref={inspectorRef}
               animate="center"
               custom={chromeTransition}
               exit="exit"
@@ -297,7 +317,7 @@ const styles = stylex.create({
     paddingBottom: 12,
     paddingInlineEnd: 20,
     paddingInlineStart: 12,
-    paddingTop: 'calc(var(--showcase-preview-top) - (36px - 13px) / 2)',
+    paddingTop: 'var(--showcase-preview-top)',
     position: 'fixed',
     right: 0,
     top: 0,

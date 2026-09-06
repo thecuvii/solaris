@@ -846,11 +846,11 @@ const styles = stylex.create({
     paddingInline: 0,
   },
   groupHeading: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     display: 'flex',
     gap: 8,
-    height: 36,
     minWidth: 0,
+    paddingBottom: 8,
     width: '100%',
   },
   groupHelpCopy: {
