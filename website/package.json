@@ -21,6 +21,8 @@
     "@stylexjs/stylex": "0.19.0",
     "@thecuvii/solaris": "workspace:*",
     "cuelume": "^0.2.2",
+    "embla-carousel": "^8.6.0",
+    "embla-carousel-react": "^8.6.0",
     "foxact": "0.3.10",
     "jotai": "^2.20.3",
     "motion": "^13.1.1",

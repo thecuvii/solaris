@@ -4,8 +4,15 @@ import { Drawer } from '@base-ui/react/drawer'
 import { ScrollArea } from '@base-ui/react/scroll-area'
 import * as stylex from '@stylexjs/stylex'
 import { play } from 'cuelume'
-import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { EmblaCarouselType } from 'embla-carousel'
+import useEmblaCarousel from 'embla-carousel-react'
+import type {
+  CSSProperties,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+  ReactNode,
+} from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { hapticPress, hapticSettle, hapticTick } from './haptics'
 import { planets, type PlanetId } from './showcase-data'
@@ -16,18 +23,11 @@ import { planets, type PlanetId } from './showcase-data'
 const DOCK_HEIGHT = 56
 const ITEM_SIZE = 44
 const ITEM_GAP = 8
-const PITCH = ITEM_SIZE + ITEM_GAP
-const LOOP_COPIES = 3
-const LOOP_MID = 1
-const SET_WIDTH = planets.length * PITCH
 const TICKS_PER_STEP = 4
+const TICKS_PER_LOOP = planets.length * TICKS_PER_STEP
 // Strip edge band that the mask fades out; planets here count as out of view.
 const EDGE_FADE = 40
-const TICK_PX = PITCH / TICKS_PER_STEP
-const LOOP_SLIDES = Array.from({ length: LOOP_COPIES * planets.length }, (_, slot) => {
-  const index = slot % planets.length
-  return { copy: Math.floor(slot / planets.length), index, planet: planets[index], slot }
-})
+const WHEEL_COOLDOWN_MS = 280
 // The settings button shares the pill; spacing alone separates it from the strip.
 const GEAR_SIZE = 44
 const GEAR_INSET = (DOCK_HEIGHT - GEAR_SIZE) / 2
@@ -43,16 +43,15 @@ const SHEET_FILL = 'lab(5 0 0 / 0.42)'
 const SHEET_BLUR = 'blur(22px) saturate(0.72)'
 const DOCK_RADIUS = DOCK_HEIGHT / 2
 const SHEET_RADIUS = 16
-// Fade-out height where the settings body meets the planet row.
-const BODY_FADE = 28
+// Progressive blur band where the settings body meets the planet row.
+const BODY_FADE = 64
+const BODY_FADE_STEPS = [1, 2, 4, 8] as const
 const SHEET_HEIGHT = '50dvh'
 const PRESET_SNAP = 0.25
 // Offset at the first snap (max 50dvh − first snap 25dvh); the pill → sheet morph
 // completes over the travel from the dock to here.
 const PRESET_TRAVEL = '25dvh'
 const EXPANDED_NUDGE_PX = 48
-// scrollend fallback: wrap clones once scroll events stop for this long.
-const SETTLE_FALLBACK_MS = 160
 const DRAG_SLOP = 6
 
 type DockMode = 'dock' | 'preset' | 'expanded'
@@ -61,26 +60,32 @@ function clampIndex(index: number) {
   return Math.min(Math.max(index, 0), planets.length - 1)
 }
 
-function tickIndex(scrollLeft: number) {
-  const cycle = ((scrollLeft % SET_WIDTH) + SET_WIDTH) % SET_WIDTH
-  return Math.round(cycle / TICK_PX)
+function tickFromProgress(progress: number) {
+  const cycle = ((progress % 1) + 1) % 1
+  return Math.round(cycle * TICKS_PER_LOOP) % TICKS_PER_LOOP
 }
 
-function offsetFor(copy: number, index: number) {
-  return copy * SET_WIDTH + index * PITCH
+function isSlideInView(api: EmblaCarouselType, index: number) {
+  const viewport = api.rootNode().getBoundingClientRect()
+  const slide = api.slideNodes()[index]?.getBoundingClientRect()
+  if (!slide) return false
+  const halfBand = viewport.width / 2 - ITEM_SIZE / 2 - EDGE_FADE
+  const viewportCenter = viewport.left + viewport.width / 2
+  return Math.abs(slide.left + slide.width / 2 - viewportCenter) <= halfBand
 }
 
-function nearestCopy(scrollLeft: number, index: number) {
-  let copy = 0
-  let best = Infinity
-  for (let next = 0; next < LOOP_COPIES; next += 1) {
-    const distance = Math.abs(offsetFor(next, index) - scrollLeft)
-    if (distance < best) {
-      best = distance
-      copy = next
-    }
-  }
-  return copy
+/**
+ * Tap direction from the node's own box (loop clones included).
+ * Anything left of the center slot scrolls one step left; right of it, one
+ * step right. The centered planet itself does not move the strip.
+ */
+function tapScrollDirection(api: EmblaCarouselType, target: Element): 'next' | 'prev' | null {
+  const viewport = api.rootNode().getBoundingClientRect()
+  const box = target.getBoundingClientRect()
+  const offset = box.left + box.width / 2 - (viewport.left + viewport.width / 2)
+  if (offset <= -ITEM_SIZE / 2) return 'prev'
+  if (offset >= ITEM_SIZE / 2) return 'next'
+  return null
 }
 
 function playDetent(tick: number) {
@@ -126,6 +131,40 @@ function useSafeAreaBottom(probe: HTMLDivElement | null) {
   return inset
 }
 
+function SheetBodyFade() {
+  return (
+    <div aria-hidden="true" {...stylex.props(styles.bodyFade)}>
+      {BODY_FADE_STEPS.map((blur, index) => {
+        const start = (index / BODY_FADE_STEPS.length) * 100
+        const end = ((index + 1) / BODY_FADE_STEPS.length) * 100
+        const mask = `linear-gradient(to bottom, transparent ${start}%, black ${end}%)`
+        return (
+          <div
+            key={blur}
+            style={{
+              backdropFilter: `blur(${blur}px)`,
+              inset: 0,
+              maskImage: mask,
+              position: 'absolute',
+              WebkitBackdropFilter: `blur(${blur}px)`,
+              WebkitMaskImage: mask,
+            }}
+          />
+        )
+      })}
+      <div
+        style={{
+          background: 'linear-gradient(to bottom, transparent, lab(5 0 0 / 0.55))',
+          inset: 0,
+          maskImage: 'linear-gradient(to top, lab(5 0 0) 42%, transparent)',
+          position: 'absolute',
+          WebkitMaskImage: 'linear-gradient(to top, lab(5 0 0) 42%, transparent)',
+        }}
+      />
+    </div>
+  )
+}
+
 function SlidersIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 18 18" {...stylex.props(styles.gearIcon)}>
@@ -139,24 +178,14 @@ function SlidersIcon() {
   )
 }
 
-function DockPlanet({
-  copy,
-  index,
-  onSelect,
-  selected,
-}: {
-  copy: number
-  index: number
-  onSelect: (copy: number, index: number) => void
-  selected: boolean
-}) {
+function DockPlanet({ index, selected }: { index: number; selected: boolean }) {
   const planet = planets[index]
 
   return (
     <button
       aria-current={selected ? 'true' : undefined}
       aria-label={planet.name}
-      onClick={() => onSelect(copy, index)}
+      data-planet-index={index}
       type="button"
       {...stylex.props(styles.planet, selected && styles.planetSelected)}
     >
@@ -185,52 +214,38 @@ function PlanetStrip({
   selectedPlanet: PlanetId
 }) {
   const selectedIndex = clampIndex(planets.findIndex((planet) => planet.id === selectedPlanet))
-  const stripRef = useRef<HTMLDivElement>(null)
+  const startIndexRef = useRef(selectedIndex)
+  const emblaOptions = useMemo(
+    () => ({
+      align: 'center' as const,
+      containScroll: false as const,
+      duration: reducedMotion ? 0 : 25,
+      loop: true,
+      skipSnaps: true,
+      startIndex: startIndexRef.current,
+      // Taps highlight in place; don't let focus steal the scroll position.
+      watchFocus: false,
+    }),
+    [reducedMotion],
+  )
+  const [emblaRef, emblaApi] = useEmblaCarousel(emblaOptions)
   const armedRef = useRef(false)
-  const lastTickRef = useRef(tickIndex(offsetFor(LOOP_MID, selectedIndex)))
+  const lastTickRef = useRef(tickFromProgress(selectedIndex / planets.length))
   const selfDrivenRef = useRef(false)
-  const positionedRef = useRef(false)
-  const animatingRef = useRef(false)
   const ignoreClickRef = useRef(false)
   const dragRef = useRef<{ x: number; y: number } | null>(null)
   const selectedRef = useRef(selectedPlanet)
-  const selectedIndexRef = useRef(selectedIndex)
   const onSelectPlanetRef = useRef(onSelectPlanet)
 
   useEffect(() => {
     selectedRef.current = selectedPlanet
-    selectedIndexRef.current = selectedIndex
     onSelectPlanetRef.current = onSelectPlanet
-  }, [onSelectPlanet, selectedIndex, selectedPlanet])
+  }, [onSelectPlanet, selectedPlanet])
 
-  function armSound() {
+  function armSound(api: EmblaCarouselType | undefined = emblaApi) {
     if (armedRef.current) return
     armedRef.current = true
-    lastTickRef.current = tickIndex(stripRef.current?.scrollLeft ?? 0)
-  }
-
-  function wrapLoop(strip: HTMLDivElement) {
-    const left = strip.scrollLeft
-    if (left < SET_WIDTH) {
-      strip.scrollTo({ left: left + SET_WIDTH, behavior: 'instant' })
-      return
-    }
-    if (left >= SET_WIDTH * 2) {
-      strip.scrollTo({ left: left - SET_WIDTH, behavior: 'instant' })
-    }
-  }
-
-  function scrollToPlanet(index: number, behavior: ScrollBehavior) {
-    const strip = stripRef.current
-    if (!strip) return
-    const target = offsetFor(nearestCopy(strip.scrollLeft, index), index)
-    if (Math.abs(strip.scrollLeft - target) < 1) {
-      wrapLoop(strip)
-      return
-    }
-    animatingRef.current = behavior === 'smooth'
-    strip.scrollTo({ left: target, behavior })
-    if (behavior !== 'smooth') wrapLoop(strip)
+    lastTickRef.current = tickFromProgress(api?.scrollProgress() ?? 0)
   }
 
   function commitSelection(id: PlanetId) {
@@ -241,90 +256,71 @@ function PlanetStrip({
     onSelectPlanetRef.current(id)
   }
 
-  // True when the planet is inside the strip's readable band (past the edge fades).
-  function isInView(strip: HTMLDivElement, index: number) {
-    const offset = offsetFor(nearestCopy(strip.scrollLeft, index), index)
-    const halfBand = strip.clientWidth / 2 - ITEM_SIZE / 2 - EDGE_FADE
-    return Math.abs(offset - strip.scrollLeft) <= halfBand
-  }
-
   // Route changes only scroll when the selected planet is out of view; the
   // strip otherwise stays where the user left it. Taps never scroll.
   useLayoutEffect(() => {
-    const strip = stripRef.current
-    if (!strip) return
+    if (!emblaApi) return
     if (selfDrivenRef.current) {
       selfDrivenRef.current = false
       return
     }
-    if (!positionedRef.current) {
-      if (strip.clientWidth === 0) return
-      positionedRef.current = true
-      strip.scrollTo({ left: offsetFor(LOOP_MID, selectedIndex), behavior: 'instant' })
-      return
-    }
-    if (isInView(strip, selectedIndex)) return
-    scrollToPlanet(selectedIndex, reducedMotion ? 'instant' : 'smooth')
-  }, [reducedMotion, selectedIndex])
+    if (isSlideInView(emblaApi, selectedIndex)) return
+    emblaApi.scrollTo(selectedIndex, reducedMotion)
+  }, [emblaApi, reducedMotion, selectedIndex])
 
   useEffect(() => {
-    const strip = stripRef.current
-    if (!strip) return
-    const supportsScrollEnd = 'onscrollend' in window
-    let settleTimer: ReturnType<typeof setTimeout> | null = null
+    if (!emblaApi) return
 
-    const clearSettle = () => {
-      if (settleTimer !== null) clearTimeout(settleTimer)
-      settleTimer = null
-    }
-    const settle = () => {
-      clearSettle()
-      animatingRef.current = false
-      wrapLoop(strip)
-    }
-    const queueSettle = () => {
-      clearSettle()
-      settleTimer = setTimeout(settle, SETTLE_FALLBACK_MS)
-    }
     const onScroll = () => {
-      const left = strip.scrollLeft
-      if (armedRef.current) {
-        const tick = tickIndex(left)
-        if (tick !== lastTickRef.current) {
-          lastTickRef.current = tick
-          playDetent(tick)
-        }
-      }
-      if (!animatingRef.current) wrapLoop(strip)
-      if (!supportsScrollEnd) queueSettle()
+      if (!armedRef.current) return
+      const tick = tickFromProgress(emblaApi.scrollProgress())
+      if (tick === lastTickRef.current) return
+      lastTickRef.current = tick
+      playDetent(tick)
     }
-    const observer = new ResizeObserver(() => {
-      if (positionedRef.current || strip.clientWidth === 0) return
-      positionedRef.current = true
-      strip.scrollTo({ left: offsetFor(LOOP_MID, selectedIndexRef.current), behavior: 'instant' })
-    })
-    observer.observe(strip)
 
-    strip.addEventListener('scroll', onScroll, { passive: true })
-    if (supportsScrollEnd) strip.addEventListener('scrollend', settle)
+    let wheelLock = 0
+    const onWheel = (event: WheelEvent) => {
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
+      if (Math.abs(delta) < 8) return
+      event.preventDefault()
+      const now = performance.now()
+      if (now < wheelLock) return
+      wheelLock = now + WHEEL_COOLDOWN_MS
+      armSound(emblaApi)
+      if (delta > 0) emblaApi.scrollNext(reducedMotion)
+      else emblaApi.scrollPrev(reducedMotion)
+    }
+
+    const viewport = emblaApi.rootNode()
+    emblaApi.on('scroll', onScroll)
+    viewport.addEventListener('wheel', onWheel, { passive: false })
     return () => {
-      clearSettle()
-      observer.disconnect()
-      strip.removeEventListener('scroll', onScroll)
-      if (supportsScrollEnd) strip.removeEventListener('scrollend', settle)
+      emblaApi.off('scroll', onScroll)
+      viewport.removeEventListener('wheel', onWheel)
     }
-  }, [])
+  }, [emblaApi, reducedMotion])
 
-  function selectPlanet(_copy: number, index: number) {
+  function onStripClick(event: ReactMouseEvent<HTMLDivElement>) {
     if (ignoreClickRef.current) {
       ignoreClickRef.current = false
       return
     }
+    if (!emblaApi) return
+    const target = (event.target as Element | null)?.closest('[data-planet-index]')
+    if (!target || !emblaApi.containerNode().contains(target)) return
+    const index = Number(target.getAttribute('data-planet-index'))
+    if (!Number.isInteger(index) || index < 0 || index >= planets.length) return
     armSound()
+    const direction = tapScrollDirection(emblaApi, target)
+    if (direction === 'prev') {
+      selfDrivenRef.current = true
+      emblaApi.scrollPrev(reducedMotion)
+    } else if (direction === 'next') {
+      selfDrivenRef.current = true
+      emblaApi.scrollNext(reducedMotion)
+    }
     commitSelection(planets[index].id)
-    // No recentring: the tapped planet highlights in place.
-    const strip = stripRef.current
-    if (strip) wrapLoop(strip)
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -351,26 +347,23 @@ function PlanetStrip({
 
   return (
     <div {...stylex.props(styles.dockRow)}>
+      <SheetBodyFade />
       <div {...stylex.props(styles.stripMask)}>
         <div
-          ref={stripRef}
+          ref={emblaRef}
           aria-label="Celestial objects"
+          onClick={onStripClick}
           onPointerCancel={onPointerUp}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onWheel={armSound}
           {...stylex.props(styles.strip)}
         >
-          {LOOP_SLIDES.map(({ copy, index, planet, slot }) => (
-            <DockPlanet
-              copy={copy}
-              index={index}
-              key={`${planet.id}-${slot}`}
-              onSelect={selectPlanet}
-              selected={planet.id === selectedPlanet}
-            />
-          ))}
+          <div {...stylex.props(styles.stripTrack)}>
+            {planets.map((planet, index) => (
+              <DockPlanet index={index} key={planet.id} selected={planet.id === selectedPlanet} />
+            ))}
+          </div>
         </div>
       </div>
       {children}
@@ -521,7 +514,6 @@ export function PlanetDock({
                     </button>
                   </PlanetStrip>
                 </div>
-                <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
               </div>
             </Drawer.Popup>
           </Drawer.Viewport>
@@ -590,7 +582,6 @@ const styles = stylex.create({
     justifyContent: 'center',
     opacity: 0.42,
     padding: 0,
-    scrollSnapAlign: 'center',
     transitionDuration: '180ms',
     transitionProperty: 'opacity',
     transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
@@ -640,7 +631,10 @@ const styles = stylex.create({
   // let the two run on different clocks and the row visibly jumped at the
   // start of every snap.
   popup: {
-    '--sheet-travel': 'calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y))',
+    // The dock is the floor. Base UI lets a downward swipe keep moving past
+    // the lowest snap point (it only reverts on release), so clamp the travel
+    // here and the pill never leaves its resting spot.
+    '--sheet-travel': `min(calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y)), calc(${SHEET_HEIGHT} - var(--dock-snap)))`,
     '--dock-lift': `calc(${SHEET_HEIGHT} - var(--dock-snap) - var(--sheet-travel))`,
     '--dock-progress': `clamp(0, var(--dock-lift) / (${PRESET_TRAVEL} - var(--dock-snap)), 1)`,
     '--float-bottom': `calc(${FLOAT_GAP}px + env(safe-area-inset-bottom, 0px))`,
@@ -665,12 +659,13 @@ const styles = stylex.create({
     ':is([data-swiping])': {
       transitionDuration: '0ms',
     },
-    // Entrance/exit only: slide the whole popup; padding stays at rest.
-    ':is([data-starting-style], [data-ending-style])': {
+    // Entrance only: slide the whole popup; padding stays at rest. There is
+    // deliberately no `[data-ending-style]` rule: the drawer never closes (the
+    // dock is its closed state), but a fast flick down at the dock still makes
+    // Base UI flag an ending style for a frame before the cancelled dismiss is
+    // reverted, and an exit transform there would visibly yank the pill away.
+    ':is([data-starting-style])': {
       transform: 'translateY(100%)',
-    },
-    ':is([data-ending-style])': {
-      transitionDuration: 'calc(var(--drawer-swipe-strength, 1) * 400ms)',
     },
     '@media (prefers-reduced-motion: reduce)': {
       transition: 'none',
@@ -701,24 +696,6 @@ const styles = stylex.create({
     transitionDuration: 'inherit',
     transitionProperty: 'opacity',
     transitionTimingFunction: 'inherit',
-    '@media (prefers-reduced-motion: reduce)': {
-      transition: 'none',
-    },
-  },
-  sheetBottomMask: {
-    backgroundImage:
-      'linear-gradient(in oklch to bottom, transparent 0%, lab(5 0 0 / 0.1) 20%, lab(5 0 0 / 0.34) 46%, lab(5 0 0 / 0.14) 74%, transparent 100%)',
-    bottom: `calc(-1 * (84px + ${FLOAT_GAP}px) * var(--dock-progress))`,
-    height: `calc((116px + ${FLOAT_GAP}px) * var(--dock-progress))`,
-    left: 0,
-    opacity: 'var(--dock-progress)',
-    pointerEvents: 'none',
-    position: 'absolute',
-    right: 0,
-    transitionDuration: 'inherit',
-    transitionProperty: 'opacity, height, bottom',
-    transitionTimingFunction: 'inherit',
-    zIndex: 2,
     '@media (prefers-reduced-motion: reduce)': {
       transition: 'none',
     },
@@ -769,6 +746,18 @@ const styles = stylex.create({
     overflow: 'hidden',
     position: 'relative',
   },
+  bodyFade: {
+    // Sits on the dock's top edge and grows upward into the settings list.
+    bottom: '100%',
+    height: BODY_FADE,
+    left: 0,
+    opacity: 'var(--dock-progress)',
+    overflow: 'hidden',
+    pointerEvents: 'none',
+    position: 'absolute',
+    right: 0,
+    zIndex: 2,
+  },
   sheetScrollContent: {
     // Room to scroll the last control clear of the fade above the planet row.
     paddingBottom: BODY_FADE,
@@ -777,8 +766,6 @@ const styles = stylex.create({
   },
   sheetScrollViewport: {
     flex: 1,
-    // Settings dissolve into the planet row instead of being cut at its edge.
-    maskImage: `linear-gradient(to bottom, black calc(100% - ${BODY_FADE}px), transparent 100%)`,
     minHeight: 0,
     overflowX: 'hidden',
     overflowY: 'scroll',
@@ -853,24 +840,20 @@ const styles = stylex.create({
     },
   },
   strip: {
+    height: '100%',
+    maskImage:
+      'linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.12) 16px, rgb(0 0 0 / 0.4) 40px, rgb(0 0 0 / 0.78) 72px, black 104px, black calc(100% - 104px), rgb(0 0 0 / 0.78) calc(100% - 72px), rgb(0 0 0 / 0.4) calc(100% - 40px), rgb(0 0 0 / 0.12) calc(100% - 16px), transparent 100%)',
+    overflow: 'hidden',
+    touchAction: 'pan-x',
+    userSelect: 'none',
+    WebkitTapHighlightColor: 'transparent',
+  },
+  stripTrack: {
     alignItems: 'center',
     display: 'flex',
     gap: ITEM_GAP,
     height: '100%',
-    maskImage:
-      'linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.12) 16px, rgb(0 0 0 / 0.4) 40px, rgb(0 0 0 / 0.78) 72px, black 104px, black calc(100% - 104px), rgb(0 0 0 / 0.78) calc(100% - 72px), rgb(0 0 0 / 0.4) calc(100% - 40px), rgb(0 0 0 / 0.12) calc(100% - 16px), transparent 100%)',
-    overflowX: 'auto',
-    overflowY: 'hidden',
-    overscrollBehaviorX: 'contain',
-    paddingInline: `calc(50% - ${ITEM_SIZE / 2}px)`,
-    scrollbarWidth: 'none',
-    scrollSnapType: 'x mandatory',
     touchAction: 'pan-x',
-    userSelect: 'none',
-    WebkitTapHighlightColor: 'transparent',
-    '::-webkit-scrollbar': {
-      display: 'none',
-    },
   },
   stripMask: {
     flex: '1 1 auto',
