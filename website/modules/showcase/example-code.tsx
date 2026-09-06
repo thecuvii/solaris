@@ -359,6 +359,9 @@ const styles = stylex.create({
   codeSectionFlat: {
     backdropFilter: 'none',
     backgroundColor: 'rgba(7, 8, 13, 0.55)',
+    // backdrop-filter used to make this a stacking context painted after the
+    // absolutely positioned sky canvas; without it the canvas paints on top.
+    position: 'relative',
   },
   copyIcon: {
     display: 'block',
