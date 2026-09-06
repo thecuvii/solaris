@@ -1,0 +1,68 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: voidzero-dev/setup-vp@v1.18.0
+        with:
+          cache: true
+          node-version: 26
+          run-install: false
+      - run: vp install --frozen-lockfile
+
+      - name: Verify the tag matches package.json
+        run: |
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "v${package_version}" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version v${package_version}" >&2
+            exit 1
+          fi
+
+      - run: vp check
+      - run: vp pack
+      - run: vp test --run
+      - run: node scripts/check-bundle-size.mjs
+
+      - name: Pack tarball
+        run: npm pack --pack-destination "$RUNNER_TEMP/solaris-pack"
+
+      # Uses npm trusted publishing (OIDC); no NPM_TOKEN secret is required once
+      # the package is linked to this repository and workflow on npmjs.com.
+      - name: Publish to npm
+        run: npm publish "$RUNNER_TEMP"/solaris-pack/thecuvii-solaris-*.tgz --access public
+
+      - name: Create GitHub release notes
+        run: |
+          current_tag="$GITHUB_REF_NAME"
+          previous_tag="$(git tag --sort=-v:refname | grep -v "^${current_tag}$" | head -n 1 || true)"
+
+          node scripts/release-notes.mjs "$current_tag" > "$RUNNER_TEMP/release-notes.md"
+
+          if [ -n "$previous_tag" ]; then
+            changelog_url="https://github.com/${GITHUB_REPOSITORY}/compare/${previous_tag}...${current_tag}"
+          else
+            changelog_url="https://github.com/${GITHUB_REPOSITORY}/commits/${current_tag}"
+          fi
+
+          {
+            echo
+            echo "**Full Changelog**: $changelog_url"
+          } >> "$RUNNER_TEMP/release-notes.md"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/release-notes.md" --verify-tag

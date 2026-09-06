@@ -1,8 +1,27 @@
 {
   "name": "@thecuvii/solaris",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "React shader effects for the solar system.",
+  "keywords": [
+    "earth",
+    "moon",
+    "planet",
+    "react",
+    "shader",
+    "sky",
+    "solar-system",
+    "webgl"
+  ],
+  "homepage": "https://github.com/thecuvii/solaris#readme",
+  "bugs": {
+    "url": "https://github.com/thecuvii/solaris/issues"
+  },
   "license": "MIT",
+  "author": "thecuvii",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thecuvii/solaris.git"
+  },
   "files": [
     "dist"
   ],
@@ -66,6 +85,10 @@
       "import": "./dist/venus/index.mjs"
     }
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
     "build": "vp pack",
     "build:website": "pnpm --filter website build",
@@ -81,6 +104,8 @@
     "@types/node": "^24.3.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "jsdom": "^30.0.1",
+    "publint": "^0.3.24",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "typescript": "7.0.2",
