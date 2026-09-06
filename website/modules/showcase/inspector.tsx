@@ -434,16 +434,18 @@ const ParameterSlider = memo(function ParameterSlider({
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
     animationRef.current?.stop()
     trackRectRef.current = event.currentTarget.getBoundingClientRect()
-    // Touch starts pending so a vertical flick can scroll the drawer.
-    // Mouse claims immediately — there is no competing pan.
+    // Every gesture starts pending; claimSlider is what flips it to 'slider'
+    // (and captures the pointer, marks the gesture active). Touch stays
+    // pending until the move direction is known so a vertical flick can
+    // scroll the drawer. Mouse claims immediately — there is no competing pan.
     pointerRef.current = {
-      axis: event.pointerType === 'touch' ? 'pending' : 'slider',
+      axis: 'pending',
       id: event.pointerId,
       moved: false,
       startX: event.clientX,
       startY: event.clientY,
     }
-    if (pointerRef.current.axis === 'slider') claimSlider(event)
+    if (event.pointerType !== 'touch') claimSlider(event)
   }
 
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
