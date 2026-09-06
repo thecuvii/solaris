@@ -1,6 +1,9 @@
 import type { CSSProperties } from 'react'
 
 export type ChromeInkProperties = {
+  '--showcase-code-ink': string
+  '--showcase-code-ink-hover': string
+  '--showcase-code-ink-strong': string
   '--showcase-nav-ink': string
   '--showcase-nav-ink-hover': string
   '--showcase-nav-ink-strong': string
@@ -17,6 +20,9 @@ export type EclipseTextLightingProperties = CSSProperties &
   }
 
 const LIGHT_CHROME_INK: ChromeInkProperties = {
+  '--showcase-code-ink': 'rgba(242, 232, 208, 0.5)',
+  '--showcase-code-ink-hover': '#f2e8d0',
+  '--showcase-code-ink-strong': '#f2e8d0',
   '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
   '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',
   '--showcase-nav-ink-strong': '#f2e8d0',
@@ -37,18 +43,36 @@ function inkMix(wash: number, light: string, dark: string): string {
 }
 
 const DARK_CHROME_INK: ChromeInkProperties = {
-  '--showcase-nav-ink': 'oklch(11% 0.01 80 / 0.82)',
-  '--showcase-nav-ink-hover': 'oklch(8% 0.01 80 / 0.94)',
-  '--showcase-nav-ink-strong': 'oklch(8% 0.012 80)',
-  '--showcase-summary-ink': 'oklch(11% 0.01 80 / 0.86)',
-  '--showcase-title-bottom': 'oklch(9% 0.01 80)',
-  '--showcase-title-top': 'oklch(13% 0.012 80)',
+  '--showcase-code-ink': 'oklch(16% 0.018 70 / 0.82)',
+  '--showcase-code-ink-hover': 'oklch(10% 0.02 70)',
+  '--showcase-code-ink-strong': 'oklch(10% 0.02 70)',
+  '--showcase-nav-ink': 'oklch(12% 0.018 70 / 0.88)',
+  '--showcase-nav-ink-hover': 'oklch(8% 0.02 70 / 0.96)',
+  '--showcase-nav-ink-strong': 'oklch(7% 0.022 70)',
+  '--showcase-summary-ink': 'oklch(10% 0.018 70 / 0.92)',
+  '--showcase-title-bottom': 'oklch(8% 0.022 70)',
+  '--showcase-title-top': 'oklch(11% 0.02 70)',
 }
 
 export function chromeInk(wash: number): ChromeInkProperties {
   if (wash <= 0.001) return LIGHT_CHROME_INK
   if (wash >= 0.999) return DARK_CHROME_INK
   return {
+    '--showcase-code-ink': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-code-ink'],
+      DARK_CHROME_INK['--showcase-code-ink'],
+    ),
+    '--showcase-code-ink-hover': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-code-ink-hover'],
+      DARK_CHROME_INK['--showcase-code-ink-hover'],
+    ),
+    '--showcase-code-ink-strong': inkMix(
+      wash,
+      LIGHT_CHROME_INK['--showcase-code-ink-strong'],
+      DARK_CHROME_INK['--showcase-code-ink-strong'],
+    ),
     '--showcase-nav-ink': inkMix(
       wash,
       LIGHT_CHROME_INK['--showcase-nav-ink'],

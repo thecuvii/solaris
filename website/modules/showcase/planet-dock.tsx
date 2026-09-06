@@ -1,0 +1,828 @@
+'use client'
+
+import { Drawer } from '@base-ui/react/drawer'
+import { ScrollArea } from '@base-ui/react/scroll-area'
+import * as stylex from '@stylexjs/stylex'
+import { play } from 'cuelume'
+import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent, RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+
+import { hapticPress, hapticSettle, hapticTick } from './haptics'
+import { planets, type PlanetId } from './showcase-data'
+
+// The dock is the settings drawer parked at its lowest snap point. The
+// planet strip lives in the sheet header, so lifting the sheet morphs the
+// pill into the drawer instead of swapping two surfaces.
+const DOCK_HEIGHT = 56
+const ITEM_SIZE = 44
+const ITEM_GAP = 8
+const PITCH = ITEM_SIZE + ITEM_GAP
+const LOOP_COPIES = 3
+const LOOP_MID = 1
+const SET_WIDTH = planets.length * PITCH
+const TICKS_PER_STEP = 4
+const TICK_PX = PITCH / TICKS_PER_STEP
+const LOOP_SLIDES = Array.from({ length: LOOP_COPIES * planets.length }, (_, slot) => {
+  const index = slot % planets.length
+  return { copy: Math.floor(slot / planets.length), index, planet: planets[index], slot }
+})
+// The settings button shares the pill; spacing alone separates it from the strip.
+const GEAR_SIZE = 44
+const GEAR_INSET = (DOCK_HEIGHT - GEAR_SIZE) / 2
+const GEAR_NUDGE = 8
+const DOCK_GAP = 8
+const GEAR_RESERVED = GEAR_SIZE + GEAR_INSET + GEAR_NUDGE + DOCK_GAP
+const FLOAT_GAP = 12
+const PAGE_GUTTER = 'clamp(24px, 4vw, 64px)'
+const SHEET_FILL = 'lab(5 0 0 / 0.42)'
+const SHEET_BLUR = 'blur(22px) saturate(0.72)'
+const DOCK_RADIUS = DOCK_HEIGHT / 2
+const SHEET_RADIUS = 16
+const SHEET_HEIGHT = '50dvh'
+// Fraction of the drawer viewport, which is SHEET_HEIGHT tall: 0.5 × 50dvh = 25dvh.
+const PRESET_SNAP = 0.5
+// Offset at the flush snap (max 50dvh − first snap 25dvh). Float morph finishes 5dvh later.
+const PRESET_TRAVEL = '25dvh'
+const MORPH_RANGE = '5dvh'
+const EXPANDED_NUDGE_PX = 48
+// scrollend fallback: wrap clones once scroll events stop for this long.
+const SETTLE_FALLBACK_MS = 160
+const DRAG_SLOP = 6
+
+type DockMode = 'dock' | 'preset' | 'expanded'
+
+function clampIndex(index: number) {
+  return Math.min(Math.max(index, 0), planets.length - 1)
+}
+
+function tickIndex(scrollLeft: number) {
+  const cycle = ((scrollLeft % SET_WIDTH) + SET_WIDTH) % SET_WIDTH
+  return Math.round(cycle / TICK_PX)
+}
+
+function offsetFor(copy: number, index: number) {
+  return copy * SET_WIDTH + index * PITCH
+}
+
+function nearestCopy(scrollLeft: number, index: number) {
+  let copy = 0
+  let best = Infinity
+  for (let next = 0; next < LOOP_COPIES; next += 1) {
+    const distance = Math.abs(offsetFor(next, index) - scrollLeft)
+    if (distance < best) {
+      best = distance
+      copy = next
+    }
+  }
+  return copy
+}
+
+function playDetent(tick: number) {
+  const major = ((tick % TICKS_PER_STEP) + TICKS_PER_STEP) % TICKS_PER_STEP === 0
+  play('tick', { volume: major ? 0.48 : 0.22 })
+  hapticTick(major)
+}
+
+function useExpandedSnapPoint(nudgePx: number): Drawer.Root.SnapPoint {
+  const [snap, setSnap] = useState<Drawer.Root.SnapPoint>(0.5)
+
+  useEffect(() => {
+    const read = () => {
+      const height = window.visualViewport?.height ?? window.innerHeight
+      setSnap(`${Math.max(0, Math.round(height * 0.5 - nudgePx))}px`)
+    }
+    read()
+    window.addEventListener('resize', read)
+    window.visualViewport?.addEventListener('resize', read)
+    return () => {
+      window.removeEventListener('resize', read)
+      window.visualViewport?.removeEventListener('resize', read)
+    }
+  }, [nudgePx])
+
+  return snap
+}
+
+// env() is not readable from JS; measure a probe sized by the inset. The
+// probe lives in the portal, so it is tracked as state rather than a ref.
+function useSafeAreaBottom(probe: HTMLDivElement | null) {
+  const [inset, setInset] = useState(0)
+
+  useLayoutEffect(() => {
+    if (!probe) return
+    const read = () => setInset(Math.round(probe.offsetHeight))
+    read()
+    const observer = new ResizeObserver(read)
+    observer.observe(probe)
+    return () => observer.disconnect()
+  }, [probe])
+
+  return inset
+}
+
+function SlidersIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 18 18" {...stylex.props(styles.gearIcon)}>
+      <g fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth={1.5}>
+        <path d="M3 6h12" />
+        <path d="M3 12h12" />
+      </g>
+      <circle cx="11.5" cy="6" fill="currentColor" r="2" />
+      <circle cx="6.5" cy="12" fill="currentColor" r="2" />
+    </svg>
+  )
+}
+
+function DockPlanet({
+  copy,
+  index,
+  onSelect,
+  selected,
+}: {
+  copy: number
+  index: number
+  onSelect: (copy: number, index: number) => void
+  selected: boolean
+}) {
+  const planet = planets[index]
+
+  return (
+    <button
+      aria-current={selected ? 'true' : undefined}
+      aria-label={planet.name}
+      onClick={() => onSelect(copy, index)}
+      type="button"
+      {...stylex.props(styles.planet, selected && styles.planetSelected)}
+    >
+      <img
+        alt=""
+        draggable={false}
+        height={160}
+        src={`/thumbnails/v1/${planet.id}.avif`}
+        width={160}
+        {...stylex.props(styles.planetImage, selected && styles.planetImageSelected)}
+        style={planet.id === 'saturn' ? { transform: 'scale(1.2)' } : undefined}
+      />
+    </button>
+  )
+}
+
+function PlanetStrip({
+  children,
+  onSelectPlanet,
+  reducedMotion,
+  selectedPlanet,
+}: {
+  children?: ReactNode
+  onSelectPlanet: (id: PlanetId) => void
+  reducedMotion: boolean
+  selectedPlanet: PlanetId
+}) {
+  const selectedIndex = clampIndex(planets.findIndex((planet) => planet.id === selectedPlanet))
+  const stripRef = useRef<HTMLDivElement>(null)
+  const armedRef = useRef(false)
+  const lastTickRef = useRef(tickIndex(offsetFor(LOOP_MID, selectedIndex)))
+  const selfDrivenRef = useRef(false)
+  const positionedRef = useRef(false)
+  const animatingRef = useRef(false)
+  const ignoreClickRef = useRef(false)
+  const dragRef = useRef<{ x: number; y: number } | null>(null)
+  const selectedRef = useRef(selectedPlanet)
+  const selectedIndexRef = useRef(selectedIndex)
+  const onSelectPlanetRef = useRef(onSelectPlanet)
+
+  useEffect(() => {
+    selectedRef.current = selectedPlanet
+    selectedIndexRef.current = selectedIndex
+    onSelectPlanetRef.current = onSelectPlanet
+  }, [onSelectPlanet, selectedIndex, selectedPlanet])
+
+  function armSound() {
+    if (armedRef.current) return
+    armedRef.current = true
+    lastTickRef.current = tickIndex(stripRef.current?.scrollLeft ?? 0)
+  }
+
+  function wrapLoop(strip: HTMLDivElement) {
+    const left = strip.scrollLeft
+    if (left < SET_WIDTH) {
+      strip.scrollTo({ left: left + SET_WIDTH, behavior: 'instant' })
+      return
+    }
+    if (left >= SET_WIDTH * 2) {
+      strip.scrollTo({ left: left - SET_WIDTH, behavior: 'instant' })
+    }
+  }
+
+  function scrollToPlanet(index: number, behavior: ScrollBehavior) {
+    const strip = stripRef.current
+    if (!strip) return
+    const target = offsetFor(nearestCopy(strip.scrollLeft, index), index)
+    if (Math.abs(strip.scrollLeft - target) < 1) {
+      wrapLoop(strip)
+      return
+    }
+    animatingRef.current = behavior === 'smooth'
+    strip.scrollTo({ left: target, behavior })
+    if (behavior !== 'smooth') wrapLoop(strip)
+  }
+
+  function commitSelection(id: PlanetId) {
+    if (id === selectedRef.current) return
+    selfDrivenRef.current = true
+    play('toggle', { volume: 0.4 })
+    hapticSettle()
+    onSelectPlanetRef.current(id)
+  }
+
+  // Route changes recenter the already-selected planet. Clicks drive themselves.
+  useLayoutEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    if (selfDrivenRef.current) {
+      selfDrivenRef.current = false
+      return
+    }
+    if (!positionedRef.current) {
+      if (strip.clientWidth === 0) return
+      positionedRef.current = true
+      strip.scrollTo({ left: offsetFor(LOOP_MID, selectedIndex), behavior: 'instant' })
+      return
+    }
+    scrollToPlanet(selectedIndex, reducedMotion ? 'instant' : 'smooth')
+  }, [reducedMotion, selectedIndex])
+
+  useEffect(() => {
+    const strip = stripRef.current
+    if (!strip) return
+    const supportsScrollEnd = 'onscrollend' in window
+    let settleTimer: ReturnType<typeof setTimeout> | null = null
+
+    const clearSettle = () => {
+      if (settleTimer !== null) clearTimeout(settleTimer)
+      settleTimer = null
+    }
+    const settle = () => {
+      clearSettle()
+      animatingRef.current = false
+      wrapLoop(strip)
+    }
+    const queueSettle = () => {
+      clearSettle()
+      settleTimer = setTimeout(settle, SETTLE_FALLBACK_MS)
+    }
+    const onScroll = () => {
+      const left = strip.scrollLeft
+      if (armedRef.current) {
+        const tick = tickIndex(left)
+        if (tick !== lastTickRef.current) {
+          lastTickRef.current = tick
+          playDetent(tick)
+        }
+      }
+      if (!animatingRef.current) wrapLoop(strip)
+      if (!supportsScrollEnd) queueSettle()
+    }
+    const observer = new ResizeObserver(() => {
+      if (positionedRef.current || strip.clientWidth === 0) return
+      positionedRef.current = true
+      strip.scrollTo({ left: offsetFor(LOOP_MID, selectedIndexRef.current), behavior: 'instant' })
+    })
+    observer.observe(strip)
+
+    strip.addEventListener('scroll', onScroll, { passive: true })
+    if (supportsScrollEnd) strip.addEventListener('scrollend', settle)
+    return () => {
+      clearSettle()
+      observer.disconnect()
+      strip.removeEventListener('scroll', onScroll)
+      if (supportsScrollEnd) strip.removeEventListener('scrollend', settle)
+    }
+  }, [])
+
+  function selectPlanet(copy: number, index: number) {
+    if (ignoreClickRef.current) {
+      ignoreClickRef.current = false
+      return
+    }
+    armSound()
+    commitSelection(planets[index].id)
+    const strip = stripRef.current
+    if (!strip) return
+    const target = offsetFor(copy, index)
+    if (Math.abs(strip.scrollLeft - target) < 1) {
+      wrapLoop(strip)
+      return
+    }
+    animatingRef.current = !reducedMotion
+    strip.scrollTo({ left: target, behavior: reducedMotion ? 'instant' : 'smooth' })
+    if (reducedMotion) wrapLoop(strip)
+  }
+
+  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+    dragRef.current = { x: event.clientX, y: event.clientY }
+    ignoreClickRef.current = false
+    armSound()
+    play('press', { volume: 0.3 })
+    hapticPress()
+  }
+
+  function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current
+    if (!drag) return
+    if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) >= DRAG_SLOP) {
+      ignoreClickRef.current = true
+      dragRef.current = null
+    }
+  }
+
+  function onPointerUp() {
+    dragRef.current = null
+  }
+
+  return (
+    <div {...stylex.props(styles.dockRow)}>
+      <div {...stylex.props(styles.stripMask)}>
+        <div
+          ref={stripRef}
+          aria-label="Celestial objects"
+          onPointerCancel={onPointerUp}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onWheel={armSound}
+          {...stylex.props(styles.strip)}
+        >
+          {LOOP_SLIDES.map(({ copy, index, planet, slot }) => (
+            <DockPlanet
+              copy={copy}
+              index={index}
+              key={`${planet.id}-${slot}`}
+              onSelect={selectPlanet}
+              selected={planet.id === selectedPlanet}
+            />
+          ))}
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+export function PlanetDock({
+  children,
+  container,
+  onSelectPlanet,
+  reducedMotion,
+  selectedPlanet,
+}: {
+  children: ReactNode
+  /** In-flow sticky host the drawer portals into; avoids `position: fixed`. */
+  container: RefObject<HTMLElement | null>
+  onSelectPlanet: (id: PlanetId) => void
+  reducedMotion: boolean
+  selectedPlanet: PlanetId
+}) {
+  const [mode, setMode] = useState<DockMode>('dock')
+  const [probe, setProbe] = useState<HTMLDivElement | null>(null)
+  const safeBottom = useSafeAreaBottom(probe)
+  const dockSnap: Drawer.Root.SnapPoint = `${DOCK_HEIGHT + FLOAT_GAP + safeBottom}px`
+  const expandedSnap = useExpandedSnapPoint(EXPANDED_NUDGE_PX)
+  const snapPoint = mode === 'dock' ? dockSnap : mode === 'preset' ? PRESET_SNAP : expandedSnap
+
+  function modeFromSnapPoint(next: Drawer.Root.SnapPoint): DockMode {
+    if (next === PRESET_SNAP) return 'preset'
+    if (next === expandedSnap) return 'expanded'
+    return 'dock'
+  }
+
+  function changeMode(nextMode: DockMode) {
+    if (nextMode === mode) return
+    play('toggle', { volume: 0.32 })
+    hapticSettle()
+    setMode(nextMode)
+  }
+
+  return (
+    <Drawer.Root
+      disablePointerDismissal
+      modal={false}
+      onOpenChange={(next, details) => {
+        // The dock is the closed state; never let a swipe past it unmount the sheet.
+        if (!next) details.cancel()
+      }}
+      onSnapPointChange={(next) => {
+        if (next != null) changeMode(modeFromSnapPoint(next))
+      }}
+      open
+      snapPoint={snapPoint}
+      snapPoints={[dockSnap, PRESET_SNAP, expandedSnap]}
+      snapToSequentialPoints
+      swipeDirection="down"
+    >
+      <Drawer.Portal container={container}>
+        <Drawer.Viewport
+          style={{ '--dock-snap': dockSnap } as CSSProperties}
+          {...stylex.props(styles.viewport)}
+        >
+          <div ref={setProbe} aria-hidden="true" {...stylex.props(styles.safeAreaProbe)} />
+          <Drawer.Popup initialFocus={false} {...stylex.props(styles.popup)}>
+            <div {...stylex.props(styles.sheetSurface)}>
+              <div aria-hidden="true" {...stylex.props(styles.sheetBackdrop)} />
+              <div {...stylex.props(styles.sheetClip)}>
+                <div aria-hidden="true" {...stylex.props(styles.sheetHandle)} />
+                <PlanetStrip
+                  onSelectPlanet={onSelectPlanet}
+                  reducedMotion={reducedMotion}
+                  selectedPlanet={selectedPlanet}
+                >
+                  <button
+                    aria-hidden={mode !== 'dock'}
+                    aria-label="Open settings"
+                    onClick={() => changeMode('preset')}
+                    tabIndex={mode === 'dock' ? 0 : -1}
+                    type="button"
+                    {...stylex.props(styles.gear, mode !== 'dock' && styles.gearHidden)}
+                  >
+                    <SlidersIcon />
+                  </button>
+                </PlanetStrip>
+                <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
+                <Drawer.Content {...stylex.props(styles.sheetBody)}>
+                  <ScrollArea.Root {...stylex.props(styles.sheetScroll)}>
+                    <ScrollArea.Viewport {...stylex.props(styles.sheetScrollViewport)}>
+                      <ScrollArea.Content {...stylex.props(styles.sheetScrollContent)}>
+                        {children}
+                      </ScrollArea.Content>
+                    </ScrollArea.Viewport>
+                    <ScrollArea.Scrollbar
+                      keepMounted
+                      orientation="vertical"
+                      {...stylex.props(styles.sheetScrollbar)}
+                    >
+                      <ScrollArea.Thumb {...stylex.props(styles.sheetScrollbarThumb)} />
+                    </ScrollArea.Scrollbar>
+                  </ScrollArea.Root>
+                </Drawer.Content>
+              </div>
+              <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
+            </div>
+          </Drawer.Popup>
+        </Drawer.Viewport>
+      </Drawer.Portal>
+    </Drawer.Root>
+  )
+}
+
+const styles = stylex.create({
+  dockRow: {
+    flex: '0 0 auto',
+    height: DOCK_HEIGHT,
+    position: 'relative',
+  },
+  gear: {
+    alignItems: 'center',
+    appearance: 'none',
+    backgroundColor: 'transparent',
+    borderRadius: '50%',
+    borderWidth: 0,
+    boxShadow: {
+      default: 'none',
+      ':focus-visible': '0 0 0 3px color-mix(in oklch, var(--control-accent) 22%, transparent)',
+    },
+    color: {
+      default: 'rgba(242, 232, 208, 0.72)',
+      ':hover': '#f2e8d0',
+      ':focus-visible': '#f2e8d0',
+    },
+    cursor: 'pointer',
+    display: 'grid',
+    height: GEAR_SIZE,
+    // Slides out past the pill's edge as the sheet lifts; the clip hides it.
+    opacity: 'calc(1 - var(--dock-progress))',
+    padding: 0,
+    placeItems: 'center',
+    pointerEvents: 'auto',
+    position: 'absolute',
+    right: GEAR_INSET + GEAR_NUDGE,
+    top: GEAR_INSET,
+    transitionDuration: 'inherit',
+    transitionProperty: 'translate, opacity, color',
+    transitionTimingFunction: 'inherit',
+    translate: `calc(${GEAR_RESERVED}px * var(--dock-progress)) 0`,
+    width: GEAR_SIZE,
+    zIndex: 2,
+    ':focus-visible': {
+      outline: 'none',
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  gearHidden: {
+    pointerEvents: 'none',
+  },
+  gearIcon: {
+    display: 'block',
+    height: 18,
+    width: 18,
+  },
+  planet: {
+    alignItems: 'center',
+    appearance: 'none',
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    cursor: 'pointer',
+    display: 'flex',
+    flex: '0 0 auto',
+    height: ITEM_SIZE,
+    justifyContent: 'center',
+    opacity: 0.42,
+    padding: 0,
+    scrollSnapAlign: 'center',
+    transitionDuration: '180ms',
+    transitionProperty: 'opacity',
+    transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
+    userSelect: 'none',
+    WebkitTapHighlightColor: 'transparent',
+    WebkitTouchCallout: 'none',
+    width: ITEM_SIZE,
+    ':focus-visible': {
+      borderRadius: '50%',
+      outline: '2px solid #f2e8d0',
+      outlineOffset: 2,
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  planetSelected: {
+    opacity: 1,
+  },
+  planetImage: {
+    display: 'block',
+    height: 32,
+    objectFit: 'contain',
+    pointerEvents: 'none',
+    transitionDuration: '180ms',
+    transitionProperty: 'height, width',
+    transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
+    userSelect: 'none',
+    WebkitTouchCallout: 'none',
+    WebkitUserDrag: 'none',
+    width: 32,
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  planetImageSelected: {
+    height: 36,
+    width: 36,
+  },
+  // Progress vars resolve here, where Drawer writes its travel vars, and
+  // inherit down as plain numbers so children do not need `inherit` hacks.
+  popup: {
+    '--sheet-travel': 'calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y))',
+    '--dock-lift': `calc(${SHEET_HEIGHT} - var(--dock-snap) - var(--sheet-travel))`,
+    '--dock-progress': `clamp(0, var(--dock-lift) / (${PRESET_TRAVEL} - var(--dock-snap)), 1)`,
+    '--float-progress': `clamp(0, (${PRESET_TRAVEL} - var(--sheet-travel)) / ${MORPH_RANGE}, 1)`,
+    '--float-bottom': `calc(${FLOAT_GAP}px + env(safe-area-inset-bottom, 0px))`,
+    backgroundColor: 'transparent',
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    height: SHEET_HEIGHT,
+    maxHeight: SHEET_HEIGHT,
+    minHeight: 0,
+    outline: 'none',
+    overflow: 'visible',
+    paddingBottom: 'max(0px, var(--sheet-travel))',
+    pointerEvents: 'auto',
+    position: 'relative',
+    transform: 'translateY(var(--sheet-travel))',
+    transitionDuration: '450ms',
+    transitionProperty: 'transform, padding-bottom',
+    transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)',
+    width: '100%',
+    willChange: 'transform',
+    ':is([data-swiping])': {
+      transitionDuration: '0ms',
+    },
+    ':is([data-starting-style], [data-ending-style])': {
+      paddingBottom: 0,
+      transform: 'translateY(100%)',
+    },
+    ':is([data-ending-style])': {
+      transitionDuration: 'calc(var(--drawer-swipe-strength, 1) * 400ms)',
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  safeAreaProbe: {
+    height: 'env(safe-area-inset-bottom, 0px)',
+    pointerEvents: 'none',
+    position: 'absolute',
+    visibility: 'hidden',
+    width: 1,
+  },
+  sheetBody: {
+    display: 'flex',
+    flex: 1,
+    flexDirection: 'column',
+    minHeight: 0,
+    opacity: 'var(--dock-progress)',
+    overflow: 'hidden',
+    touchAction: 'auto',
+    transitionDuration: 'inherit',
+    transitionProperty: 'opacity',
+    transitionTimingFunction: 'inherit',
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  sheetBottomMask: {
+    backgroundImage:
+      'linear-gradient(in oklch to bottom, transparent 0%, lab(5 0 0 / 0.1) 20%, lab(5 0 0 / 0.34) 46%, lab(5 0 0 / 0.14) 74%, transparent 100%)',
+    bottom: `calc(-1 * (84px + ${FLOAT_GAP}px) * var(--float-progress))`,
+    height: `calc((116px + ${FLOAT_GAP}px) * var(--float-progress))`,
+    left: 0,
+    opacity: 'var(--float-progress)',
+    pointerEvents: 'none',
+    position: 'absolute',
+    right: 0,
+    transitionDuration: 'inherit',
+    transitionProperty: 'opacity, height, bottom',
+    transitionTimingFunction: 'inherit',
+    zIndex: 2,
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  sheetHandle: {
+    alignItems: 'center',
+    display: 'flex',
+    flexShrink: 0,
+    height: 'calc(22px * var(--dock-progress))',
+    justifyContent: 'center',
+    opacity: 'var(--dock-progress)',
+    overflow: 'hidden',
+    pointerEvents: 'none',
+    transitionDuration: 'inherit',
+    transitionProperty: 'height, opacity',
+    transitionTimingFunction: 'inherit',
+    '::after': {
+      backgroundColor: 'rgba(242, 232, 208, 0.22)',
+      borderRadius: 2,
+      content: '""',
+      height: 3,
+      width: 36,
+    },
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  sheetClip: {
+    borderRadius: 'inherit',
+    display: 'flex',
+    flex: 1,
+    flexDirection: 'column',
+    minHeight: 0,
+    overflow: 'hidden',
+    position: 'relative',
+    zIndex: 1,
+  },
+  sheetScroll: {
+    display: 'flex',
+    flex: 1,
+    flexDirection: 'column',
+    minHeight: 0,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  sheetScrollContent: {
+    paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))',
+    paddingInline: 20,
+    paddingTop: 4,
+  },
+  sheetScrollViewport: {
+    flex: 1,
+    minHeight: 0,
+    overflowX: 'hidden',
+    overflowY: 'scroll',
+    overscrollBehavior: 'contain',
+    touchAction: 'pan-y',
+  },
+  sheetScrollbar: {
+    bottom: 8,
+    display: 'flex',
+    justifyContent: 'center',
+    opacity: 1,
+    pointerEvents: 'auto',
+    position: 'absolute',
+    right: 4,
+    top: 8,
+    width: 3,
+  },
+  sheetScrollbarThumb: {
+    backgroundColor: 'oklch(86.4% 0.003 84.6 / 0.42)',
+    borderRadius: 999,
+    flex: 1,
+    minHeight: 24,
+    width: '100%',
+  },
+  // Parked: a floating pill. Lifted to the first snap: flush bottom, sheet
+  // radius. Lifted further: floats again.
+  sheetBackdrop: {
+    backdropFilter: SHEET_BLUR,
+    backgroundColor: SHEET_FILL,
+    borderRadius: 'inherit',
+    boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.102), inset 0 0 0 1px oklch(100% 0 0 / 0.039)',
+    inset: 0,
+    pointerEvents: 'none',
+    position: 'absolute',
+  },
+  sheetSurface: {
+    '--slider-progress-bg': 'oklch(43.49% 0 0)',
+    '--slider-track-bg': 'oklch(35.62% 0 0)',
+    backgroundColor: 'transparent',
+    borderBottomLeftRadius: `calc(${DOCK_RADIUS}px * (1 - var(--dock-progress)) + ${SHEET_RADIUS}px * var(--float-progress))`,
+    borderBottomRightRadius: `calc(${DOCK_RADIUS}px * (1 - var(--dock-progress)) + ${SHEET_RADIUS}px * var(--float-progress))`,
+    borderTopLeftRadius: `calc(${DOCK_RADIUS}px - ${DOCK_RADIUS - SHEET_RADIUS}px * var(--dock-progress))`,
+    borderTopRightRadius: `calc(${DOCK_RADIUS}px - ${DOCK_RADIUS - SHEET_RADIUS}px * var(--dock-progress))`,
+    display: 'flex',
+    flex: 1,
+    flexDirection: 'column',
+    marginBottom: 'calc(var(--float-bottom) * (1 - var(--dock-progress) + var(--float-progress)))',
+    marginInline: `calc(${PAGE_GUTTER} * (1 - var(--dock-progress)) + ${FLOAT_GAP}px * var(--dock-progress))`,
+    minHeight: 0,
+    overflow: 'visible',
+    position: 'relative',
+    transitionDuration: 'inherit',
+    transitionProperty: 'margin, border-radius',
+    transitionTimingFunction: 'inherit',
+    zIndex: 1,
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  strip: {
+    alignItems: 'center',
+    display: 'flex',
+    gap: ITEM_GAP,
+    height: '100%',
+    maskImage:
+      'linear-gradient(to right, transparent 0%, rgb(0 0 0 / 0.12) 16px, rgb(0 0 0 / 0.4) 40px, rgb(0 0 0 / 0.78) 72px, black 104px, black calc(100% - 104px), rgb(0 0 0 / 0.78) calc(100% - 72px), rgb(0 0 0 / 0.4) calc(100% - 40px), rgb(0 0 0 / 0.12) calc(100% - 16px), transparent 100%)',
+    overflowX: 'auto',
+    overflowY: 'hidden',
+    overscrollBehaviorX: 'contain',
+    paddingInline: `calc(50% - ${ITEM_SIZE / 2}px)`,
+    scrollbarWidth: 'none',
+    scrollSnapType: 'x mandatory',
+    touchAction: 'pan-x',
+    userSelect: 'none',
+    WebkitTapHighlightColor: 'transparent',
+    '::-webkit-scrollbar': {
+      display: 'none',
+    },
+  },
+  stripMask: {
+    flex: '1 1 auto',
+    height: '100%',
+    // Leave room for the settings button while parked; reclaim it as the sheet lifts.
+    marginRight: `calc(${GEAR_RESERVED}px * (1 - var(--dock-progress)))`,
+    minWidth: 0,
+    overflow: 'hidden',
+    position: 'relative',
+    transitionDuration: 'inherit',
+    transitionProperty: 'margin-right',
+    transitionTimingFunction: 'inherit',
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
+  // Fills the sticky host in showcase-layout instead of being `position: fixed`:
+  // any fixed layer makes iOS 26 Safari stop bleeding the page under its glass
+  // toolbar. Fractional snap points resolve against this height.
+  viewport: {
+    alignItems: 'flex-end',
+    display: 'flex',
+    height: SHEET_HEIGHT,
+    justifyContent: 'center',
+    pointerEvents: 'none',
+    position: 'relative',
+    touchAction: 'none',
+    width: '100%',
+  },
+  visuallyHidden: {
+    borderWidth: 0,
+    clip: 'rect(0 0 0 0)',
+    height: 1,
+    margin: -1,
+    overflow: 'hidden',
+    padding: 0,
+    position: 'absolute',
+    width: 1,
+  },
+})

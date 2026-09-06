@@ -20,6 +20,7 @@ export type SkyLighting = {
 
 type Vec3 = readonly [number, number, number]
 type ScreenPoint = { x: number; y: number }
+type ScreenRect = { bottom: number; left: number; right: number; top: number }
 
 const SUN_RADIUS = 0.2665
 const SKY_GAIN = 0.22
@@ -31,8 +32,10 @@ const INDIGO_FIELD: Vec3 = [0.016, 0.014, 0.032]
 const GLARE_TINT: Vec3 = [1, 0.8, 0.46]
 const PI = Math.PI
 
-const NAV_FALLBACK: ScreenPoint = { x: -2.35, y: 0.2 }
-const TITLE_FALLBACK: ScreenPoint = { x: -0.2, y: 1.28 }
+const NAV_FALLBACK: ScreenRect = { bottom: -1.4, left: -2.7, right: -1.9, top: 1.6 }
+const TITLE_FALLBACK: ScreenRect = { bottom: 0.9, left: -0.9, right: 0.5, top: 1.6 }
+const CODE_FALLBACK: ScreenRect = { bottom: -2.1, left: -0.8, right: 0.8, top: -1.5 }
+const CODE_FROST_LIFT = 0.1
 
 function clamp01(value: number): number {
   return Math.min(Math.max(value, 0), 1)
@@ -112,9 +115,11 @@ function acesToneMap(color: Vec3): Vec3 {
 }
 
 function washFromLuminance(luminance: number): number {
-  if (luminance <= 0.2) return 0
-  if (luminance >= 0.42) return 1
-  return (luminance - 0.2) / 0.22
+  // Cream ink fails on a sunset plate long before the sky reads as white.
+  if (luminance <= 0.08) return 0
+  if (luminance >= 0.2) return 1
+  const t = (luminance - 0.08) / 0.12
+  return t * t * (3 - 2 * t)
 }
 
 /**
@@ -175,24 +180,45 @@ export function skyRegionWash(lighting: SkyLighting, screen: ScreenPoint): numbe
   return washFromLuminance(skyBackdropLuminance(lighting, screen))
 }
 
-function compositionScreen(element: Element, composition: DOMRect): ScreenPoint | null {
+function compositionBounds(element: Element, composition: DOMRect): ScreenRect | null {
   const rect = element.getBoundingClientRect()
   if (rect.width < 2 || rect.height < 2) return null
   const scale = Math.max(Math.min(composition.width, composition.height), 1)
   const centerX = composition.left + composition.width / 2
   const centerY = composition.top + composition.height / 2
   return {
-    x: (2 * (rect.left + rect.width / 2 - centerX)) / scale,
-    // Sample the canvas showing through the bottom of the chrome block.
-    y: (2 * (centerY - rect.bottom)) / scale,
+    bottom: (2 * (centerY - rect.bottom)) / scale,
+    left: (2 * (rect.left - centerX)) / scale,
+    right: (2 * (rect.right - centerX)) / scale,
+    top: (2 * (centerY - rect.top)) / scale,
   }
 }
 
+function regionWash(lighting: SkyLighting, region: ScreenRect, luminanceLift = 0): number {
+  let maxWash = 0
+  for (let column = 0; column < 3; column += 1) {
+    for (let row = 0; row < 3; row += 1) {
+      const x = region.left + ((region.right - region.left) * column) / 2
+      const y = region.bottom + ((region.top - region.bottom) * row) / 2
+      maxWash = Math.max(
+        maxWash,
+        washFromLuminance(Math.min(1, skyBackdropLuminance(lighting, { x, y }) + luminanceLift)),
+      )
+    }
+  }
+  return maxWash
+}
+
 export function useSkyChromeProbes(enabled: boolean): {
-  nav: ScreenPoint
-  title: ScreenPoint
+  code: ScreenRect
+  nav: ScreenRect
+  title: ScreenRect
 } {
-  const [probes, setProbes] = useState({ nav: NAV_FALLBACK, title: TITLE_FALLBACK })
+  const [probes, setProbes] = useState({
+    code: CODE_FALLBACK,
+    nav: NAV_FALLBACK,
+    title: TITLE_FALLBACK,
+  })
 
   useLayoutEffect(() => {
     if (!enabled) return
@@ -201,12 +227,15 @@ export function useSkyChromeProbes(enabled: boolean): {
       const composition = document.querySelector('[data-solaris-composition]')
       const nav = document.querySelector('[data-chrome-probe="nav"]')
       const title = document.querySelector('[data-chrome-probe="title"]')
+      const code = document.querySelector('[data-chrome-probe="code"]')
       if (!composition || !nav || !title) return
       const compositionRect = composition.getBoundingClientRect()
       if (compositionRect.width < 2 || compositionRect.height < 2) return
-      const navScreen = compositionScreen(nav, compositionRect)
-      const titleScreen = compositionScreen(title, compositionRect)
+      const navScreen = compositionBounds(nav, compositionRect)
+      const titleScreen = compositionBounds(title, compositionRect)
+      const codeScreen = code ? compositionBounds(code, compositionRect) : null
       setProbes((current) => ({
+        code: codeScreen ?? current.code,
         nav: navScreen ?? current.nav,
         title: titleScreen ?? current.title,
       }))
@@ -220,9 +249,11 @@ export function useSkyChromeProbes(enabled: boolean): {
     const composition = document.querySelector('[data-solaris-composition]')
     const nav = document.querySelector('[data-chrome-probe="nav"]')
     const title = document.querySelector('[data-chrome-probe="title"]')
+    const code = document.querySelector('[data-chrome-probe="code"]')
     if (composition) observer.observe(composition)
     if (nav) observer.observe(nav)
     if (title) observer.observe(title)
+    if (code) observer.observe(code)
     window.addEventListener('resize', measure)
     return () => {
       window.cancelAnimationFrame(frame)
@@ -237,12 +268,16 @@ export function useSkyChromeProbes(enabled: boolean): {
 
 export function skyChromeStyle(
   lighting: SkyLighting,
-  probes: { nav: ScreenPoint; title: ScreenPoint },
+  probes: { code: ScreenRect; nav: ScreenRect; title: ScreenRect },
 ): EclipseTextLightingProperties {
-  const navInk = chromeInk(skyRegionWash(lighting, probes.nav))
-  const titleInk = chromeInk(skyRegionWash(lighting, probes.title))
+  const codeInk = chromeInk(regionWash(lighting, probes.code, CODE_FROST_LIFT))
+  const navInk = chromeInk(regionWash(lighting, probes.nav))
+  const titleInk = chromeInk(regionWash(lighting, probes.title))
   return {
     ...noneTextLighting(),
+    '--showcase-code-ink': codeInk['--showcase-code-ink'],
+    '--showcase-code-ink-hover': codeInk['--showcase-code-ink-hover'],
+    '--showcase-code-ink-strong': codeInk['--showcase-code-ink-strong'],
     '--showcase-nav-ink': navInk['--showcase-nav-ink'],
     '--showcase-nav-ink-hover': navInk['--showcase-nav-ink-hover'],
     '--showcase-nav-ink-strong': navInk['--showcase-nav-ink-strong'],

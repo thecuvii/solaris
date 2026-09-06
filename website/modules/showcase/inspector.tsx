@@ -295,6 +295,7 @@ const ParameterSlider = memo(function ParameterSlider({
   const valueRef = useRef<HTMLSpanElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const pointerRef = useRef<{
+    axis: 'pending' | 'scroll' | 'slider'
     id: number
     moved: boolean
     startX: number
@@ -392,24 +393,45 @@ const ParameterSlider = memo(function ParameterSlider({
     if (previousDecile !== nextDecile) hapticTick(false)
   }
 
-  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
-    animationRef.current?.stop()
-    pointerRef.current = {
-      id: event.pointerId,
-      moved: false,
-      startX: event.clientX,
-      startY: event.clientY,
-    }
+  function claimSlider(event: ReactPointerEvent<HTMLDivElement>) {
+    const pointer = pointerRef.current
+    if (!pointer || pointer.axis === 'slider') return
+    pointer.axis = 'slider'
     event.currentTarget.setPointerCapture(event.pointerId)
     lastHapticValueRef.current = value
     setGestureActive(true)
     if (forceProgressHover) hapticPress()
   }
 
+  function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
+    animationRef.current?.stop()
+    // Touch starts pending so a vertical flick can scroll the drawer.
+    // Mouse claims immediately — there is no competing pan.
+    pointerRef.current = {
+      axis: event.pointerType === 'touch' ? 'pending' : 'slider',
+      id: event.pointerId,
+      moved: false,
+      startX: event.clientX,
+      startY: event.clientY,
+    }
+    if (pointerRef.current.axis === 'slider') claimSlider(event)
+  }
+
   function handlePointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const pointer = pointerRef.current
-    if (!pointer || pointer.id !== event.pointerId) return
+    if (!pointer || pointer.id !== event.pointerId || pointer.axis === 'scroll') return
+
+    if (pointer.axis === 'pending') {
+      const dx = event.clientX - pointer.startX
+      const dy = event.clientY - pointer.startY
+      if (Math.hypot(dx, dy) < 8) return
+      if (Math.abs(dy) > Math.abs(dx)) {
+        pointer.axis = 'scroll'
+        return
+      }
+      claimSlider(event)
+    }
 
     if (
       !pointer.moved &&
@@ -427,11 +449,12 @@ const ParameterSlider = memo(function ParameterSlider({
   function handlePointerUp(event: ReactPointerEvent<HTMLDivElement>) {
     const pointer = pointerRef.current
     if (!pointer || pointer.id !== event.pointerId) return
+    pointerRef.current = null
+    if (pointer.axis === 'scroll') return
 
     const nextValue = updateFromPointer(event.clientX, !pointer.moved)
     onValueChange(nextValue)
     hapticForValue(nextValue)
-    pointerRef.current = null
     setGestureActive(false)
     animateTo(getNormalizedValue(nextValue))
   }
@@ -583,6 +606,8 @@ const ParameterSlider = memo(function ParameterSlider({
                 ref={inputRef}
                 aria-label={`${label} value`}
                 readOnly={!editing}
+                // Mobile: display only; keep it out of the focus order too.
+                tabIndex={forceProgressHover ? -1 : undefined}
                 onBlur={commitEditing}
                 onFocus={() => {
                   if (!editingRef.current) {
@@ -833,6 +858,11 @@ const styles = stylex.create({
       color: 'oklch(96% 0.003 84.6)',
       outline: 'none',
     },
+    // Mobile: the value is a label only. Taps fall through to the slider track
+    // and the input can never be focused, so no keyboard.
+    '@media (max-width: 960px)': {
+      pointerEvents: 'none',
+    },
   },
   numberFieldInputActive: {
     color: 'oklch(96% 0.003 84.6)',
@@ -1078,7 +1108,7 @@ const styles = stylex.create({
     height: 32,
     overflow: 'hidden',
     position: 'relative',
-    touchAction: 'none',
+    touchAction: 'pan-y',
     userSelect: 'none',
     width: '100%',
   },

@@ -12,7 +12,7 @@ import { PlanetStage } from '../planet-page/planet-stage'
 import { planetPath } from '../planet-route/planet-route'
 import { usePlanetId } from '../planet-route/use-planet-id'
 import { PlanetPageInk } from '../planets/chrome-lighting'
-import { PlanetWheel, SettingsSheet } from './planet-wheel'
+import { PlanetDock } from './planet-dock'
 import { useMobileShowcase } from './use-mobile-showcase'
 import { useVisualViewport } from './use-visual-viewport'
 import { Inspector } from './inspector'
@@ -43,11 +43,11 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
   const [transitionDirection, setTransitionDirection] = useState<-1 | 1>(1)
   const [plan, setPlan] = useState(() => getPlanetTransitionPlan(selectedPlanet, selectedPlanet))
   const [showGrid, setShowGrid] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState(false)
   const isMobile = useMobileShowcase()
   useVisualViewport()
   const reduceMotion = useReducedMotion()
   const pageRef = useRef<HTMLDivElement>(null)
+  const dockHostRef = useRef<HTMLDivElement>(null)
   const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
   const chromeTransition: ChromeTransitionContext = {
     direction: transitionDirection,
@@ -177,16 +177,16 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
 
         {isMobile ? (
           <>
-            <PlanetWheel
+            {/* Sticky, in-flow host for the dock: no `position: fixed` on iOS. */}
+            <div ref={dockHostRef} {...stylex.props(styles.dockHost)} />
+            <PlanetDock
+              container={dockHostRef}
               onSelectPlanet={selectPlanet}
-              onSettingsOpenChange={setSettingsOpen}
               reducedMotion={Boolean(reduceMotion)}
               selectedPlanet={previewPlanet}
-              settingsOpen={settingsOpen}
-            />
-            <SettingsSheet onOpenChange={setSettingsOpen} open={settingsOpen}>
+            >
               <Inspector planetId={presentedPlanet} />
-            </SettingsSheet>
+            </PlanetDock>
           </>
         ) : (
           <AnimatePresence custom={chromeTransition} initial={false}>
@@ -233,6 +233,19 @@ function LayoutGridOverlay() {
 }
 
 const styles = stylex.create({
+  // Last flex child of `.page`; the negative margin keeps it from adding page
+  // height, and `sticky` pins it to the visual viewport bottom while the page
+  // scrolls. Height must match SHEET_HEIGHT in planet-dock.
+  dockHost: {
+    bottom: 'var(--visual-viewport-bottom-inset, 0px)',
+    flex: '0 0 auto',
+    height: '50dvh',
+    marginTop: '-50dvh',
+    order: 2,
+    pointerEvents: 'none',
+    position: 'sticky',
+    zIndex: 24,
+  },
   content: {
     gridColumn: 2,
     minWidth: 0,
@@ -315,6 +328,9 @@ const styles = stylex.create({
   },
   page: {
     '--showcase-inspector-width': '280px',
+    '--showcase-code-ink': 'rgba(242, 232, 208, 0.5)',
+    '--showcase-code-ink-hover': '#f2e8d0',
+    '--showcase-code-ink-strong': '#f2e8d0',
     '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
     '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',
     '--showcase-nav-ink-strong': '#f2e8d0',
@@ -332,7 +348,8 @@ const styles = stylex.create({
     display: 'grid',
     gridTemplateColumns: '300px minmax(400px, 1fr) 280px',
     minHeight: '100dvh',
-    overflow: 'clip',
+    overflowX: 'clip',
+    overflowY: 'clip',
     '@media (min-width: 961px) and (max-width: 1080px)': {
       '--showcase-picker-width': '260px',
       gridTemplateColumns: '260px minmax(320px, 1fr) 280px',
@@ -351,11 +368,15 @@ const styles = stylex.create({
       '--showcase-composition-bottom': 'auto',
       '--showcase-composition-height': 'clamp(300px, 52dvh, 460px)',
       '--showcase-composition-top': '0px',
+      // Covers Safari's minimised bar + home indicator below `100lvh`.
+      '--showcase-sky-bleed': '96px',
       '--showcase-title-pad': '28px',
-      '--showcase-wheel-height': '126px',
+      // Dock pill height plus its floating gap above the safe area.
+      '--showcase-wheel-height': '68px',
       display: 'flex',
       flexDirection: 'column',
-      overflow: 'hidden',
+      // Inherits `overflow: clip` from the base; `hidden` would make `.page` a
+      // scroll container and trap the sticky dock host.
     },
   },
   planetTravelLayer: {

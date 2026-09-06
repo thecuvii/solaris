@@ -21,6 +21,16 @@
     min-height: 100dvh;
   }
 
+  /* Mobile: keep the document as the scroller so Safari's toolbar still
+     collapses and content passes under it, but drop the edge rubber-band
+     (iOS 16+) so the in-flow canvas no longer moves with the bounce. */
+  @media (max-width: 960px) {
+    html,
+    body {
+      overscroll-behavior-y: none;
+    }
+  }
+
   body {
     margin: 0;
     color: #f2e8d0;

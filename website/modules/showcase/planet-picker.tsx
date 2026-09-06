@@ -107,10 +107,10 @@ export const PlanetPicker = memo(function PlanetPicker({
         <ShowcaseWordmark />
       </header>
       <aside {...stylex.props(styles.picker)} aria-label="Celestial objects">
-        <div {...stylex.props(styles.pickerNavigation)}>
+        <div data-chrome-probe="nav" {...stylex.props(styles.pickerNavigation)}>
           <ShowcaseWordmark sidebar />
 
-          <nav data-chrome-probe="nav" {...stylex.props(styles.planetList)}>
+          <nav {...stylex.props(styles.planetList)}>
             {planets.map((planet) => (
               <Link
                 key={planet.id}
@@ -180,6 +180,20 @@ export const PlanetPicker = memo(function PlanetPicker({
                 Spherium
               </SeeAlsoLink>
               <span {...stylex.props(styles.pickerAlsoAuthor)}>Javier Crocco</span>
+            </div>
+            <div {...stylex.props(styles.pickerAlsoItem)}>
+              <SeeAlsoLink href={withSiteSource('https://gps-01.dmytro.fyi/')}>GPS 01</SeeAlsoLink>
+              <span {...stylex.props(styles.pickerAlsoAuthor)}>Dmytro Kondakov</span>
+            </div>
+            <div {...stylex.props(styles.pickerAlsoItem)}>
+              <SeeAlsoLink
+                href={withSiteSource(
+                  'https://blog.maximeheckel.com/posts/on-rendering-the-sky-sunsets-and-planets/',
+                )}
+              >
+                Blog series
+              </SeeAlsoLink>
+              <span {...stylex.props(styles.pickerAlsoAuthor)}>Maxime Heckel</span>
             </div>
           </div>
 
@@ -325,9 +339,6 @@ const styles = stylex.create({
     },
   },
   pickerMeta: {
-    '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
-    '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',
-    '--showcase-nav-ink-strong': '#f2e8d0',
     alignSelf: 'flex-end',
     color: 'var(--showcase-nav-ink)',
     display: 'flex',

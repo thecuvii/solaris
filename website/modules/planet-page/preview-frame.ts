@@ -32,6 +32,9 @@ export const moonViewport = {
 
 export const skyViewport = {
   ...bleedViewport,
+  // Size off `lvh` (toolbar collapsed) plus a bleed so the sky keeps painting
+  // under Safari's translucent bottom bar and the canvas never resizes as the
+  // toolbar animates. `100dvh` would end exactly at the bar's top edge.
   bottom:
-    'calc(var(--showcase-preview-top) + 100% - 100dvh - var(--visual-viewport-bottom-inset, 0px))',
+    'calc(var(--showcase-preview-top) + 100% - 100lvh - var(--showcase-sky-bleed, 0px) - var(--visual-viewport-bottom-inset, 0px))',
 }

@@ -123,7 +123,7 @@ export function CodeBlock({ planet }: { planet: Planet }) {
 
   return (
     <section {...stylex.props(styles.codeSection)}>
-      <div {...stylex.props(styles.codeHeader)}>
+      <div data-chrome-probe="code" {...stylex.props(styles.codeHeader)}>
         <div {...stylex.props(styles.codeFile)}>
           <CodeFileIcon />
           <span>
@@ -280,9 +280,9 @@ const styles = stylex.create({
     backgroundColor: 'transparent',
     borderWidth: 0,
     color: {
-      default: 'rgba(242, 232, 208, 0.5)',
-      ':hover': '#f2e8d0',
-      ':focus-visible': '#f2e8d0',
+      default: 'var(--showcase-code-ink)',
+      ':hover': 'var(--showcase-code-ink-hover)',
+      ':focus-visible': 'var(--showcase-code-ink-hover)',
     },
     cursor: 'pointer',
     marginLeft: 'auto',
@@ -293,17 +293,18 @@ const styles = stylex.create({
     ':focus-visible': { outline: 'none' },
   },
   codeCopyCopied: {
-    color: '#f2e8d0',
+    color: 'var(--showcase-code-ink-strong)',
   },
   codeFile: {
     alignItems: 'center',
-    color: 'rgba(242, 232, 208, 0.5)',
+    color: 'var(--showcase-code-ink)',
     display: 'flex',
     fontFamily: 'var(--font-sans)',
     fontSize: 11,
     fontWeight: 550,
     gap: 6,
     height: 32,
+    transition: 'color 140ms ease-out',
   },
   codeFileIcon: {
     fill: 'none',
