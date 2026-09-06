@@ -5,6 +5,7 @@
 import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
 
 export type TitanianDataPlane = {
   data: Uint8Array
@@ -39,9 +40,32 @@ export type TitanianOrbEffectProps = {
   yaw?: number
 }
 
+const UNIFORM_NAMES = [
+  'uAtmosphereTexture',
+  'uBandContrast',
+  'uDetachedEnabled',
+  'uDetachedHaze',
+  'uExposure',
+  'uForwardScatteringStrength',
+  'uHazeDensity',
+  'uHazeThickness',
+  'uLatitude',
+  'uMainEnabled',
+  'uPolarHood',
+  'uResolution',
+  'uSourceReady',
+  'uSpin',
+  'uSunDirection',
+  'uTime',
+  'uYaw',
+] as const
+
+type UniformName = (typeof UNIFORM_NAMES)[number]
+
 type TitanianResources = {
   atmosphereTexture: WebGLTexture
   program: WebGLProgram
+  uniforms: UniformLocations<UniformName>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -499,7 +523,12 @@ function createResources(gl: WebGL2RenderingContext): TitanianResources {
     atmosphereTexture = createAtmosphereTexture(gl)
     program = createProgram(gl)
     gl.bindVertexArray(vertexArray)
-    return { atmosphereTexture, program, vertexArray }
+    return {
+      atmosphereTexture,
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray,
+    }
   } catch (error) {
     if (atmosphereTexture) gl.deleteTexture(atmosphereTexture)
     if (program) gl.deleteProgram(program)
@@ -651,10 +680,11 @@ function createTitanianRenderer(
     gl.bindVertexArray(activeResources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, activeResources.atmosphereTexture)
-    gl.uniform1i(gl.getUniformLocation(activeResources.program, 'uAtmosphereTexture'), 0)
+    const { uniforms } = activeResources
+    gl.uniform1i(uniforms.uAtmosphereTexture, 0)
 
-    const uniform1f = (name: string, value: number) => {
-      gl.uniform1f(gl.getUniformLocation(activeResources.program, name), value)
+    const uniform1f = (name: UniformName, value: number) => {
+      gl.uniform1f(uniforms[name], value)
     }
     uniform1f('uBandContrast', clamp(current.bandContrast, 0, 1.5))
     uniform1f('uDetachedEnabled', detachedHazeValue > 0 ? 1 : 0)
@@ -670,12 +700,8 @@ function createTitanianRenderer(
     uniform1f('uSourceReady', hasSource ? 1 : 0)
     uniform1f('uTime', elapsed)
     uniform1f('uLatitude', (clamp(current.tilt, -55, 55) * Math.PI) / 180)
-    gl.uniform2f(
-      gl.getUniformLocation(activeResources.program, 'uResolution'),
-      canvas!.width,
-      canvas!.height,
-    )
-    gl.uniform3f(gl.getUniformLocation(activeResources.program, 'uSunDirection'), ...sunDirection)
+    gl.uniform2f(uniforms.uResolution, canvas!.width, canvas!.height)
+    gl.uniform3f(uniforms.uSunDirection, ...sunDirection)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }

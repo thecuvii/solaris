@@ -5,6 +5,7 @@
 import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
 
 export type JovianOrbSource = {
   ready?: () => Promise<void>
@@ -37,9 +38,33 @@ export type JovianOrbEffectProps = {
   vortexStrength?: number
 }
 
+const UNIFORM_NAMES = [
+  'uAlbedoTexture',
+  'uBandDrift',
+  'uCloudPhotometricMix',
+  'uDetailIntensity',
+  'uDetailScale',
+  'uExposure',
+  'uFlattening',
+  'uGrsCenter',
+  'uGrsRadii',
+  'uJetStrength',
+  'uLimbHaze',
+  'uLongitudeOffset',
+  'uPointer',
+  'uResolution',
+  'uSourceReady',
+  'uSunDirection',
+  'uTilt',
+  'uTime',
+  'uVortexStrength',
+  'uYaw',
+] as const
+
 type JovianResources = {
   albedoTexture: WebGLTexture
   program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -388,9 +413,11 @@ function createTexture(gl: WebGL2RenderingContext): WebGLTexture {
 function createResources(gl: WebGL2RenderingContext): JovianResources {
   const vertexArray = gl.createVertexArray()
   if (!vertexArray) throw new Error('Unable to create Jovian vertex array')
+  const program = createProgram(gl)
   const resources = {
     albedoTexture: createTexture(gl),
-    program: createProgram(gl),
+    program,
+    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
     vertexArray,
   }
   gl.bindVertexArray(vertexArray)
@@ -522,49 +549,29 @@ function createJovianRenderer(
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
+    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
+    gl.uniform1f(resources.uniforms.uCloudPhotometricMix, settings.cloudPhotometricMix)
+    gl.uniform1f(resources.uniforms.uDetailIntensity, settings.detailIntensity)
+    gl.uniform1f(resources.uniforms.uDetailScale, settings.detailScale)
+    gl.uniform1f(resources.uniforms.uBandDrift, (settings.bandDrift * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.uExposure, settings.exposure)
+    gl.uniform2f(resources.uniforms.uGrsCenter, ...grsCenter)
+    gl.uniform2f(resources.uniforms.uGrsRadii, ...grsRadii)
+    gl.uniform1f(resources.uniforms.uJetStrength, settings.jetStrength)
+    gl.uniform1f(resources.uniforms.uLimbHaze, settings.limbHaze)
+    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
+    gl.uniform1f(resources.uniforms.uFlattening, settings.flattening / 100)
+    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
+    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
+    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(resources.uniforms.uSunDirection, ...sunDirection)
+    gl.uniform1f(resources.uniforms.uTilt, (settings.tilt * Math.PI) / 180)
     gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uCloudPhotometricMix'),
-      settings.cloudPhotometricMix,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uDetailIntensity'),
-      settings.detailIntensity,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDetailScale'), settings.detailScale)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uBandDrift'),
-      (settings.bandDrift * Math.PI) / 180,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
-    gl.uniform2f(gl.getUniformLocation(resources.program, 'uGrsCenter'), ...grsCenter)
-    gl.uniform2f(gl.getUniformLocation(resources.program, 'uGrsRadii'), ...grsRadii)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uJetStrength'), settings.jetStrength)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLimbHaze'), settings.limbHaze)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uFlattening'), settings.flattening / 100)
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uPointer'),
-      pointer.currentX,
-      pointer.currentY,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uResolution'),
-      canvas.width,
-      canvas.height,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-    gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTilt'), (settings.tilt * Math.PI) / 180)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uYaw'),
+      resources.uniforms.uYaw,
       ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
     )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTime'), elapsed)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uVortexStrength'),
-      settings.vortexStrength,
-    )
+    gl.uniform1f(resources.uniforms.uTime, elapsed)
+    gl.uniform1f(resources.uniforms.uVortexStrength, settings.vortexStrength)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }

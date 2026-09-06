@@ -5,6 +5,7 @@
 import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
 
 export type SaturnOrbSource = {
   ready?: () => Promise<void>
@@ -41,9 +42,37 @@ export type SaturnOrbEffectProps = {
   unlitRingBrightness?: number
 }
 
+const UNIFORM_NAMES = [
+  'uAtmosphereTexture',
+  'uAxialRoll',
+  'uBandContrast',
+  'uBandDrift',
+  'uCloudPhotometricMix',
+  'uDetailIntensity',
+  'uExposure',
+  'uFlattening',
+  'uForwardScatter',
+  'uLimbHaze',
+  'uLongitudeOffset',
+  'uPointer',
+  'uPolarHexagon',
+  'uResolution',
+  'uRingOpacity',
+  'uRingRadiusRange',
+  'uRingShadowStrength',
+  'uRingTexture',
+  'uRingTilt',
+  'uSourceReady',
+  'uSunDirectionView',
+  'uTime',
+  'uUnlitRingBrightness',
+  'uYaw',
+] as const
+
 type SaturnResources = {
   atmosphereTexture: WebGLTexture
   program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   ringTexture: WebGLTexture
   vertexArray: WebGLVertexArrayObject
 }
@@ -844,9 +873,11 @@ function createTexture(
 function createResources(gl: WebGL2RenderingContext): SaturnResources {
   const vertexArray = gl.createVertexArray()
   if (!vertexArray) throw new Error('Unable to create Saturn vertex array')
+  const program = createProgram(gl)
   const resources = {
     atmosphereTexture: createTexture(gl, [255, 255, 255, 255], gl.REPEAT),
-    program: createProgram(gl),
+    program,
+    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
     ringTexture: createTexture(gl, [0, 0, 0, 0], gl.CLAMP_TO_EDGE),
     vertexArray,
   }
@@ -976,67 +1007,32 @@ function createSaturnRenderer(
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.atmosphereTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAtmosphereTexture'), 0)
+    gl.uniform1i(resources.uniforms.uAtmosphereTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.ringTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uRingTexture'), 1)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uAxialRoll'),
-      (current.axialRoll * Math.PI) / 180,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uBandContrast'), current.bandContrast)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uCloudPhotometricMix'),
-      current.cloudPhotometricMix,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uDetailIntensity'),
-      current.detailIntensity,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uBandDrift'),
-      (current.bandDrift * Math.PI) / 180,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), current.exposure)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uForwardScatter'),
-      current.forwardScatter,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLimbHaze'), current.limbHaze)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uFlattening'), current.flattening / 100)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uPolarHexagon'), current.polarHexagon)
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uPointer'),
-      pointer.currentX,
-      pointer.currentY,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uResolution'),
-      canvas.width,
-      canvas.height,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uRingOpacity'), current.ringOpacity)
-    gl.uniform2f(gl.getUniformLocation(resources.program, 'uRingRadiusRange'), ...ringRadiusRange)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uRingShadowStrength'),
-      current.ringShadowStrength,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uRingTilt'),
-      (current.tilt * Math.PI) / 180,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-    gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirectionView'), ...sunDirection)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uYaw'),
-      ((current.yaw + elapsed * current.spin) * Math.PI) / 180,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTime'), elapsed)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uUnlitRingBrightness'),
-      current.unlitRingBrightness,
-    )
+    gl.uniform1i(resources.uniforms.uRingTexture, 1)
+    gl.uniform1f(resources.uniforms.uAxialRoll, (current.axialRoll * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.uBandContrast, current.bandContrast)
+    gl.uniform1f(resources.uniforms.uCloudPhotometricMix, current.cloudPhotometricMix)
+    gl.uniform1f(resources.uniforms.uDetailIntensity, current.detailIntensity)
+    gl.uniform1f(resources.uniforms.uBandDrift, (current.bandDrift * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.uExposure, current.exposure)
+    gl.uniform1f(resources.uniforms.uForwardScatter, current.forwardScatter)
+    gl.uniform1f(resources.uniforms.uLimbHaze, current.limbHaze)
+    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
+    gl.uniform1f(resources.uniforms.uFlattening, current.flattening / 100)
+    gl.uniform1f(resources.uniforms.uPolarHexagon, current.polarHexagon)
+    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
+    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
+    gl.uniform1f(resources.uniforms.uRingOpacity, current.ringOpacity)
+    gl.uniform2f(resources.uniforms.uRingRadiusRange, ...ringRadiusRange)
+    gl.uniform1f(resources.uniforms.uRingShadowStrength, current.ringShadowStrength)
+    gl.uniform1f(resources.uniforms.uRingTilt, (current.tilt * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(resources.uniforms.uSunDirectionView, ...sunDirection)
+    gl.uniform1f(resources.uniforms.uYaw, ((current.yaw + elapsed * current.spin) * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.uTime, elapsed)
+    gl.uniform1f(resources.uniforms.uUnlitRingBrightness, current.unlitRingBrightness)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }

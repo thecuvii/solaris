@@ -5,6 +5,7 @@
 import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
 
 export type MercurialOrbSource = {
   ready?: () => Promise<void>
@@ -46,10 +47,31 @@ export type MercurialOrbEffectProps = {
   yaw?: number
 }
 
+const UNIFORM_NAMES = [
+  'uAlbedoTexture',
+  'uExposure',
+  'uHeightMinimumScale',
+  'uHeightRangeScale',
+  'uHeightTexture',
+  'uLongitudeOffset',
+  'uMicroDetail',
+  'uNormalStrength',
+  'uNormalTexture',
+  'uPhotometricStrength',
+  'uPointer',
+  'uReliefShadowStrength',
+  'uResolution',
+  'uSourceReady',
+  'uSunDirection',
+  'uViewTilt',
+  'uYaw',
+] as const
+
 type MercurialResources = {
   albedoTexture: WebGLTexture
   normalTexture: WebGLTexture
   program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -448,10 +470,12 @@ function createTexture(
 function createResources(gl: WebGL2RenderingContext): MercurialResources {
   const vertexArray = gl.createVertexArray()
   if (!vertexArray) throw new Error('Unable to create Mercurial vertex array')
+  const program = createProgram(gl)
   const resources = {
     albedoTexture: createTexture(gl, [255, 255, 255, 255], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
     normalTexture: createTexture(gl, [128, 128, 128, 128], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
-    program: createProgram(gl),
+    program,
+    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
     vertexArray,
   }
   gl.bindVertexArray(vertexArray)
@@ -647,53 +671,30 @@ function createMercurialRenderer(
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
+    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uNormalTexture'), 1)
+    gl.uniform1i(resources.uniforms.uNormalTexture, 1)
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uHeightTexture'), 2)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
+    gl.uniform1i(resources.uniforms.uHeightTexture, 2)
+    gl.uniform1f(resources.uniforms.uExposure, settings.exposure)
+    gl.uniform1f(resources.uniforms.uHeightMinimumScale, heightMinimumScale)
+    gl.uniform1f(resources.uniforms.uHeightRangeScale, heightRangeScale)
+    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
+    gl.uniform1f(resources.uniforms.uMicroDetail, settings.microDetail)
+    gl.uniform1f(resources.uniforms.uNormalStrength, settings.normalStrength)
+    gl.uniform1f(resources.uniforms.uPhotometricStrength, settings.photometricStrength)
+    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
+    gl.uniform1f(resources.uniforms.uReliefShadowStrength, settings.reliefShadowStrength)
+    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
+    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(resources.uniforms.uSunDirection, ...sunDirection)
     gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uHeightMinimumScale'),
-      heightMinimumScale,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uHeightRangeScale'), heightRangeScale)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uMicroDetail'), settings.microDetail)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uNormalStrength'),
-      settings.normalStrength,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uPhotometricStrength'),
-      settings.photometricStrength,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uPointer'),
-      pointer.currentX,
-      pointer.currentY,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uReliefShadowStrength'),
-      settings.reliefShadowStrength,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uResolution'),
-      canvas.width,
-      canvas.height,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-    gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uYaw'),
+      resources.uniforms.uYaw,
       ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
     )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uViewTilt'),
-      (settings.tilt * Math.PI) / 180,
-    )
+    gl.uniform1f(resources.uniforms.uViewTilt, (settings.tilt * Math.PI) / 180)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }

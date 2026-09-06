@@ -5,6 +5,7 @@
 import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
 
 type LunarEclipseFrameSettings = {
   atmosphericOpticalDepth: number
@@ -61,10 +62,35 @@ export type LunarEclipseEffectProps = {
   viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
 
+const UNIFORM_NAMES = [
+  'uAlbedoTexture',
+  'uAtmosphericOpticalDepth',
+  'uCompositionCenter',
+  'uCompositionScale',
+  'uExposure',
+  'uHaloIntensity',
+  'uHaloWidth',
+  'uHeightScale',
+  'uLongitudeOffset',
+  'uNormalHeightTexture',
+  'uNormalStrength',
+  'uPenumbraWidth',
+  'uPointer',
+  'uRefractedLightIntensity',
+  'uReliefShadowStrength',
+  'uResolution',
+  'uShadowOffset',
+  'uSourceReady',
+  'uTilt',
+  'uUmbraRadius',
+  'uYaw',
+] as const
+
 type LunarEclipseResources = {
   albedoTexture: WebGLTexture
   normalHeightTexture: WebGLTexture
   program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -427,10 +453,12 @@ function createTexture(
 function createResources(gl: WebGL2RenderingContext): LunarEclipseResources {
   const vertexArray = gl.createVertexArray()
   if (!vertexArray) throw new Error('Unable to create lunar eclipse vertex array')
+  const program = createProgram(gl)
   const resources = {
     albedoTexture: createTexture(gl, [255, 255, 255, 255]),
     normalHeightTexture: createTexture(gl, [128, 128, 255, 128]),
-    program: createProgram(gl),
+    program,
+    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
     vertexArray,
   }
   gl.bindVertexArray(vertexArray)
@@ -589,57 +617,29 @@ function createLunarEclipseRenderer(
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
+    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalHeightTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uNormalHeightTexture'), 1)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uAtmosphericOpticalDepth'),
-      settings.atmosphericOpticalDepth,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uCompositionCenter'),
-      compositionCenterX,
-      compositionCenterY,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uCompositionScale'), compositionScale)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uHaloIntensity'), settings.haloIntensity)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uHaloWidth'), settings.haloWidth)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uHeightScale'), heightScale)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uNormalStrength'),
-      settings.normalStrength,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uPenumbraWidth'), settings.penumbraWidth)
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uPointer'),
-      pointer.currentX,
-      pointer.currentY,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uRefractedLightIntensity'),
-      settings.refractedLightIntensity,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uReliefShadowStrength'),
-      settings.reliefShadowStrength,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uResolution'),
-      canvas.width,
-      canvas.height,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uShadowOffset'),
-      settings.offsetX,
-      settings.offsetY,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTilt'), (settings.tilt * Math.PI) / 180)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uYaw'), (settings.yaw * Math.PI) / 180)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uUmbraRadius'), settings.umbraRadius)
+    gl.uniform1i(resources.uniforms.uNormalHeightTexture, 1)
+    gl.uniform1f(resources.uniforms.uAtmosphericOpticalDepth, settings.atmosphericOpticalDepth)
+    gl.uniform2f(resources.uniforms.uCompositionCenter, compositionCenterX, compositionCenterY)
+    gl.uniform1f(resources.uniforms.uCompositionScale, compositionScale)
+    gl.uniform1f(resources.uniforms.uExposure, settings.exposure)
+    gl.uniform1f(resources.uniforms.uHaloIntensity, settings.haloIntensity)
+    gl.uniform1f(resources.uniforms.uHaloWidth, settings.haloWidth)
+    gl.uniform1f(resources.uniforms.uHeightScale, heightScale)
+    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
+    gl.uniform1f(resources.uniforms.uNormalStrength, settings.normalStrength)
+    gl.uniform1f(resources.uniforms.uPenumbraWidth, settings.penumbraWidth)
+    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
+    gl.uniform1f(resources.uniforms.uRefractedLightIntensity, settings.refractedLightIntensity)
+    gl.uniform1f(resources.uniforms.uReliefShadowStrength, settings.reliefShadowStrength)
+    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
+    gl.uniform2f(resources.uniforms.uShadowOffset, settings.offsetX, settings.offsetY)
+    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform1f(resources.uniforms.uTilt, (settings.tilt * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.uYaw, (settings.yaw * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.uUmbraRadius, settings.umbraRadius)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }

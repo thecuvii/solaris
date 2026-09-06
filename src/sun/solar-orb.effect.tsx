@@ -5,6 +5,7 @@
 import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
 
 export type SolarDataPlane = {
   /** Straight RGBA8: sRGB coded-color observation in RGB and coverage in alpha. */
@@ -40,9 +41,29 @@ export type SolarOrbEffectProps = {
   style?: CSSProperties
 }
 
+const UNIFORM_NAMES = [
+  'uActiveRegionGain',
+  'uContrast',
+  'uDiskCenter',
+  'uDiskRadius',
+  'uExposure',
+  'uFilamentDepth',
+  'uFlowAmount',
+  'uFlowSpeed',
+  'uLimbEmission',
+  'uObservationTexture',
+  'uResolution',
+  'uSaturation',
+  'uSourceReady',
+  'uTime',
+] as const
+
+type UniformName = (typeof UNIFORM_NAMES)[number]
+
 type SolarResources = {
   observationTexture: WebGLTexture
   program: WebGLProgram
+  uniforms: UniformLocations<UniformName>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -361,7 +382,12 @@ function createResources(gl: WebGL2RenderingContext): SolarResources {
     observationTexture = createObservationTexture(gl)
     program = createProgram(gl)
     gl.bindVertexArray(vertexArray)
-    return { observationTexture, program, vertexArray }
+    return {
+      observationTexture,
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray,
+    }
   } catch (error) {
     if (observationTexture) gl.deleteTexture(observationTexture)
     if (program) gl.deleteProgram(program)
@@ -564,18 +590,15 @@ function createSolarOrbRenderer(
     gl.bindVertexArray(activeResources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, activeResources.observationTexture)
-    gl.uniform1i(gl.getUniformLocation(activeResources.program, 'uObservationTexture'), 0)
+    const { uniforms } = activeResources
+    gl.uniform1i(uniforms.uObservationTexture, 0)
 
-    const uniform1f = (name: string, value: number) => {
-      gl.uniform1f(gl.getUniformLocation(activeResources.program, name), value)
+    const uniform1f = (name: UniformName, value: number) => {
+      gl.uniform1f(uniforms[name], value)
     }
     uniform1f('uActiveRegionGain', clamp(current.activeRegionGain, 0, 2))
     uniform1f('uContrast', clamp(current.contrast, 0.5, 1.8))
-    gl.uniform2f(
-      gl.getUniformLocation(activeResources.program, 'uDiskCenter'),
-      diskCenter[0],
-      diskCenter[1],
-    )
+    gl.uniform2f(uniforms.uDiskCenter, diskCenter[0], diskCenter[1])
     uniform1f('uDiskRadius', diskRadius)
     uniform1f('uExposure', clamp(current.exposure, 0, 2))
     uniform1f('uFilamentDepth', clamp(current.filamentDepth, 0, 1.5))
@@ -585,11 +608,7 @@ function createSolarOrbRenderer(
     uniform1f('uSaturation', clamp(current.saturation, 0, 1.6))
     uniform1f('uSourceReady', hasSource ? 1 : 0)
     uniform1f('uTime', elapsed)
-    gl.uniform2f(
-      gl.getUniformLocation(activeResources.program, 'uResolution'),
-      canvas.width,
-      canvas.height,
-    )
+    gl.uniform2f(uniforms.uResolution, canvas.width, canvas.height)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }

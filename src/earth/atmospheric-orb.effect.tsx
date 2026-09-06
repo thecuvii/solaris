@@ -5,6 +5,7 @@
 import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { createUniformResolver, type UniformResolver } from '../internal/uniforms'
 
 export type AtmosphericOrbColor = readonly [red: number, green: number, blue: number]
 
@@ -1125,11 +1126,12 @@ function deleteResources(gl: WebGL2RenderingContext, resources: Resources): void
 
 function setColor(
   gl: WebGL2RenderingContext,
+  uniform: UniformResolver,
   program: WebGLProgram,
   name: string,
   color: AtmosphericOrbColor,
 ): void {
-  gl.uniform3f(gl.getUniformLocation(program, name), ...color)
+  gl.uniform3f(uniform(program, name), ...color)
 }
 
 function createAtmosphericRenderer(
@@ -1145,6 +1147,7 @@ function createAtmosphericRenderer(
   })
   if (!context) return null
   const gl: WebGL2RenderingContext = context
+  const uniform = createUniformResolver(gl)
 
   let contextLost = false
   let disposed = false
@@ -1247,13 +1250,13 @@ function createAtmosphericRenderer(
 
   function setPhysicalUniforms(program: WebGLProgram, current: AtmosphericFrameSettings): void {
     const atmosphereRadius = PLANET_RADIUS + current.atmosphereThickness
-    gl.uniform1f(gl.getUniformLocation(program, 'uAerosol'), current.aerosol)
-    gl.uniform1f(gl.getUniformLocation(program, 'uDensity'), current.density)
-    gl.uniform1f(gl.getUniformLocation(program, 'uAtmosphereRadius'), atmosphereRadius)
-    gl.uniform1f(gl.getUniformLocation(program, 'uPlanetRadius'), PLANET_RADIUS)
-    setColor(gl, program, 'uMieExtinction', current.model.mieExtinction)
-    setColor(gl, program, 'uOzoneAbsorption', current.model.ozoneAbsorption)
-    setColor(gl, program, 'uRayleighScattering', current.model.rayleighScattering)
+    gl.uniform1f(uniform(program, 'uAerosol'), current.aerosol)
+    gl.uniform1f(uniform(program, 'uDensity'), current.density)
+    gl.uniform1f(uniform(program, 'uAtmosphereRadius'), atmosphereRadius)
+    gl.uniform1f(uniform(program, 'uPlanetRadius'), PLANET_RADIUS)
+    setColor(gl, uniform, program, 'uMieExtinction', current.model.mieExtinction)
+    setColor(gl, uniform, program, 'uOzoneAbsorption', current.model.ozoneAbsorption)
+    setColor(gl, uniform, program, 'uRayleighScattering', current.model.rayleighScattering)
   }
 
   function renderTransmittance(current: AtmosphericFrameSettings): void {
@@ -1280,10 +1283,16 @@ function createAtmosphericRenderer(
     gl.viewport(0, 0, resources.multipleScattering.width, resources.multipleScattering.height)
     gl.useProgram(resources.multipleScatteringProgram)
     setPhysicalUniforms(resources.multipleScatteringProgram, current)
-    setColor(gl, resources.multipleScatteringProgram, 'uMieScattering', current.model.mieScattering)
+    setColor(
+      gl,
+      uniform,
+      resources.multipleScatteringProgram,
+      'uMieScattering',
+      current.model.mieScattering,
+    )
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.transmittance.texture)
-    gl.uniform1i(gl.getUniformLocation(resources.multipleScatteringProgram, 'uTransmittance'), 0)
+    gl.uniform1i(uniform(resources.multipleScatteringProgram, 'uTransmittance'), 0)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
   }
 
@@ -1294,9 +1303,9 @@ function createAtmosphericRenderer(
     gl.useProgram(earth.downsampleProgram)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, earth.emission.texture)
-    gl.uniform1i(gl.getUniformLocation(earth.downsampleProgram, 'uSource'), 0)
+    gl.uniform1i(uniform(earth.downsampleProgram, 'uSource'), 0)
     gl.uniform2f(
-      gl.getUniformLocation(earth.downsampleProgram, 'uTexelSize'),
+      uniform(earth.downsampleProgram, 'uTexelSize'),
       1 / earth.emission.width,
       1 / earth.emission.height,
     )
@@ -1314,13 +1323,13 @@ function createAtmosphericRenderer(
       gl.useProgram(earth.blurProgram)
       gl.activeTexture(gl.TEXTURE0)
       gl.bindTexture(gl.TEXTURE_2D, sourceTarget.texture)
-      gl.uniform1i(gl.getUniformLocation(earth.blurProgram, 'uSource'), 0)
+      gl.uniform1i(uniform(earth.blurProgram, 'uSource'), 0)
       gl.uniform2f(
-        gl.getUniformLocation(earth.blurProgram, 'uTexelSize'),
+        uniform(earth.blurProgram, 'uTexelSize'),
         1 / sourceTarget.width,
         1 / sourceTarget.height,
       )
-      gl.uniform2f(gl.getUniformLocation(earth.blurProgram, 'uDirection'), directionX, directionY)
+      gl.uniform2f(uniform(earth.blurProgram, 'uDirection'), directionX, directionY)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
     }
 
@@ -1381,117 +1390,84 @@ function createAtmosphericRenderer(
     setPhysicalUniforms(resources.atmosphereProgram, current)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.transmittance.texture)
-    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uTransmittance'), 0)
+    gl.uniform1i(uniform(resources.atmosphereProgram, 'uTransmittance'), 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.dayTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uDayTexture'), 1)
+    gl.uniform1i(uniform(resources.atmosphereProgram, 'uDayTexture'), 1)
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.nightTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uNightTexture'), 2)
+    gl.uniform1i(uniform(resources.atmosphereProgram, 'uNightTexture'), 2)
     gl.activeTexture(gl.TEXTURE3)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uNormalTexture'), 3)
+    gl.uniform1i(uniform(resources.atmosphereProgram, 'uNormalTexture'), 3)
     gl.activeTexture(gl.TEXTURE4)
     gl.bindTexture(gl.TEXTURE_2D, resources.roughnessTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uRoughnessTexture'), 4)
+    gl.uniform1i(uniform(resources.atmosphereProgram, 'uRoughnessTexture'), 4)
     if (earth) {
       gl.activeTexture(gl.TEXTURE5)
       gl.bindTexture(gl.TEXTURE_2D, earth.cloudTexture)
-      gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uCloudTexture'), 5)
+      gl.uniform1i(uniform(resources.atmosphereProgram, 'uCloudTexture'), 5)
     }
     gl.activeTexture(gl.TEXTURE6)
     gl.bindTexture(gl.TEXTURE_2D, resources.materialTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.atmosphereProgram, 'uMaterialTexture'), 6)
+    gl.uniform1i(uniform(resources.atmosphereProgram, 'uMaterialTexture'), 6)
     gl.activeTexture(gl.TEXTURE7)
     gl.bindTexture(gl.TEXTURE_2D, resources.multipleScattering.texture)
-    gl.uniform1i(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uMultipleScatteringTexture'),
-      7,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uCloudDensity'),
-      current.cloudDensity,
-    )
+    gl.uniform1i(uniform(resources.atmosphereProgram, 'uMultipleScatteringTexture'), 7)
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uCloudDensity'), current.cloudDensity)
     gl.uniform2f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uCompositionCenter'),
+      uniform(resources.atmosphereProgram, 'uCompositionCenter'),
       compositionCenterX,
       compositionCenterY,
     )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uCompositionScale'),
-      compositionScale,
-    )
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uCompositionScale'), compositionScale)
     gl.uniform2f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uResolution'),
+      uniform(resources.atmosphereProgram, 'uResolution'),
       resources.atmosphere.width,
       resources.atmosphere.height,
     )
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uCloudHeight'), current.cloudHeight / 100)
     gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uCloudHeight'),
-      current.cloudHeight / 100,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uCloudShadowIntensity'),
+      uniform(resources.atmosphereProgram, 'uCloudShadowIntensity'),
       current.cloudShadowIntensity,
     )
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uEarthPipeline'), earth ? 1 : 0)
     gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uEarthPipeline'),
-      earth ? 1 : 0,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uHasSurfaceSource'),
+      uniform(resources.atmosphereProgram, 'uHasSurfaceSource'),
       hasSurfaceSource ? 1 : 0,
     )
     gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uHasMaterialSource'),
+      uniform(resources.atmosphereProgram, 'uHasMaterialSource'),
       hasMaterialSource ? 1 : 0,
     )
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uLongitudeOffset'), longitudeOffset)
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uTilt'), (current.tilt * Math.PI) / 180)
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uYaw'), (current.yaw * Math.PI) / 180)
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uSunIntensity'), current.model.sunIntensity)
     gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uLongitudeOffset'),
-      longitudeOffset,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uTilt'),
-      (current.tilt * Math.PI) / 180,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uYaw'),
-      (current.yaw * Math.PI) / 180,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uSunIntensity'),
-      current.model.sunIntensity,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uMultipleScattering'),
+      uniform(resources.atmosphereProgram, 'uMultipleScattering'),
       current.multipleScattering,
     )
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uNightLightIntensity'), current.cityLights)
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uOceanGlint'), current.oceanGlint)
     gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uNightLightIntensity'),
-      current.cityLights,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uOceanGlint'),
-      current.oceanGlint,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uOceanWaveStrength'),
+      uniform(resources.atmosphereProgram, 'uOceanWaveStrength'),
       current.oceanWaveStrength,
     )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uSpin'),
-      (current.spin * Math.PI) / 180,
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uSpin'), (current.spin * Math.PI) / 180)
+    gl.uniform1f(uniform(resources.atmosphereProgram, 'uTime'), elapsed)
+    gl.uniform3f(uniform(resources.atmosphereProgram, 'uSunDirection'), ...sunDirection)
+    setColor(
+      gl,
+      uniform,
+      resources.atmosphereProgram,
+      'uMieScattering',
+      current.model.mieScattering,
     )
-    gl.uniform1f(gl.getUniformLocation(resources.atmosphereProgram, 'uTime'), elapsed)
-    gl.uniform3f(
-      gl.getUniformLocation(resources.atmosphereProgram, 'uSunDirection'),
-      ...sunDirection,
-    )
-    setColor(gl, resources.atmosphereProgram, 'uMieScattering', current.model.mieScattering)
-    setColor(gl, resources.atmosphereProgram, 'uSpaceColor', current.model.space)
-    setColor(gl, resources.atmosphereProgram, 'uSunColor', current.model.sun)
-    setColor(gl, resources.atmosphereProgram, 'uSurfaceDay', current.model.surfaceDay)
-    setColor(gl, resources.atmosphereProgram, 'uSurfaceNight', current.model.surfaceNight)
+    setColor(gl, uniform, resources.atmosphereProgram, 'uSpaceColor', current.model.space)
+    setColor(gl, uniform, resources.atmosphereProgram, 'uSunColor', current.model.sun)
+    setColor(gl, uniform, resources.atmosphereProgram, 'uSurfaceDay', current.model.surfaceDay)
+    setColor(gl, uniform, resources.atmosphereProgram, 'uSurfaceNight', current.model.surfaceNight)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 
     if (earth) renderBloom(earth)
@@ -1505,12 +1481,12 @@ function createAtmosphericRenderer(
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.atmosphere.texture)
     if (earth) {
-      gl.uniform1i(gl.getUniformLocation(compositeProgram, 'uScene'), 0)
+      gl.uniform1i(uniform(compositeProgram, 'uScene'), 0)
       gl.activeTexture(gl.TEXTURE1)
       gl.bindTexture(gl.TEXTURE_2D, earth.bloomA.texture)
-      gl.uniform1i(gl.getUniformLocation(compositeProgram, 'uBloom'), 1)
+      gl.uniform1i(uniform(compositeProgram, 'uBloom'), 1)
     } else {
-      gl.uniform1i(gl.getUniformLocation(compositeProgram, 'uAtmosphere'), 0)
+      gl.uniform1i(uniform(compositeProgram, 'uAtmosphere'), 0)
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 

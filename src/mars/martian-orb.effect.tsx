@@ -5,6 +5,7 @@
 import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
 
 export type MartianOrbSource = {
   ready?: () => Promise<void>
@@ -36,11 +37,34 @@ export type MartianOrbEffectProps = {
   yaw?: number
 }
 
+const UNIFORM_NAMES = [
+  'uAlbedoTexture',
+  'uAxialTilt',
+  'uBlueAureole',
+  'uDensity',
+  'uDustAerosol',
+  'uDustDetail',
+  'uExposure',
+  'uHeightScale',
+  'uHeightTexture',
+  'uLongitudeOffset',
+  'uNormalStrength',
+  'uNormalTexture',
+  'uPhotometricMix',
+  'uPointer',
+  'uResolution',
+  'uSelfShadowStrength',
+  'uSourceReady',
+  'uSunDirection',
+  'uYaw',
+] as const
+
 type MartianResources = {
   albedoTexture: WebGLTexture
   heightTexture: WebGLTexture
   normalTexture: WebGLTexture
   program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -553,11 +577,13 @@ function createTexture(
 function createResources(gl: WebGL2RenderingContext): MartianResources {
   const vertexArray = gl.createVertexArray()
   if (!vertexArray) throw new Error('Unable to create Martian vertex array')
+  const program = createProgram(gl)
   const resources = {
     albedoTexture: createTexture(gl, [255, 255, 255, 255], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
     heightTexture: createTexture(gl, [128, 128, 128, 128], gl.NEAREST, gl.NEAREST),
     normalTexture: createTexture(gl, [128, 128, 128, 128], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
-    program: createProgram(gl),
+    program,
+    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
     vertexArray,
   }
   gl.bindVertexArray(vertexArray)
@@ -689,50 +715,30 @@ function createMartianRenderer(
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
+    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uNormalTexture'), 1)
+    gl.uniform1i(resources.uniforms.uNormalTexture, 1)
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.heightTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uHeightTexture'), 2)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDensity'), settings.density)
+    gl.uniform1i(resources.uniforms.uHeightTexture, 2)
+    gl.uniform1f(resources.uniforms.uDensity, settings.density)
+    gl.uniform1f(resources.uniforms.uAxialTilt, (settings.tilt * Math.PI) / 180)
+    gl.uniform1f(resources.uniforms.uBlueAureole, settings.blueAureole)
+    gl.uniform1f(resources.uniforms.uDustAerosol, settings.dustAerosol)
+    gl.uniform1f(resources.uniforms.uDustDetail, settings.dustDetail)
+    gl.uniform1f(resources.uniforms.uExposure, settings.exposure)
+    gl.uniform1f(resources.uniforms.uHeightScale, heightScale)
+    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
+    gl.uniform1f(resources.uniforms.uNormalStrength, settings.normalStrength)
+    gl.uniform1f(resources.uniforms.uPhotometricMix, settings.photometricMix)
+    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
+    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
+    gl.uniform1f(resources.uniforms.uSelfShadowStrength, settings.selfShadowStrength)
+    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(resources.uniforms.uSunDirection, ...sunDirection)
     gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uAxialTilt'),
-      (settings.tilt * Math.PI) / 180,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uBlueAureole'), settings.blueAureole)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDustAerosol'), settings.dustAerosol)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uDustDetail'), settings.dustDetail)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uHeightScale'), heightScale)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uNormalStrength'),
-      settings.normalStrength,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uPhotometricMix'),
-      settings.photometricMix,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uPointer'),
-      pointer.currentX,
-      pointer.currentY,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uResolution'),
-      canvas.width,
-      canvas.height,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uSelfShadowStrength'),
-      settings.selfShadowStrength,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-    gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uYaw'),
+      resources.uniforms.uYaw,
       ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
     )
     gl.drawArrays(gl.TRIANGLES, 0, 3)

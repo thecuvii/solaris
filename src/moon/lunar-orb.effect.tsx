@@ -5,6 +5,7 @@
 import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
 
 type LunarFrameSettings = {
   bloomIntensity: number
@@ -67,10 +68,37 @@ export type LunarOrbEffectProps = {
   viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
 
+const UNIFORM_NAMES = [
+  'uAlbedoTexture',
+  'uBloomIntensity',
+  'uBloomRadius',
+  'uBloomWarmth',
+  'uCompositionCenter',
+  'uCompositionScale',
+  'uEarthshineIntensity',
+  'uExposure',
+  'uHeightScale',
+  'uLongitudeOffset',
+  'uNormalHeightTexture',
+  'uNormalStrength',
+  'uOppositionStrength',
+  'uOppositionWidth',
+  'uPhotometricMix',
+  'uPointer',
+  'uReliefShadowStrength',
+  'uResolution',
+  'uSourceReady',
+  'uSunDirection',
+  'uTilt',
+  'uVeilingGlare',
+  'uYaw',
+] as const
+
 type LunarResources = {
   albedoTexture: WebGLTexture
   normalHeightTexture: WebGLTexture
   program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -433,10 +461,12 @@ function createTexture(
 function createResources(gl: WebGL2RenderingContext): LunarResources {
   const vertexArray = gl.createVertexArray()
   if (!vertexArray) throw new Error('Unable to create lunar vertex array')
+  const program = createProgram(gl)
   const resources = {
     albedoTexture: createTexture(gl, [255, 255, 255, 255]),
     normalHeightTexture: createTexture(gl, [128, 128, 255, 128]),
-    program: createProgram(gl),
+    program,
+    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
     vertexArray,
   }
   gl.bindVertexArray(vertexArray)
@@ -596,67 +626,34 @@ function createLunarRenderer(
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uBloomIntensity'),
-      settings.bloomIntensity,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uBloomRadius'), settings.bloomRadius)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uBloomWarmth'), settings.bloomWarmth)
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uCompositionCenter'),
-      compositionCenterX,
-      compositionCenterY,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uCompositionScale'), compositionScale)
+    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
+    gl.uniform1f(resources.uniforms.uBloomIntensity, settings.bloomIntensity)
+    gl.uniform1f(resources.uniforms.uBloomRadius, settings.bloomRadius)
+    gl.uniform1f(resources.uniforms.uBloomWarmth, settings.bloomWarmth)
+    gl.uniform2f(resources.uniforms.uCompositionCenter, compositionCenterX, compositionCenterY)
+    gl.uniform1f(resources.uniforms.uCompositionScale, compositionScale)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalHeightTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uNormalHeightTexture'), 1)
+    gl.uniform1i(resources.uniforms.uNormalHeightTexture, 1)
+    gl.uniform1f(resources.uniforms.uEarthshineIntensity, settings.earthshineIntensity / 1000)
+    gl.uniform1f(resources.uniforms.uExposure, settings.exposure)
+    gl.uniform1f(resources.uniforms.uHeightScale, heightScale)
+    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
+    gl.uniform1f(resources.uniforms.uNormalStrength, settings.normalStrength)
+    gl.uniform1f(resources.uniforms.uOppositionStrength, settings.oppositionStrength)
+    gl.uniform1f(resources.uniforms.uOppositionWidth, settings.oppositionWidth)
+    gl.uniform1f(resources.uniforms.uPhotometricMix, settings.photometricMix)
+    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
+    gl.uniform1f(resources.uniforms.uReliefShadowStrength, settings.reliefShadowStrength)
+    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
+    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(resources.uniforms.uSunDirection, ...sunDirection)
+    gl.uniform1f(resources.uniforms.uTilt, (settings.tilt * Math.PI) / 180)
     gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uEarthshineIntensity'),
-      settings.earthshineIntensity / 1000,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uExposure'), settings.exposure)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uHeightScale'), heightScale)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uLongitudeOffset'), longitudeOffset)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uNormalStrength'),
-      settings.normalStrength,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uOppositionStrength'),
-      settings.oppositionStrength,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uOppositionWidth'),
-      settings.oppositionWidth,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uPhotometricMix'),
-      settings.photometricMix,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uPointer'),
-      pointer.currentX,
-      pointer.currentY,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uReliefShadowStrength'),
-      settings.reliefShadowStrength,
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uResolution'),
-      canvas.width,
-      canvas.height,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-    gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uTilt'), (settings.tilt * Math.PI) / 180)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uYaw'),
+      resources.uniforms.uYaw,
       ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
     )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uVeilingGlare'), settings.veilingGlare)
+    gl.uniform1f(resources.uniforms.uVeilingGlare, settings.veilingGlare)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }

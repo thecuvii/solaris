@@ -5,6 +5,7 @@
 import { type CSSProperties } from 'react'
 
 import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
 
 export type PlutonianOrbSource = {
   ready?: () => Promise<void>
@@ -38,11 +39,35 @@ export type PlutonianOrbEffectProps = {
   yaw?: number
 }
 
+const UNIFORM_NAMES = [
+  'uAlbedoTexture',
+  'uExposure',
+  'uHazeForwardScattering',
+  'uHazeIntensity',
+  'uHazeThickness',
+  'uHeightMinimumScale',
+  'uHeightRangeScale',
+  'uHeightTexture',
+  'uIceResponse',
+  'uNormalTexture',
+  'uPhaseFill',
+  'uPointer',
+  'uReliefStrength',
+  'uResolution',
+  'uRoughness',
+  'uSourceReady',
+  'uSunDirection',
+  'uTholinStrength',
+  'uViewTilt',
+  'uYaw',
+] as const
+
 type PlutonianResources = {
   albedoTexture: WebGLTexture
   heightTexture: WebGLTexture
   normalTexture: WebGLTexture
   program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -541,6 +566,7 @@ function createResources(gl: WebGL2RenderingContext): PlutonianResources {
   const datumNormalized = Math.round(((0 - -4_101) / (6_491 - -4_101)) * 65_535)
   const highByte = datumNormalized >> 8
   const lowByte = datumNormalized & 255
+  const program = createProgram(gl)
   const resources = {
     albedoTexture: createTexture(gl, [150, 128, 118, 1], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
     heightTexture: createTexture(gl, [128, 128, highByte, lowByte], gl.NEAREST, gl.NEAREST),
@@ -550,7 +576,8 @@ function createResources(gl: WebGL2RenderingContext): PlutonianResources {
       gl.LINEAR_MIPMAP_LINEAR,
       gl.LINEAR,
     ),
-    program: createProgram(gl),
+    program,
+    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
     vertexArray,
   }
   gl.bindVertexArray(vertexArray)
@@ -737,71 +764,33 @@ function createPlutonianRenderer(
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uAlbedoTexture'), 0)
+    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uNormalTexture'), 1)
+    gl.uniform1i(resources.uniforms.uNormalTexture, 1)
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.heightTexture)
-    gl.uniform1i(gl.getUniformLocation(resources.program, 'uHeightTexture'), 2)
+    gl.uniform1i(resources.uniforms.uHeightTexture, 2)
+    gl.uniform1f(resources.uniforms.uExposure, clamp(settings.exposure, 0, 2))
     gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uExposure'),
-      clamp(settings.exposure, 0, 2),
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uHazeForwardScattering'),
+      resources.uniforms.uHazeForwardScattering,
       clamp(settings.hazeForwardScattering, 0, 0.92),
     )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uHazeIntensity'),
-      clamp(settings.hazeIntensity, 0, 1.5),
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uHazeThickness'),
-      clamp(settings.hazeThickness, 0, 0.18),
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uHeightMinimumScale'),
-      heightMinimumScale,
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uHeightRangeScale'), heightRangeScale)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uIceResponse'),
-      clamp(settings.iceResponse, 0, 2),
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uPhaseFill'),
-      clamp(settings.phaseFill, 0, 0.25),
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uPointer'),
-      pointer.currentX,
-      pointer.currentY,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uReliefStrength'),
-      clamp(settings.reliefStrength, 0, 2),
-    )
-    gl.uniform2f(
-      gl.getUniformLocation(resources.program, 'uResolution'),
-      canvas.width,
-      canvas.height,
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uRoughness'),
-      clamp(settings.roughness, 0.35, 1),
-    )
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uSourceReady'), hasSource ? 1 : 0)
-    gl.uniform3f(gl.getUniformLocation(resources.program, 'uSunDirection'), ...sunDirection)
-    gl.uniform1f(gl.getUniformLocation(resources.program, 'uYaw'), rotation)
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uTholinStrength'),
-      clamp(settings.tholinStrength, 0, 1.5),
-    )
-    gl.uniform1f(
-      gl.getUniformLocation(resources.program, 'uViewTilt'),
-      (clamp(settings.tilt, -30, 30) * Math.PI) / 180,
-    )
+    gl.uniform1f(resources.uniforms.uHazeIntensity, clamp(settings.hazeIntensity, 0, 1.5))
+    gl.uniform1f(resources.uniforms.uHazeThickness, clamp(settings.hazeThickness, 0, 0.18))
+    gl.uniform1f(resources.uniforms.uHeightMinimumScale, heightMinimumScale)
+    gl.uniform1f(resources.uniforms.uHeightRangeScale, heightRangeScale)
+    gl.uniform1f(resources.uniforms.uIceResponse, clamp(settings.iceResponse, 0, 2))
+    gl.uniform1f(resources.uniforms.uPhaseFill, clamp(settings.phaseFill, 0, 0.25))
+    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
+    gl.uniform1f(resources.uniforms.uReliefStrength, clamp(settings.reliefStrength, 0, 2))
+    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
+    gl.uniform1f(resources.uniforms.uRoughness, clamp(settings.roughness, 0.35, 1))
+    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(resources.uniforms.uSunDirection, ...sunDirection)
+    gl.uniform1f(resources.uniforms.uYaw, rotation)
+    gl.uniform1f(resources.uniforms.uTholinStrength, clamp(settings.tholinStrength, 0, 1.5))
+    gl.uniform1f(resources.uniforms.uViewTilt, (clamp(settings.tilt, -30, 30) * Math.PI) / 180)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }
