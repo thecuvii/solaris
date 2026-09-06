@@ -12,7 +12,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import { hapticPress, hapticTick } from './haptics'
 import { tokens } from './tokens.stylex'
-import { PosePad, splitPosePad } from './pose-pad'
+import { PosePad, splitOffsetPad, splitPosePad, XyPad } from './pose-pad'
 import { getPrecision, numberFlowFormat, numberFlowTimings } from './setting-format'
 import { useMobileShowcase } from './use-mobile-showcase'
 import type { PlanetId } from './showcase-data'
@@ -133,7 +133,8 @@ function ParameterGroup({
   label: string
   planetId: PlanetId
 }) {
-  const { pad, rest } = splitPosePad(definitions)
+  const pose = splitPosePad(definitions)
+  const offset = splitOffsetPad(pose.rest)
 
   return (
     <section {...stylex.props(styles.parameterGroup)}>
@@ -144,8 +145,9 @@ function ParameterGroup({
         {id === 'pose' && planetId === 'pluto' ? <PlutoCoverageHelp /> : null}
       </div>
       <div {...stylex.props(styles.controlGroup)}>
-        {pad ? <PosePad planetId={planetId} tilt={pad.tilt} yaw={pad.yaw} /> : null}
-        {rest.map((definition) => (
+        {pose.pad ? <PosePad planetId={planetId} tilt={pose.pad.tilt} yaw={pose.pad.yaw} /> : null}
+        {offset.pad ? <XyPad invert planetId={planetId} x={offset.pad.x} y={offset.pad.y} /> : null}
+        {offset.rest.map((definition) => (
           <ParameterControl key={definition.name} definition={definition} planetId={planetId} />
         ))}
       </div>

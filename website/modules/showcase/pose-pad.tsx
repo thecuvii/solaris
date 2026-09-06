@@ -7,7 +7,12 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 
 import { hapticPress, hapticTick } from './haptics'
 import { tokens } from './tokens.stylex'
-import { numberFlowFormat, numberFlowTimings } from './setting-format'
+import {
+  getPrecision,
+  liveNumberFlowTimings,
+  numberFlowFormat,
+  numberFlowTimings,
+} from './setting-format'
 import { useMobileShowcase } from './use-mobile-showcase'
 import type { PlanetId } from './showcase-data'
 import type { ParameterDefinition } from '../planet-params/planet-params'
@@ -27,22 +32,38 @@ const POSE_KEYS = new Set([
   'PageUp',
 ])
 
-export function splitPosePad(definitions: readonly ParameterDefinition[]): {
-  pad: { tilt: NumberParameter; yaw: NumberParameter } | null
+export function splitXyPad(
+  definitions: readonly ParameterDefinition[],
+  xName: string,
+  yName: string,
+): {
+  pad: { x: NumberParameter; y: NumberParameter } | null
   rest: readonly ParameterDefinition[]
 } {
-  const yaw = definitions.find((definition) => definition.name === 'yaw')
-  const tilt = definitions.find((definition) => definition.name === 'tilt')
-  if (yaw?.kind !== 'number' || tilt?.kind !== 'number') {
+  const x = definitions.find((definition) => definition.name === xName)
+  const y = definitions.find((definition) => definition.name === yName)
+  if (x?.kind !== 'number' || y?.kind !== 'number') {
     return { pad: null, rest: definitions }
   }
 
   return {
-    pad: { tilt, yaw },
+    pad: { x, y },
     rest: definitions.filter(
-      (definition) => definition.name !== 'yaw' && definition.name !== 'tilt',
+      (definition) => definition.name !== xName && definition.name !== yName,
     ),
   }
+}
+
+export function splitPosePad(definitions: readonly ParameterDefinition[]): {
+  pad: { tilt: NumberParameter; yaw: NumberParameter } | null
+  rest: readonly ParameterDefinition[]
+} {
+  const { pad, rest } = splitXyPad(definitions, 'yaw', 'tilt')
+  return { pad: pad ? { tilt: pad.y, yaw: pad.x } : null, rest }
+}
+
+export function splitOffsetPad(definitions: readonly ParameterDefinition[]) {
+  return splitXyPad(definitions, 'offsetX', 'offsetY')
 }
 
 export const PosePad = memo(function PosePad({
@@ -54,10 +75,29 @@ export const PosePad = memo(function PosePad({
   tilt: NumberParameter
   yaw: NumberParameter
 }) {
-  const [yawValue, setYawValue] = useAtom(settingAtom({ name: yaw.name, planetId }))
-  const [tiltValue, setTiltValue] = useAtom(settingAtom({ name: tilt.name, planetId }))
-  const yawNumber = Number(yawValue)
-  const tiltNumber = Number(tiltValue)
+  return <XyPad planetId={planetId} x={yaw} y={tilt} />
+})
+
+export const XyPad = memo(function XyPad({
+  invert = false,
+  planetId,
+  x,
+  y,
+}: {
+  /** Pad thumb is the opposite of the stored value (e.g. light vs shadow). */
+  invert?: boolean
+  planetId: PlanetId
+  x: NumberParameter
+  y: NumberParameter
+}) {
+  const [xValue, setXValue] = useAtom(settingAtom({ name: x.name, planetId }))
+  const [yValue, setYValue] = useAtom(settingAtom({ name: y.name, planetId }))
+  const yawNumber = Number(xValue)
+  const tiltNumber = Number(yValue)
+  const yaw = x
+  const tilt = y
+  const setYawValue = setXValue
+  const setTiltValue = setYValue
   const reduceMotion = useReducedMotion()
   const forceProgressHover = useMobileShowcase()
   const setSliderGesture = useSetAtom(setSliderGestureAtom)
@@ -69,6 +109,8 @@ export const PosePad = memo(function PosePad({
   const sizeRef = useRef({ height: 0, width: 0 })
   const lastHapticRef = useRef({ tilt: tiltNumber, yaw: yawNumber })
   const poseRef = useRef({ tilt: tiltNumber, yaw: yawNumber })
+  const pendingRef = useRef<{ tilt: number; yaw: number } | null>(null)
+  const flushFrameRef = useRef(0)
   const animationXRef = useRef<ReturnType<typeof animate> | null>(null)
   const animationYRef = useRef<ReturnType<typeof animate> | null>(null)
   const thumbX = useMotionValue(INSET)
@@ -77,8 +119,8 @@ export const PosePad = memo(function PosePad({
   const [interacting, setInteracting] = useState(false)
   const [focused, setFocused] = useState(false)
   const active = hovered || interacting || focused
-  const originX = toProgress(0, yaw.min, yaw.max)
-  const originY = 1 - toProgress(0, tilt.min, tilt.max)
+  const originX = toPadProgress(0, yaw.min, yaw.max, invert)
+  const originY = 1 - toPadProgress(0, tilt.min, tilt.max, invert)
 
   function setGestureActive(next: boolean) {
     interactingRef.current = next
@@ -115,9 +157,36 @@ export const PosePad = memo(function PosePad({
     [reduceMotion, thumbX, thumbY],
   )
 
-  function commit(nextYaw: number, nextTilt: number) {
-    if (nextYaw !== yawNumber) setYawValue(nextYaw)
-    if (nextTilt !== tiltNumber) setTiltValue(nextTilt)
+  function flushPending() {
+    flushFrameRef.current = 0
+    const pending = pendingRef.current
+    if (!pending) return
+    pendingRef.current = null
+    if (pending.yaw !== poseRef.current.yaw) setYawValue(pending.yaw)
+    if (pending.tilt !== poseRef.current.tilt) setTiltValue(pending.tilt)
+    poseRef.current = pending
+  }
+
+  function cancelPendingFlush() {
+    if (flushFrameRef.current) {
+      cancelAnimationFrame(flushFrameRef.current)
+      flushFrameRef.current = 0
+    }
+    pendingRef.current = null
+  }
+
+  function commit(nextYaw: number, nextTilt: number, immediate = false) {
+    pendingRef.current = { tilt: nextTilt, yaw: nextYaw }
+    if (immediate) {
+      if (flushFrameRef.current) {
+        cancelAnimationFrame(flushFrameRef.current)
+        flushFrameRef.current = 0
+      }
+      flushPending()
+      return
+    }
+    if (flushFrameRef.current) return
+    flushFrameRef.current = requestAnimationFrame(flushPending)
   }
 
   function updateFromPointer(clientX: number, clientY: number) {
@@ -132,8 +201,18 @@ export const PosePad = memo(function PosePad({
     placeThumb(yawProgress, tiltProgress)
 
     return {
-      yaw: quantize(fromProgress(yawProgress, yaw.min, yaw.max), yaw.min, yaw.max, yaw.step),
-      tilt: quantize(fromProgress(tiltProgress, tilt.min, tilt.max), tilt.min, tilt.max, tilt.step),
+      yaw: quantize(
+        fromPadProgress(yawProgress, yaw.min, yaw.max, invert),
+        yaw.min,
+        yaw.max,
+        yaw.step,
+      ),
+      tilt: quantize(
+        fromPadProgress(tiltProgress, tilt.min, tilt.max, invert),
+        tilt.min,
+        tilt.max,
+        tilt.step,
+      ),
     }
   }
 
@@ -142,14 +221,25 @@ export const PosePad = memo(function PosePad({
     pointerRef.current = null
     padRectRef.current = null
     interactingRef.current = false
+    cancelPendingFlush()
     setInteracting(false)
     setSliderGesture(false)
     animateTo(
-      toProgress(yawNumber, yaw.min, yaw.max),
-      toProgress(tiltNumber, tilt.min, tilt.max),
+      toPadProgress(yawNumber, yaw.min, yaw.max, invert),
+      toPadProgress(tiltNumber, tilt.min, tilt.max, invert),
       0.1,
     )
-  }, [animateTo, setSliderGesture, tilt.max, tilt.min, tiltNumber, yaw.max, yaw.min, yawNumber])
+  }, [
+    animateTo,
+    invert,
+    setSliderGesture,
+    tilt.max,
+    tilt.min,
+    tiltNumber,
+    yaw.max,
+    yaw.min,
+    yawNumber,
+  ])
 
   function hapticForPose(nextYaw: number, nextTilt: number) {
     if (!forceProgressHover) return
@@ -180,7 +270,7 @@ export const PosePad = memo(function PosePad({
     setGestureActive(true)
     if (forceProgressHover) hapticPress()
     const next = updateFromPointer(event.clientX, event.clientY)
-    commit(next.yaw, next.tilt)
+    commit(next.yaw, next.tilt, true)
     hapticForPose(next.yaw, next.tilt)
     try {
       event.currentTarget.setPointerCapture(event.pointerId)
@@ -203,10 +293,13 @@ export const PosePad = memo(function PosePad({
     pointerRef.current = null
     const next = updateFromPointer(event.clientX, event.clientY)
     padRectRef.current = null
-    commit(next.yaw, next.tilt)
+    commit(next.yaw, next.tilt, true)
     hapticForPose(next.yaw, next.tilt)
     setGestureActive(false)
-    animateTo(toProgress(next.yaw, yaw.min, yaw.max), toProgress(next.tilt, tilt.min, tilt.max))
+    animateTo(
+      toPadProgress(next.yaw, yaw.min, yaw.max, invert),
+      toPadProgress(next.tilt, tilt.min, tilt.max, invert),
+    )
   }
 
   function releaseKeyboardGesture() {
@@ -225,30 +318,35 @@ export const PosePad = memo(function PosePad({
       setSliderGesture(true)
     }
 
+    const xSign = invert ? -1 : 1
+    const ySign = invert ? -1 : 1
     const yawStep = event.shiftKey ? yaw.step * 10 : yaw.step
     const tiltStep = event.shiftKey ? tilt.step * 10 : tilt.step
     let nextYaw = yawNumber
     let nextTilt = tiltNumber
 
     if (event.key === 'ArrowLeft')
-      nextYaw = quantize(yawNumber - yawStep, yaw.min, yaw.max, yaw.step)
+      nextYaw = quantize(yawNumber - xSign * yawStep, yaw.min, yaw.max, yaw.step)
     if (event.key === 'ArrowRight')
-      nextYaw = quantize(yawNumber + yawStep, yaw.min, yaw.max, yaw.step)
+      nextYaw = quantize(yawNumber + xSign * yawStep, yaw.min, yaw.max, yaw.step)
     if (event.key === 'ArrowDown')
-      nextTilt = quantize(tiltNumber - tiltStep, tilt.min, tilt.max, tilt.step)
+      nextTilt = quantize(tiltNumber - ySign * tiltStep, tilt.min, tilt.max, tilt.step)
     if (event.key === 'ArrowUp')
-      nextTilt = quantize(tiltNumber + tiltStep, tilt.min, tilt.max, tilt.step)
+      nextTilt = quantize(tiltNumber + ySign * tiltStep, tilt.min, tilt.max, tilt.step)
     if (event.key === 'PageDown')
-      nextTilt = quantize(tiltNumber - tilt.step * 10, tilt.min, tilt.max, tilt.step)
+      nextTilt = quantize(tiltNumber - ySign * tilt.step * 10, tilt.min, tilt.max, tilt.step)
     if (event.key === 'PageUp')
-      nextTilt = quantize(tiltNumber + tilt.step * 10, tilt.min, tilt.max, tilt.step)
+      nextTilt = quantize(tiltNumber + ySign * tilt.step * 10, tilt.min, tilt.max, tilt.step)
     if (event.key === 'Home') {
       nextYaw = quantize(0, yaw.min, yaw.max, yaw.step)
       nextTilt = quantize(0, tilt.min, tilt.max, tilt.step)
     }
 
-    commit(nextYaw, nextTilt)
-    placeThumb(toProgress(nextYaw, yaw.min, yaw.max), toProgress(nextTilt, tilt.min, tilt.max))
+    commit(nextYaw, nextTilt, true)
+    placeThumb(
+      toPadProgress(nextYaw, yaw.min, yaw.max, invert),
+      toPadProgress(nextTilt, tilt.min, tilt.max, invert),
+    )
     hapticForPose(nextYaw, nextTilt)
   }
 
@@ -266,23 +364,26 @@ export const PosePad = memo(function PosePad({
       sizeRef.current = { height: pad.offsetHeight, width: pad.offsetWidth }
       if (interactingRef.current) return
       const pose = poseRef.current
-      placeThumb(toProgress(pose.yaw, yaw.min, yaw.max), toProgress(pose.tilt, tilt.min, tilt.max))
+      placeThumb(
+        toPadProgress(pose.yaw, yaw.min, yaw.max, invert),
+        toPadProgress(pose.tilt, tilt.min, tilt.max, invert),
+      )
     }
 
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(surface)
     return () => observer.disconnect()
-  }, [placeThumb, tilt.max, tilt.min, yaw.max, yaw.min])
+  }, [invert, placeThumb, tilt.max, tilt.min, yaw.max, yaw.min])
 
   useEffect(() => {
     if (interactingRef.current || keyboardGestureRef.current) return
     animateTo(
-      toProgress(yawNumber, yaw.min, yaw.max),
-      toProgress(tiltNumber, tilt.min, tilt.max),
+      toPadProgress(yawNumber, yaw.min, yaw.max, invert),
+      toPadProgress(tiltNumber, tilt.min, tilt.max, invert),
       0.12,
     )
-  }, [animateTo, tilt.max, tilt.min, tiltNumber, yaw.max, yaw.min, yawNumber])
+  }, [animateTo, invert, tilt.max, tilt.min, tiltNumber, yaw.max, yaw.min, yawNumber])
 
   useEffect(() => {
     window.addEventListener('blur', cancelGesture)
@@ -291,6 +392,7 @@ export const PosePad = memo(function PosePad({
 
   useEffect(() => {
     return () => {
+      cancelPendingFlush()
       animationXRef.current?.stop()
       animationYRef.current?.stop()
     }
@@ -299,12 +401,26 @@ export const PosePad = memo(function PosePad({
   return (
     <div {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.readouts)}>
-        <AxisReadout active={active} label={yaw.label} suffix={yaw.suffix} value={yawNumber} />
-        <AxisReadout active={active} label={tilt.label} suffix={tilt.suffix} value={tiltNumber} />
+        <AxisReadout
+          active={active}
+          live={interacting}
+          label={yaw.label}
+          step={yaw.step}
+          suffix={yaw.suffix}
+          value={invert ? -yawNumber : yawNumber}
+        />
+        <AxisReadout
+          active={active}
+          live={interacting}
+          label={tilt.label}
+          step={tilt.step}
+          suffix={tilt.suffix}
+          value={invert ? -tiltNumber : tiltNumber}
+        />
       </div>
       <div
         ref={padRef}
-        aria-label={`Yaw ${yawNumber} degrees, tilt ${tiltNumber} degrees`}
+        aria-label={`${yaw.label} ${invert ? -yawNumber : yawNumber}${yaw.suffix ? ` ${yaw.suffix}` : ''}, ${tilt.label} ${invert ? -tiltNumber : tiltNumber}${tilt.suffix ? ` ${tilt.suffix}` : ''}`}
         onBlur={() => {
           setFocused(false)
           releaseKeyboardGesture()
@@ -351,11 +467,15 @@ export const PosePad = memo(function PosePad({
 const AxisReadout = memo(function AxisReadout({
   active,
   label,
+  live = false,
+  step,
   suffix = '',
   value,
 }: {
   active: boolean
   label: string
+  live?: boolean
+  step: number
   suffix?: string
   value: number
 }) {
@@ -364,12 +484,12 @@ const AxisReadout = memo(function AxisReadout({
       <span {...stylex.props(styles.readoutLabel)}>{label}</span>
       <span {...stylex.props(styles.readoutValue)}>
         <NumberFlow
-          format={numberFlowFormat(0)}
+          format={numberFlowFormat(getPrecision(step))}
           isolate
-          plugins={[continuous]}
+          plugins={live ? undefined : [continuous]}
           value={value}
           willChange
-          {...numberFlowTimings}
+          {...(live ? liveNumberFlowTimings : numberFlowTimings)}
           {...stylex.props(styles.readoutDigits, active && styles.readoutDigitsActive)}
         />
         {suffix ? (
@@ -393,6 +513,15 @@ function toProgress(value: number, min: number, max: number): number {
 
 function fromProgress(progress: number, min: number, max: number): number {
   return min + progress * (max - min)
+}
+
+function toPadProgress(value: number, min: number, max: number, invert: boolean): number {
+  const progress = toProgress(value, min, max)
+  return invert ? 1 - progress : progress
+}
+
+function fromPadProgress(progress: number, min: number, max: number, invert: boolean): number {
+  return fromProgress(invert ? 1 - progress : progress, min, max)
 }
 
 function quantize(value: number, min: number, max: number, step: number): number {

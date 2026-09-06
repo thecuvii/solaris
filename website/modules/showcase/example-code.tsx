@@ -11,13 +11,18 @@ import { motion, useReducedMotion } from 'motion/react'
 import { useMemo } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { getPrecision, numberFlowFormat, numberFlowTimings } from './setting-format'
+import {
+  getPrecision,
+  liveNumberFlowTimings,
+  numberFlowFormat,
+  numberFlowTimings,
+} from './setting-format'
 import { hasTextures, siteOrigin, textures } from './showcase-data'
 import type { Planet, PlanetId } from './showcase-data'
 import { initialSettings, parameterDefinitions } from '../planet-params/planet-params'
 import type { ParameterDefinition, PlanetSettings } from '../planet-params/planet-params'
 import { planetExampleDeclarations, planetExampleProps } from '../planets/example-declarations'
-import { planetSettingsAtom, settingAtom } from './showcase-settings'
+import { planetSettingsAtom, settingAtom, sliderGestureAtom } from './showcase-settings'
 import { track } from './track'
 
 const highlighter = createHighlighterCoreSync({
@@ -72,6 +77,7 @@ function AnimatedCodeValue({
   planetId: PlanetId
 }) {
   const setting = useAtomValue(settingAtom({ name: definition.name, planetId }))
+  const live = useAtomValue(sliderGestureAtom)
 
   if (definition.kind === 'boolean') {
     return (
@@ -90,11 +96,11 @@ function AnimatedCodeValue({
     <NumberFlow
       format={numberFlowFormat(precision)}
       isolate
-      plugins={[continuous]}
+      plugins={live ? undefined : [continuous]}
       style={{ color }}
       value={effectValue}
       willChange
-      {...numberFlowTimings}
+      {...(live ? liveNumberFlowTimings : numberFlowTimings)}
       {...stylex.props(styles.codeNumberFlow)}
     />
   )

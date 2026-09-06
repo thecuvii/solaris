@@ -8,8 +8,8 @@ import { CHROME_INK_KEYS, noneTextLighting } from '../showcase/chrome-ink'
 import type { ChromeInkProperties } from '../showcase/chrome-ink'
 import type { PlanetId } from '../showcase/showcase-data'
 import {
+  displayedEclipseHaloAtom,
   displayedSkyLightingAtom,
-  eclipseHaloAtom,
   moonLightingAtom,
 } from '../showcase/showcase-settings'
 import { lunarEclipseChromeStyle } from './lunar-eclipse'
@@ -23,7 +23,7 @@ function usePlanetChrome(planetId: PlanetId): {
   elementInks: (ChromeInkProperties | null)[]
   style: CSSProperties
 } {
-  const eclipse = useAtomValue(eclipseHaloAtom)
+  const eclipse = useAtomValue(displayedEclipseHaloAtom)
   const moon = useAtomValue(moonLightingAtom)
   const sky = useAtomValue(displayedSkyLightingAtom)
   const skyProbes = useSkyChromeProbes(planetId === 'sky')

@@ -40,6 +40,14 @@ export const eclipseHaloAtom = atom((get) => ({
   offsetY: Number(get(settingAtom({ name: 'offsetY', planetId: 'lunar-eclipse' }))),
 }))
 
+const frozenEclipseHaloAtom = atom<ReturnType<typeof eclipseHaloAtom.read> | null>(null)
+
+export const displayedEclipseHaloAtom = atom((get) => {
+  const frozen = get(frozenEclipseHaloAtom)
+  if (frozen) return frozen
+  return get(eclipseHaloAtom)
+})
+
 export const moonLightingAtom = atom((get) => ({
   earthshineIntensity: Number(get(settingAtom({ name: 'earthshineIntensity', planetId: 'moon' }))),
   sunAzimuth: Number(get(settingAtom({ name: 'sunAzimuth', planetId: 'moon' }))),
@@ -64,8 +72,12 @@ export const displayedSkyLightingAtom = atom((get) => {
   return get(skyLightingAtom)
 })
 
+export const sliderGestureAtom = atom(false)
+
 export const setSliderGestureAtom = atom(null, (get, set, next: boolean) => {
+  set(sliderGestureAtom, next)
   set(frozenSkyLightingAtom, next ? get(skyLightingAtom) : null)
+  set(frozenEclipseHaloAtom, next ? get(eclipseHaloAtom) : null)
 })
 
 export const applyPlanetSettingsAtom = atom(
