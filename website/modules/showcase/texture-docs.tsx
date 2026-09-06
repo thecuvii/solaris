@@ -7,7 +7,12 @@ import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import { CopyIcon } from './example-code'
-import { getPlanetTextureAttribution, getPlanetTextureDocs, hasTextures } from './showcase-data'
+import {
+  getPlanetTextureAttribution,
+  getPlanetTextureDocs,
+  hasTextures,
+  siteOrigin,
+} from './showcase-data'
 import type { PlanetId, TextureDoc, TexturedPlanetId } from './showcase-data'
 import { track } from './track'
 
@@ -149,7 +154,7 @@ function TextureDocRow({ doc, planetId }: { doc: TextureDoc; planetId: PlanetId 
               texture_key: doc.key,
               texture_label: doc.label,
             })
-            void copy(doc.url)
+            void copy(`${siteOrigin}${doc.url}`)
           }}
           type="button"
           {...stylex.props(styles.textureAction, copied && styles.textureActionCopied)}

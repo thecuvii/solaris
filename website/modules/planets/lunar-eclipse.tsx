@@ -3,7 +3,8 @@
 import type { CSSProperties } from 'react'
 import { LunarEclipse } from '@thecuvii/solaris/moon'
 
-import { bleedViewport, expandedComposition } from '../planet-page/preview-frame'
+import { CanvasFade } from '../planet-page/canvas-fade'
+import { expandedComposition, skyViewport } from '../planet-page/preview-frame'
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 import { buildTextLighting } from '../showcase/chrome-ink'
 import { textures } from '../showcase/showcase-data'
@@ -27,11 +28,14 @@ export function lunarEclipseChromeStyle(eclipse: {
 
 export function LunarEclipsePreview() {
   return (
-    <LunarEclipse
-      {...usePlanetPreviewProps('lunar-eclipse')}
-      composition={expandedComposition}
-      textures={textures['lunar-eclipse']}
-      viewport={bleedViewport}
-    />
+    <>
+      <LunarEclipse
+        {...usePlanetPreviewProps('lunar-eclipse')}
+        composition={expandedComposition}
+        textures={textures['lunar-eclipse']}
+        viewport={skyViewport}
+      />
+      <CanvasFade />
+    </>
   )
 }

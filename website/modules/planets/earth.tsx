@@ -2,7 +2,8 @@
 
 import { Earth } from '@thecuvii/solaris/earth'
 
-import { expandedComposition, insetViewport } from '../planet-page/preview-frame'
+import { CanvasFade } from '../planet-page/canvas-fade'
+import { expandedComposition, skyViewport } from '../planet-page/preview-frame'
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 import { textures } from '../showcase/showcase-data'
 
@@ -20,12 +21,15 @@ export const earthModel = {
 
 export function EarthPreview() {
   return (
-    <Earth
-      {...usePlanetPreviewProps('earth')}
-      composition={expandedComposition}
-      model={earthModel}
-      textures={textures.earth}
-      viewport={insetViewport}
-    />
+    <>
+      <Earth
+        {...usePlanetPreviewProps('earth')}
+        composition={expandedComposition}
+        model={earthModel}
+        textures={textures.earth}
+        viewport={skyViewport}
+      />
+      <CanvasFade />
+    </>
   )
 }

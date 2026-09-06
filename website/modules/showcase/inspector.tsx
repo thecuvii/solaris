@@ -8,7 +8,7 @@ import NumberFlow, { continuous } from '@number-flow/react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { hapticPress, hapticTick } from './haptics'
 import { tokens } from './tokens.stylex'
@@ -264,6 +264,18 @@ export const ParameterSwitch = memo(function ParameterSwitch({
   )
 })
 
+function dodgeHandleOpacity(
+  progress: number,
+  labelEnd = 0.3,
+  valueStart = 0.78,
+  fade = 0.05,
+): number {
+  return Math.min(
+    Math.min(Math.max((progress - labelEnd) / fade, 0), 1),
+    Math.min(Math.max((valueStart - progress) / fade, 0), 1),
+  )
+}
+
 const ParameterSlider = memo(function ParameterSlider({
   label,
   max,
@@ -333,10 +345,12 @@ const ParameterSlider = memo(function ParameterSlider({
   // Track geometry, measured only when the track or its labels resize, so the
   // per-tick math below never forces a synchronous layout.
   const trackRectRef = useRef<DOMRect | null>(null)
-  const geometryRef = useRef({ labelEnd: 0, valueStart: 1 })
+  const geometryRef = useRef({ labelEnd: 0.3, valueStart: 0.78 })
   const fadeRef = useRef(0.05)
   const progress = useMotionValue(getNormalizedValue(value))
-  const handleOpacity = useMotionValue(1)
+  // Dialkit: handle is rest-hidden and only appears while active. CSS starts
+  // at 0 so SSR / first paint cannot flash it.
+  const handleOpacity = useMotionValue(0)
   const fillWidth = useTransform(progress, (current) => `${current * 100}%`)
   // The fill spans the whole track and slides left by (1 - p) track widths, so
   // a tick is a transform (paint-only) instead of a width change (layout). The
@@ -353,6 +367,8 @@ const ParameterSlider = memo(function ParameterSlider({
   const [editArmed, setEditArmed] = useState(false)
   const [draftValue, setDraftValue] = useState<number | null>(value)
   const active = hovered || interacting || focused || editing
+  const handleActiveRef = useRef(active)
+  handleActiveRef.current = active
   const forceProgressHover = useMobileShowcase()
   const atMaximum = value >= max
   const setSliderGesture = useSetAtom(setSliderGestureAtom)
@@ -549,20 +565,36 @@ const ParameterSlider = memo(function ParameterSlider({
     setEditArmed(false)
   }
 
-  useEffect(() => {
-    if (interactingRef.current || editingRef.current) return
-    animateTo(getNormalizedValue(value), 0.12)
-    setDraftValue(value)
-  }, [animateTo, getNormalizedValue, value])
+  const hasSyncedProgressRef = useRef(false)
 
   useEffect(() => {
+    if (interactingRef.current || editingRef.current) return
+    const nextProgress = getNormalizedValue(value)
+    // First commit is already seeded on the motion value. Jump, don't spring,
+    // or a bounce-y init reads as the handle/fill flickering into place.
+    if (!hasSyncedProgressRef.current) {
+      hasSyncedProgressRef.current = true
+      progress.jump(nextProgress)
+      setDraftValue(value)
+      return
+    }
+    animateTo(nextProgress, 0.12)
+    setDraftValue(value)
+  }, [animateTo, getNormalizedValue, progress, value])
+
+  useLayoutEffect(() => {
     // Positions are read only here, after layout, and normalised to the track
-    // width so the per-tick update below is pure arithmetic.
+    // width so the per-tick update below is pure arithmetic. Layout (not
+    // effect) so the first paint already has the measured dodge, not the
+    // fallback — same idea as Dialkit measuring before the handle is shown.
     function measure() {
       const track = trackRef.current
       const labelElement = labelRef.current
       const valueElement = valueRef.current
       if (!track || !labelElement || !valueElement) return
+      // NumberFlow / first layout can report 0-width text. Updating dodge
+      // from that would show a handle that the next frame has to hide.
+      if (labelElement.offsetWidth === 0 || valueElement.offsetWidth === 0) return
       const width = Math.max(track.offsetWidth, 1)
       geometryRef.current = {
         labelEnd: (labelElement.offsetLeft + labelElement.offsetWidth + 12) / width,
@@ -574,14 +606,12 @@ const ParameterSlider = memo(function ParameterSlider({
     }
 
     function updateHandleOpacity(current = progress.get()) {
+      if (!handleActiveRef.current) {
+        handleOpacity.set(0)
+        return
+      }
       const { labelEnd, valueStart } = geometryRef.current
-      const fade = fadeRef.current
-      handleOpacity.set(
-        Math.min(
-          Math.min(Math.max((current - labelEnd) / fade, 0), 1),
-          Math.min(Math.max((valueStart - current) / fade, 0), 1),
-        ),
-      )
+      handleOpacity.set(dodgeHandleOpacity(current, labelEnd, valueStart, fadeRef.current))
     }
 
     measure()
@@ -597,6 +627,15 @@ const ParameterSlider = memo(function ParameterSlider({
       resizeObserver.disconnect()
     }
   }, [handleOpacity, progress])
+
+  useLayoutEffect(() => {
+    if (!active) {
+      handleOpacity.set(0)
+      return
+    }
+    const { labelEnd, valueStart } = geometryRef.current
+    handleOpacity.set(dodgeHandleOpacity(progress.get(), labelEnd, valueStart, fadeRef.current))
+  }, [active, handleOpacity, progress])
 
   useEffect(() => {
     window.addEventListener('blur', cancelGesture)
@@ -742,7 +781,10 @@ const ParameterSlider = memo(function ParameterSlider({
           <motion.div
             aria-hidden="true"
             style={{ left: fillWidth, opacity: handleOpacity }}
-            {...stylex.props(styles.sliderThumb, active && styles.sliderThumbActive)}
+            {...stylex.props(
+              styles.sliderThumb,
+              (interacting || focused || editing) && styles.sliderThumbActive,
+            )}
           />
         </motion.div>
         <Slider.Control {...stylex.props(styles.sliderControl)}>
@@ -1157,10 +1199,11 @@ const styles = stylex.create({
     borderRadius: 2,
     boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.07), inset 0 -1px 1px oklch(0% 0 0 / 0.1)',
     height: 20,
+    opacity: 0,
     pointerEvents: 'none',
     position: 'absolute',
     top: 6,
-    transition: 'box-shadow 140ms ease-out, transform 140ms ease-out',
+    transition: 'box-shadow 140ms ease-out, opacity 150ms ease-out, transform 140ms ease-out',
     translate: '-50% 0',
     width: 4,
     zIndex: 2,

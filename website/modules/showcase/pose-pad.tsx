@@ -1,7 +1,7 @@
 import * as stylex from '@stylexjs/stylex'
 import NumberFlow, { continuous } from '@number-flow/react'
 import { useAtom, useSetAtom } from 'jotai'
-import { animate, motion, useMotionValue, useReducedMotion } from 'motion/react'
+import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
@@ -106,15 +106,20 @@ export const XyPad = memo(function XyPad({
   const interactingRef = useRef(false)
   const keyboardGestureRef = useRef(false)
   const padRectRef = useRef<DOMRect | null>(null)
-  const sizeRef = useRef({ height: 0, width: 0 })
   const lastHapticRef = useRef({ tilt: tiltNumber, yaw: yawNumber })
   const poseRef = useRef({ tilt: tiltNumber, yaw: yawNumber })
   const pendingRef = useRef<{ tilt: number; yaw: number } | null>(null)
   const flushFrameRef = useRef(0)
   const animationXRef = useRef<ReturnType<typeof animate> | null>(null)
   const animationYRef = useRef<ReturnType<typeof animate> | null>(null)
-  const thumbX = useMotionValue(INSET)
-  const thumbY = useMotionValue(INSET)
+  const hasSyncedThumbRef = useRef(false)
+  // Progress (0–1), not pixels — first paint can sit on the real value without
+  // waiting for a layout measure, which is what made the dot flash from the
+  // top-left inset to the origin.
+  const thumbProgressX = useMotionValue(toPadProgress(yawNumber, yaw.min, yaw.max, invert))
+  const thumbProgressY = useMotionValue(toPadProgress(tiltNumber, tilt.min, tilt.max, invert))
+  const thumbLeft = useTransform(thumbProgressX, thumbOffset)
+  const thumbTop = useTransform(thumbProgressY, (progress) => thumbOffset(1 - progress))
   const [hovered, setHovered] = useState(false)
   const [interacting, setInteracting] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -130,31 +135,33 @@ export const XyPad = memo(function XyPad({
 
   const placeThumb = useCallback(
     (yawProgress: number, tiltProgress: number) => {
-      const { height, width } = sizeRef.current
-      if (width === 0 || height === 0) return
-      thumbX.set(INSET + yawProgress * (width - INSET * 2) - THUMB / 2)
-      thumbY.set(INSET + (1 - tiltProgress) * (height - INSET * 2) - THUMB / 2)
+      thumbProgressX.set(yawProgress)
+      thumbProgressY.set(tiltProgress)
     },
-    [thumbX, thumbY],
+    [thumbProgressX, thumbProgressY],
   )
 
   const animateTo = useCallback(
     (yawProgress: number, tiltProgress: number, bounce = 0.18) => {
-      const { height, width } = sizeRef.current
-      if (width === 0 || height === 0) return
       animationXRef.current?.stop()
       animationYRef.current?.stop()
-      const nextX = INSET + yawProgress * (width - INSET * 2) - THUMB / 2
-      const nextY = INSET + (1 - tiltProgress) * (height - INSET * 2) - THUMB / 2
       if (reduceMotion) {
-        thumbX.set(nextX)
-        thumbY.set(nextY)
+        thumbProgressX.set(yawProgress)
+        thumbProgressY.set(tiltProgress)
         return
       }
-      animationXRef.current = animate(thumbX, nextX, { bounce, duration: 0.35, type: 'spring' })
-      animationYRef.current = animate(thumbY, nextY, { bounce, duration: 0.35, type: 'spring' })
+      animationXRef.current = animate(thumbProgressX, yawProgress, {
+        bounce,
+        duration: 0.35,
+        type: 'spring',
+      })
+      animationYRef.current = animate(thumbProgressY, tiltProgress, {
+        bounce,
+        duration: 0.35,
+        type: 'spring',
+      })
     },
-    [reduceMotion, thumbX, thumbY],
+    [reduceMotion, thumbProgressX, thumbProgressY],
   )
 
   function flushPending() {
@@ -354,36 +361,31 @@ export const XyPad = memo(function XyPad({
     poseRef.current = { tilt: tiltNumber, yaw: yawNumber }
   }, [tiltNumber, yawNumber])
 
-  useLayoutEffect(() => {
-    const surface = padRef.current
-    if (!surface) return
-
-    function measure() {
-      const pad = padRef.current
-      if (!pad) return
-      sizeRef.current = { height: pad.offsetHeight, width: pad.offsetWidth }
-      if (interactingRef.current) return
-      const pose = poseRef.current
-      placeThumb(
-        toPadProgress(pose.yaw, yaw.min, yaw.max, invert),
-        toPadProgress(pose.tilt, tilt.min, tilt.max, invert),
-      )
-    }
-
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(surface)
-    return () => observer.disconnect()
-  }, [invert, placeThumb, tilt.max, tilt.min, yaw.max, yaw.min])
-
   useEffect(() => {
     if (interactingRef.current || keyboardGestureRef.current) return
-    animateTo(
-      toPadProgress(yawNumber, yaw.min, yaw.max, invert),
-      toPadProgress(tiltNumber, tilt.min, tilt.max, invert),
-      0.12,
-    )
-  }, [animateTo, invert, tilt.max, tilt.min, tiltNumber, yaw.max, yaw.min, yawNumber])
+    const nextYaw = toPadProgress(yawNumber, yaw.min, yaw.max, invert)
+    const nextTilt = toPadProgress(tiltNumber, tilt.min, tilt.max, invert)
+    // Seeded on the motion value. Jump on the first commit so the dot does
+    // not spring in from the unused pixel inset.
+    if (!hasSyncedThumbRef.current) {
+      hasSyncedThumbRef.current = true
+      thumbProgressX.jump(nextYaw)
+      thumbProgressY.jump(nextTilt)
+      return
+    }
+    animateTo(nextYaw, nextTilt, 0.12)
+  }, [
+    animateTo,
+    invert,
+    thumbProgressX,
+    thumbProgressY,
+    tilt.max,
+    tilt.min,
+    tiltNumber,
+    yaw.max,
+    yaw.min,
+    yawNumber,
+  ])
 
   useEffect(() => {
     window.addEventListener('blur', cancelGesture)
@@ -456,8 +458,8 @@ export const XyPad = memo(function XyPad({
         />
         <motion.div
           aria-hidden="true"
-          style={{ x: thumbX, y: thumbY }}
-          {...stylex.props(styles.thumb, active && styles.thumbActive)}
+          style={{ left: thumbLeft, top: thumbTop }}
+          {...stylex.props(styles.thumb, (interacting || focused) && styles.thumbActive)}
         />
       </div>
     </div>
@@ -518,6 +520,10 @@ function fromProgress(progress: number, min: number, max: number): number {
 function toPadProgress(value: number, min: number, max: number, invert: boolean): number {
   const progress = toProgress(value, min, max)
   return invert ? 1 - progress : progress
+}
+
+function thumbOffset(progress: number): string {
+  return `calc(${INSET}px + ${progress} * (100% - ${INSET * 2}px) - ${THUMB / 2}px)`
 }
 
 function fromPadProgress(progress: number, min: number, max: number, invert: boolean): number {

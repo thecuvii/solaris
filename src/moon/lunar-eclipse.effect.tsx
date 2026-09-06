@@ -314,8 +314,11 @@ void main() {
   float haloFalloff = exp(
     -outsideDistance / max(uHaloWidth * MOON_RADIUS, 0.0001)
   );
-  float limbGlow = smoothstep(0.05, 0.42, limbSunVisibility);
-  float haloAlpha = (1.0 - coverage) * uHaloIntensity * 0.46 * limbGlow * haloFalloff;
+  float limbGlow = smoothstep(0.0, 0.22, limbSunVisibility);
+  // Start the halo inside the AA ring so a fading disc cannot open a hole
+  // before the glow is visible.
+  float inwardHalo = smoothstep(MOON_RADIUS - edgeWidth * 2.5, MOON_RADIUS + edgeWidth, radialDistance);
+  float haloAlpha = inwardHalo * uHaloIntensity * 0.46 * limbGlow * haloFalloff;
   vec3 haloDisplay = displayEncode(
     vec3(0.18, 0.46, 1.2) * uExposure * (0.65 + limbSunVisibility * 0.35)
   );
@@ -325,7 +328,10 @@ void main() {
     return;
   }
 
-  vec2 spherePosition = position / MOON_RADIUS;
+  vec2 unprojectedSpherePosition = position / MOON_RADIUS;
+  float unprojectedRadius = length(unprojectedSpherePosition);
+  float projectionScale = min(0.9999 / max(unprojectedRadius, 0.9999), 1.0);
+  vec2 spherePosition = unprojectedSpherePosition * projectionScale;
   vec3 geometricNormal = normalize(vec3(
     spherePosition,
     sqrt(max(1.0 - dot(spherePosition, spherePosition), 0.0))
@@ -387,8 +393,16 @@ void main() {
   float dither = (interleavedGradientNoise(gl_FragCoord.xy) - 0.5) / 255.0;
   surfaceDisplay = clamp(surfaceDisplay + dither, 0.0, 1.0);
 
-  float alpha = clamp(coverage + haloAlpha, 0.0, 1.0);
-  vec3 premultiplied = surfaceDisplay * coverage + haloDisplay * haloAlpha;
+  // Dark collapsed texels need the inward halo; already-bright limb does not,
+  // or the additive glow blows the rim to white.
+  float surfaceLuma = dot(surfaceDisplay, vec3(0.2126, 0.7152, 0.0722));
+  float fillNeed = 1.0 - smoothstep(0.12, 0.55, surfaceLuma);
+  float limbSafety = smoothstep(0.93, 1.0, unprojectedRadius);
+  surfaceDisplay = max(surfaceDisplay, haloDisplay * fillNeed * limbSafety * limbGlow * 0.7);
+  float limbHalo = haloAlpha * mix(0.22, 1.0, max(fillNeed, 1.0 - coverage));
+
+  float alpha = clamp(coverage + limbHalo, 0.0, 1.0);
+  vec3 premultiplied = surfaceDisplay * coverage + haloDisplay * limbHalo;
   fragColor = vec4(premultiplied, alpha);
 }
 `

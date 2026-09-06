@@ -3,7 +3,8 @@
 import type { CSSProperties } from 'react'
 import { Moon } from '@thecuvii/solaris/moon'
 
-import { expandedComposition, moonViewport } from '../planet-page/preview-frame'
+import { CanvasFade } from '../planet-page/canvas-fade'
+import { expandedComposition, skyViewport } from '../planet-page/preview-frame'
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 import { buildTextLighting } from '../showcase/chrome-ink'
 import { textures } from '../showcase/showcase-data'
@@ -31,11 +32,14 @@ export function moonChromeStyle(moon: {
 
 export function MoonPreview() {
   return (
-    <Moon
-      {...usePlanetPreviewProps('moon')}
-      composition={expandedComposition}
-      textures={textures.moon}
-      viewport={moonViewport}
-    />
+    <>
+      <Moon
+        {...usePlanetPreviewProps('moon')}
+        composition={expandedComposition}
+        textures={textures.moon}
+        viewport={skyViewport}
+      />
+      <CanvasFade />
+    </>
   )
 }

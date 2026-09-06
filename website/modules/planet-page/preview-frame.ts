@@ -25,16 +25,12 @@ export const bleedViewport = {
   top: 'calc(var(--showcase-preview-top) * -1 + var(--showcase-canvas-top, 0px))',
 }
 
-export const moonViewport = {
-  ...bleedViewport,
-  bottom: 'calc(var(--showcase-preview-top) + 100% - 100vh)',
-}
-
 export const skyViewport = {
   ...bleedViewport,
-  // Size off `lvh` (toolbar collapsed) plus a bleed so the sky keeps painting
-  // under Safari's translucent bottom bar and the canvas never resizes as the
-  // toolbar animates. `100dvh` would end exactly at the bar's top edge.
+  // Size off `lvh` (toolbar collapsed) plus a bleed so the canvas keeps painting
+  // under Safari's translucent bottom bar and never resizes as the toolbar
+  // animates. `100dvh` would end exactly at the bar's top edge. Shared by Sky
+  // and the other expanded planets (Earth, Moon, Lunar Eclipse).
   bottom:
     'calc(var(--showcase-preview-top) + 100% - 100lvh - var(--showcase-sky-bleed, 0px) - var(--visual-viewport-bottom-inset, 0px))',
 }
