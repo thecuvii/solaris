@@ -1148,6 +1148,9 @@ function createAtmosphericRenderer(
   if (!context) return null
   const gl: WebGL2RenderingContext = context
   const uniform = createUniformResolver(gl)
+  // 1×1 bitmap + CSS 100% is laid out before the first rAF. An uncleared
+  // alpha canvas composites as white on some engines; hide until we present.
+  canvas.style.opacity = '0'
 
   let contextLost = false
   let disposed = false
@@ -1493,6 +1496,7 @@ function createAtmosphericRenderer(
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 
     gl.bindVertexArray(null)
+    if (canvas.style.opacity !== '1') canvas.style.opacity = '1'
   }
 
   function handlePointerMove(event: PointerEvent): void {
@@ -1542,6 +1546,10 @@ function createAtmosphericRenderer(
   uploadSurfaceSource()
   void source?.ready?.().then(uploadSurfaceSource, () => undefined)
   resize()
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+  gl.viewport(0, 0, canvas.width, canvas.height)
+  gl.clearColor(0, 0, 0, 0)
+  gl.clear(gl.COLOR_BUFFER_BIT)
 
   return {
     dispose: () => {
@@ -1646,7 +1654,13 @@ export function AtmosphericOrbEffect({
             aria-hidden="true"
             height={1}
             ref={canvasRef}
-            style={{ display: 'block', height: '100%', pointerEvents: 'none', width: '100%' }}
+            style={{
+              backgroundColor: '#07080d',
+              display: 'block',
+              height: '100%',
+              pointerEvents: 'none',
+              width: '100%',
+            }}
             width={1}
           />
         </div>
@@ -1660,7 +1674,14 @@ export function AtmosphericOrbEffect({
       className={className}
       height={1}
       ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      style={{
+        backgroundColor: '#07080d',
+        display: 'block',
+        height: '100%',
+        touchAction: 'pan-y',
+        width: '100%',
+        ...style,
+      }}
       width={1}
     />
   )
