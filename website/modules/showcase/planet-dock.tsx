@@ -38,17 +38,15 @@ const GEAR_INSET = (DOCK_HEIGHT - GEAR_SIZE) / 2
 const GEAR_NUDGE = 8
 const DOCK_GAP = 8
 const GEAR_RESERVED = GEAR_SIZE + GEAR_INSET + GEAR_NUDGE + DOCK_GAP
-const FLOAT_GAP = 12
+const FLOAT_GAP = 4
+const SIDE_INSET = 8
 // How far the fixed shell over-extends above the viewport. WebKit's cutoff is
 // 1.05x; 50lvh leaves room for the visual viewport shrinking (toolbar expanded).
 const EDGE_ESCAPE = '50lvh'
-const PAGE_GUTTER = 'clamp(24px, 4vw, 64px)'
 const SHEET_FILL = 'lab(5 0 0 / 0.95)'
 const SHEET_BLUR = 'blur(22px) saturate(0.72)'
 const DOCK_RADIUS = DOCK_HEIGHT / 2
 const SHEET_RADIUS = 16
-// Fade-out height where the settings body meets the planet row.
-const BODY_FADE = 6
 const SHEET_HEIGHT = '50dvh'
 const PRESET_SNAP = 0.25
 // Offset at the first snap (max 50dvh − first snap 25dvh); the pill → sheet morph
@@ -511,7 +509,6 @@ export function PlanetDock({
                     </button>
                   </PlanetStrip>
                 </div>
-                <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
               </div>
             </Drawer.Popup>
           </Drawer.Viewport>
@@ -523,9 +520,24 @@ export function PlanetDock({
 
 const styles = stylex.create({
   dockRow: {
+    // Keep the parked-pill radius on all four corners, including the top,
+    // so the strip does not go square when the sheet lifts.
+    borderRadius: DOCK_RADIUS,
     flex: '0 0 auto',
     height: DOCK_HEIGHT,
+    overflow: 'hidden',
     position: 'relative',
+    // Same top hairline as the sheet, faded — only while the drawer is lifted.
+    '::before': {
+      borderRadius: 'inherit',
+      boxShadow: 'inset 0 1px 0 oklch(100% 0 0 / 0.06)',
+      content: '""',
+      inset: 0,
+      opacity: 'var(--dock-progress)',
+      pointerEvents: 'none',
+      position: 'absolute',
+      zIndex: 3,
+    },
   },
   gear: {
     alignItems: 'center',
@@ -698,24 +710,6 @@ const styles = stylex.create({
       transition: 'none',
     },
   },
-  sheetBottomMask: {
-    backgroundImage:
-      'linear-gradient(in oklch to bottom, transparent 0%, lab(5 0 0 / 0.22) 38%, lab(5 0 0 / 0.08) 68%, transparent 100%)',
-    bottom: `calc(-1 * (84px + ${FLOAT_GAP}px) * var(--dock-progress))`,
-    height: `calc((96px + ${FLOAT_GAP}px) * var(--dock-progress))`,
-    left: 0,
-    opacity: 'var(--dock-progress)',
-    pointerEvents: 'none',
-    position: 'absolute',
-    right: 0,
-    transitionDuration: 'inherit',
-    transitionProperty: 'opacity, height, bottom',
-    transitionTimingFunction: 'inherit',
-    zIndex: 2,
-    '@media (prefers-reduced-motion: reduce)': {
-      transition: 'none',
-    },
-  },
   sheetHandle: {
     alignItems: 'center',
     display: 'flex',
@@ -763,15 +757,12 @@ const styles = stylex.create({
     position: 'relative',
   },
   sheetScrollContent: {
-    // Room to scroll the last control clear of the fade above the planet row.
-    paddingBottom: BODY_FADE,
+    paddingBottom: 8,
     paddingInline: 20,
     paddingTop: 4,
   },
   sheetScrollViewport: {
     flex: 1,
-    // Settings dissolve into the planet row instead of being cut at its edge.
-    maskImage: `linear-gradient(to bottom, black calc(100% - ${BODY_FADE}px), transparent 100%)`,
     minHeight: 0,
     overflowX: 'hidden',
     overflowY: 'scroll',
@@ -830,7 +821,7 @@ const styles = stylex.create({
     flexDirection: 'column',
     // Same inset as the pill in every state, so the planet row is untouched.
     marginBottom: 'var(--float-bottom)',
-    marginInline: PAGE_GUTTER,
+    marginInline: SIDE_INSET,
     minHeight: 0,
     overflow: 'visible',
     pointerEvents: 'auto',

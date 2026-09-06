@@ -354,7 +354,7 @@ const styles = stylex.create({
       '--showcase-sky-bleed': '96px',
       '--showcase-title-pad': '28px',
       // Dock pill height plus its floating gap above the safe area.
-      '--showcase-wheel-height': '68px',
+      '--showcase-wheel-height': '60px',
       display: 'flex',
       flexDirection: 'column',
     },
