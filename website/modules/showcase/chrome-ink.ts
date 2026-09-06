@@ -4,6 +4,8 @@ export type ChromeInkProperties = {
   '--showcase-code-ink': string
   '--showcase-code-ink-hover': string
   '--showcase-code-ink-strong': string
+  /** Secondary labels such as inspector group titles. */
+  '--showcase-label-ink': string
   '--showcase-nav-ink': string
   '--showcase-nav-ink-hover': string
   '--showcase-nav-ink-strong': string
@@ -23,6 +25,7 @@ const LIGHT_CHROME_INK: ChromeInkProperties = {
   '--showcase-code-ink': 'rgba(242, 232, 208, 0.5)',
   '--showcase-code-ink-hover': '#f2e8d0',
   '--showcase-code-ink-strong': '#f2e8d0',
+  '--showcase-label-ink': 'rgba(242, 232, 208, 0.66)',
   '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
   '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',
   '--showcase-nav-ink-strong': '#f2e8d0',
@@ -46,6 +49,7 @@ const DARK_CHROME_INK: ChromeInkProperties = {
   '--showcase-code-ink': 'oklch(16% 0.018 70 / 0.82)',
   '--showcase-code-ink-hover': 'oklch(10% 0.02 70)',
   '--showcase-code-ink-strong': 'oklch(10% 0.02 70)',
+  '--showcase-label-ink': 'oklch(12% 0.018 70 / 0.88)',
   '--showcase-nav-ink': 'oklch(12% 0.018 70 / 0.88)',
   '--showcase-nav-ink-hover': 'oklch(8% 0.02 70 / 0.96)',
   '--showcase-nav-ink-strong': 'oklch(7% 0.022 70)',
@@ -54,56 +58,17 @@ const DARK_CHROME_INK: ChromeInkProperties = {
   '--showcase-title-top': 'oklch(11% 0.02 70)',
 }
 
+export const CHROME_INK_KEYS = Object.keys(LIGHT_CHROME_INK) as (keyof ChromeInkProperties)[]
+
+/** Ink palette for a backdrop wash: 0 = cream ink on dark, 1 = dark ink on bright. */
 export function chromeInk(wash: number): ChromeInkProperties {
   if (wash <= 0.001) return LIGHT_CHROME_INK
   if (wash >= 0.999) return DARK_CHROME_INK
-  return {
-    '--showcase-code-ink': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-code-ink'],
-      DARK_CHROME_INK['--showcase-code-ink'],
-    ),
-    '--showcase-code-ink-hover': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-code-ink-hover'],
-      DARK_CHROME_INK['--showcase-code-ink-hover'],
-    ),
-    '--showcase-code-ink-strong': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-code-ink-strong'],
-      DARK_CHROME_INK['--showcase-code-ink-strong'],
-    ),
-    '--showcase-nav-ink': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-nav-ink'],
-      DARK_CHROME_INK['--showcase-nav-ink'],
-    ),
-    '--showcase-nav-ink-hover': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-nav-ink-hover'],
-      DARK_CHROME_INK['--showcase-nav-ink-hover'],
-    ),
-    '--showcase-nav-ink-strong': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-nav-ink-strong'],
-      DARK_CHROME_INK['--showcase-nav-ink-strong'],
-    ),
-    '--showcase-summary-ink': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-summary-ink'],
-      DARK_CHROME_INK['--showcase-summary-ink'],
-    ),
-    '--showcase-title-bottom': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-title-bottom'],
-      DARK_CHROME_INK['--showcase-title-bottom'],
-    ),
-    '--showcase-title-top': inkMix(
-      wash,
-      LIGHT_CHROME_INK['--showcase-title-top'],
-      DARK_CHROME_INK['--showcase-title-top'],
-    ),
+  const ink = {} as ChromeInkProperties
+  for (const key of CHROME_INK_KEYS) {
+    ink[key] = inkMix(wash, LIGHT_CHROME_INK[key], DARK_CHROME_INK[key])
   }
+  return ink
 }
 
 export function noneTextLighting(): EclipseTextLightingProperties {

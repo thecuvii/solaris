@@ -473,7 +473,7 @@ export function PlanetDock({
               initialFocus={false}
               {...stylex.props(styles.popup, !placed && styles.popupPending)}
             >
-              <div {...stylex.props(styles.sheetSurface)}>
+              <div data-sky-ink-opaque="" {...stylex.props(styles.sheetSurface)}>
                 <div
                   aria-hidden="true"
                   {...stylex.props(
@@ -822,6 +822,9 @@ const styles = stylex.create({
     backgroundColor: 'lab(5 0 0 / 0.78)',
   },
   sheetSurface: {
+    // The sheet is always a dark surface, so labels inside it keep the cream
+    // ink regardless of what the Sky canvas is doing behind it.
+    '--showcase-label-ink': 'rgba(242, 232, 208, 0.66)',
     '--slider-progress-bg': 'oklch(43.49% 0 0)',
     '--slider-track-bg': 'oklch(35.62% 0 0)',
     backgroundColor: 'transparent',

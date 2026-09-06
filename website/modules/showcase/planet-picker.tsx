@@ -12,7 +12,7 @@ import { track } from './track'
 function ShowcaseWordmark({ sidebar = false }: { sidebar?: boolean }) {
   return (
     <Link
-      data-chrome-probe={sidebar ? 'nav-row' : undefined}
+      data-sky-ink={sidebar ? '' : undefined}
       href={planetPath(defaultPlanetId)}
       {...stylex.props(
         styles.wordmark,
@@ -50,7 +50,7 @@ export const PlanetPicker = memo(function PlanetPicker({
             {planets.map((planet) => (
               <Link
                 key={planet.id}
-                data-chrome-probe="nav-row"
+                data-sky-ink=""
                 href={planetPath(planet.id)}
                 {...stylex.props(
                   styles.planetTab,
@@ -101,7 +101,7 @@ export const PlanetPicker = memo(function PlanetPicker({
             ))}
           </nav>
 
-          <div data-chrome-probe="nav-row" {...stylex.props(styles.pickerMeta)}>
+          <div data-sky-ink="" {...stylex.props(styles.pickerMeta)}>
             <a
               href={withSiteSource('https://github.com/thecuvii/solaris')}
               onClick={() => track('clicked_github', { target: 'repo' })}

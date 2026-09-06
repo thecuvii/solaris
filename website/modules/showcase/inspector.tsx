@@ -67,7 +67,9 @@ function PresetGrid({ planetId }: { planetId: PlanetId }) {
   return (
     <section {...stylex.props(styles.parameterGroup)}>
       <div {...stylex.props(styles.groupHeading)}>
-        <h2 {...stylex.props(styles.groupTitle)}>Preset</h2>
+        <h2 data-sky-ink="" {...stylex.props(styles.groupTitle)}>
+          Preset
+        </h2>
       </div>
       <div aria-label="Preset" {...stylex.props(styles.presetGrid)}>
         {presets.map((preset) => (
@@ -132,7 +134,9 @@ function ParameterGroup({
   return (
     <section {...stylex.props(styles.parameterGroup)}>
       <div {...stylex.props(styles.groupHeading)}>
-        <h2 {...stylex.props(styles.groupTitle)}>{label}</h2>
+        <h2 data-sky-ink="" {...stylex.props(styles.groupTitle)}>
+          {label}
+        </h2>
         {id === 'pose' && planetId === 'pluto' ? <PlutoCoverageHelp /> : null}
       </div>
       <div {...stylex.props(styles.controlGroup)}>
@@ -876,7 +880,7 @@ const styles = stylex.create({
     },
   },
   groupTitle: {
-    color: 'rgba(242, 232, 208, 0.66)',
+    color: 'var(--showcase-label-ink)',
     fontSize: 13,
     fontWeight: 600,
     lineHeight: 1,

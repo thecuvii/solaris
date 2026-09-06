@@ -4,7 +4,8 @@ import type { CSSProperties, RefObject } from 'react'
 import { useLayoutEffect } from 'react'
 import { useAtomValue } from 'jotai'
 
-import { noneTextLighting } from '../showcase/chrome-ink'
+import { CHROME_INK_KEYS, noneTextLighting } from '../showcase/chrome-ink'
+import type { ChromeInkProperties } from '../showcase/chrome-ink'
 import type { PlanetId } from '../showcase/showcase-data'
 import {
   displayedSkyLightingAtom,
@@ -13,18 +14,13 @@ import {
 } from '../showcase/showcase-settings'
 import { lunarEclipseChromeStyle } from './lunar-eclipse'
 import { moonChromeStyle } from './moon'
-import { skyChromeStyle, skyNavRowInks, useSkyChromeProbes } from './sky-chrome'
-import type { SkyNavRowInk } from './sky-chrome'
+import { SKY_INK_SELECTOR, skyChromeStyle, skyInkElements, useSkyChromeProbes } from './sky-chrome'
 
-const NAV_ROW_KEYS: (keyof SkyNavRowInk)[] = [
-  '--showcase-nav-ink',
-  '--showcase-nav-ink-hover',
-  '--showcase-nav-ink-strong',
-]
-const NO_ROW_INKS: SkyNavRowInk[] = []
+const NO_ELEMENT_INKS: (ChromeInkProperties | null)[] = []
 
 function usePlanetChrome(planetId: PlanetId): {
-  navRows: SkyNavRowInk[]
+  /** Per-element overrides for `[data-sky-ink]`, in DOM order. */
+  elementInks: (ChromeInkProperties | null)[]
   style: CSSProperties
 } {
   const eclipse = useAtomValue(eclipseHaloAtom)
@@ -32,13 +28,16 @@ function usePlanetChrome(planetId: PlanetId): {
   const sky = useAtomValue(displayedSkyLightingAtom)
   const skyProbes = useSkyChromeProbes(planetId === 'sky')
   if (planetId === 'lunar-eclipse') {
-    return { navRows: NO_ROW_INKS, style: lunarEclipseChromeStyle(eclipse) }
+    return { elementInks: NO_ELEMENT_INKS, style: lunarEclipseChromeStyle(eclipse) }
   }
-  if (planetId === 'moon') return { navRows: NO_ROW_INKS, style: moonChromeStyle(moon) }
+  if (planetId === 'moon') return { elementInks: NO_ELEMENT_INKS, style: moonChromeStyle(moon) }
   if (planetId === 'sky') {
-    return { navRows: skyNavRowInks(sky, skyProbes), style: skyChromeStyle(sky, skyProbes) }
+    return {
+      elementInks: skyInkElements(sky, skyProbes),
+      style: skyChromeStyle(sky, skyProbes),
+    }
   }
-  return { navRows: NO_ROW_INKS, style: noneTextLighting() }
+  return { elementInks: NO_ELEMENT_INKS, style: noneTextLighting() }
 }
 
 export function usePlanetChromeStyle(planetId: PlanetId): CSSProperties {
@@ -52,7 +51,7 @@ export function PlanetPageInk({
   planetId: PlanetId
   targetRef: RefObject<HTMLDivElement | null>
 }) {
-  const { navRows, style } = usePlanetChrome(planetId)
+  const { elementInks, style } = usePlanetChrome(planetId)
   useLayoutEffect(() => {
     const node = targetRef.current
     if (!node) return
@@ -62,17 +61,17 @@ export function PlanetPageInk({
     }
   }, [style, targetRef])
 
-  // Sky overrides the nav ink row by row; every other planet inherits the
+  // Sky overrides ink element by element; every other planet inherits the
   // page-level variables, so clear any leftovers.
   useLayoutEffect(() => {
-    const rows = document.querySelectorAll<HTMLElement>('[data-chrome-probe="nav-row"]')
-    rows.forEach((row, index) => {
-      const ink = navRows[index]
-      for (const key of NAV_ROW_KEYS) {
-        if (ink) row.style.setProperty(key, ink[key])
-        else row.style.removeProperty(key)
+    const elements = document.querySelectorAll<HTMLElement>(SKY_INK_SELECTOR)
+    elements.forEach((element, index) => {
+      const ink = elementInks[index]
+      for (const key of CHROME_INK_KEYS) {
+        if (ink) element.style.setProperty(key, ink[key])
+        else element.style.removeProperty(key)
       }
     })
-  }, [navRows])
+  }, [elementInks])
   return null
 }

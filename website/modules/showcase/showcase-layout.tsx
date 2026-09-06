@@ -312,6 +312,7 @@ const styles = stylex.create({
     '--showcase-code-ink': 'rgba(242, 232, 208, 0.5)',
     '--showcase-code-ink-hover': '#f2e8d0',
     '--showcase-code-ink-strong': '#f2e8d0',
+    '--showcase-label-ink': 'rgba(242, 232, 208, 0.66)',
     '--showcase-nav-ink': 'rgba(242, 232, 208, 0.42)',
     '--showcase-nav-ink-hover': 'rgba(242, 232, 208, 0.76)',
     '--showcase-nav-ink-strong': '#f2e8d0',
