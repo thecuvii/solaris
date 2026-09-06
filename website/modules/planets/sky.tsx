@@ -24,6 +24,23 @@ export function SkyPreview() {
         composition={expandedComposition}
         viewport={skyViewport}
       />
+      {/*
+        The canvas ends on a hard edge against the page background. Fade it
+        out over the last stretch with a static gradient overlay — cheaper than
+        a mask on a canvas that repaints every frame.
+      */}
+      <div
+        aria-hidden="true"
+        style={{
+          background: 'linear-gradient(to bottom, rgba(7, 8, 13, 0), #07080d)',
+          bottom: skyViewport.bottom,
+          height: 180,
+          left: skyViewport.left,
+          pointerEvents: 'none',
+          position: 'absolute',
+          right: skyViewport.right,
+        }}
+      />
     </>
   )
 }
