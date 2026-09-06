@@ -16,7 +16,9 @@ export type SunProps = Omit<SolarOrbEffectProps, 'source'> &
   }
 
 export function Sun({ onError, onReady, onStatusChange, textures, ...props }: SunProps) {
-  const source = useMemo(() => createSolarAia304Source(textures.observation), [textures])
+  // Key the source on the URL so an inline `textures` literal stays stable.
+  const { observation } = textures
+  const source = useMemo(() => createSolarAia304Source(observation), [observation])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
   return <SolarOrbEffect {...props} source={source} />
 }

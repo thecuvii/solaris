@@ -17,9 +17,11 @@ export type MarsProps = Omit<MartianOrbEffectProps, 'source'> &
   }
 
 export function Mars({ onError, onReady, onStatusChange, textures, ...props }: MarsProps) {
+  // Key the source on the URLs so an inline `textures` literal stays stable.
+  const { albedo, normalHeight } = textures
   const source = useMemo(
-    () => createMartianSurfaceSource(textures.albedo, textures.normalHeight),
-    [textures],
+    () => createMartianSurfaceSource(albedo, normalHeight),
+    [albedo, normalHeight],
   )
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
   return <MartianOrbEffect {...props} source={source} />

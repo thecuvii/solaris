@@ -23,15 +23,11 @@ export function LunarEclipse({
   textures,
   ...props
 }: LunarEclipseProps) {
+  // Key the source on the URLs so an inline `textures` literal stays stable.
+  const { albedo, normalHeight } = textures
   const source = useMemo(
-    () =>
-      createLunarSurfaceSource(
-        textures.albedo,
-        textures.normalHeight,
-        longitudeOffsetDegrees,
-        heightScale,
-      ),
-    [heightScale, longitudeOffsetDegrees, textures],
+    () => createLunarSurfaceSource(albedo, normalHeight, longitudeOffsetDegrees, heightScale),
+    [albedo, heightScale, longitudeOffsetDegrees, normalHeight],
   )
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
 

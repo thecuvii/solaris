@@ -16,7 +16,9 @@ export type JupiterProps = Omit<JovianOrbEffectProps, 'source'> &
   }
 
 export function Jupiter({ onError, onReady, onStatusChange, textures, ...props }: JupiterProps) {
-  const source = useMemo(() => createJovianCloudSource(textures.albedo), [textures])
+  // Key the source on the URL so an inline `textures` literal stays stable.
+  const { albedo } = textures
+  const source = useMemo(() => createJovianCloudSource(albedo), [albedo])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
   return <JovianOrbEffect {...props} source={source} />
 }

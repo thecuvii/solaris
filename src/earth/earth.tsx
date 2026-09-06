@@ -29,18 +29,22 @@ export function Earth({
   textures,
   ...props
 }: EarthProps) {
+  // Key the source on the texture URLs, not the `textures` object identity.
+  // An inline `textures={{ ... }}` literal would otherwise rebuild the WebGL
+  // context and re-upload every texture on each parent render.
+  const { cloud, day, material, night, normal, roughness } = textures
   const source = useMemo(
     () =>
       createEarthSurfaceSource(
-        textures.day,
-        textures.night,
-        textures.normal,
-        textures.roughness,
-        textures.cloud,
-        textures.material,
+        day,
+        night,
+        normal,
+        roughness,
+        cloud,
+        material,
         longitudeOffsetDegrees,
       ),
-    [longitudeOffsetDegrees, textures],
+    [cloud, day, longitudeOffsetDegrees, material, night, normal, roughness],
   )
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
 

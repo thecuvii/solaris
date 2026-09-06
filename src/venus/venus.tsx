@@ -16,7 +16,9 @@ export type VenusProps = Omit<VenusianOrbEffectProps, 'source'> &
   }
 
 export function Venus({ onError, onReady, onStatusChange, textures, ...props }: VenusProps) {
-  const source = useMemo(() => createVenusianCloudSource(textures.cloudStructure), [textures])
+  // Key the source on the URL so an inline `textures` literal stays stable.
+  const { cloudStructure } = textures
+  const source = useMemo(() => createVenusianCloudSource(cloudStructure), [cloudStructure])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
   return <VenusianOrbEffect {...props} source={source} />
 }

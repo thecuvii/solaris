@@ -17,9 +17,11 @@ export type MercuryProps = Omit<MercurialOrbEffectProps, 'source'> &
   }
 
 export function Mercury({ onError, onReady, onStatusChange, textures, ...props }: MercuryProps) {
+  // Key the source on the URLs so an inline `textures` literal stays stable.
+  const { albedo, normalHeight } = textures
   const source = useMemo(
-    () => createMercurialSurfaceSource(textures.albedo, textures.normalHeight),
-    [textures],
+    () => createMercurialSurfaceSource(albedo, normalHeight),
+    [albedo, normalHeight],
   )
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
 

@@ -17,10 +17,9 @@ export type SaturnProps = Omit<SaturnOrbEffectProps, 'source'> &
   }
 
 export function Saturn({ onError, onReady, onStatusChange, textures, ...props }: SaturnProps) {
-  const source = useMemo(
-    () => createSaturnAtmosphereSource(textures.atmosphere, textures.rings),
-    [textures],
-  )
+  // Key the source on the URLs so an inline `textures` literal stays stable.
+  const { atmosphere, rings } = textures
+  const source = useMemo(() => createSaturnAtmosphereSource(atmosphere, rings), [atmosphere, rings])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
   return <SaturnOrbEffect {...props} source={source} />
 }

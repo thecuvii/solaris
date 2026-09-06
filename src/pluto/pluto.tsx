@@ -17,9 +17,11 @@ export type PlutoProps = Omit<PlutonianOrbEffectProps, 'source'> &
   }
 
 export function Pluto({ onError, onReady, onStatusChange, textures, ...props }: PlutoProps) {
+  // Key the source on the URLs so an inline `textures` literal stays stable.
+  const { albedo, normalHeight } = textures
   const source = useMemo(
-    () => createPlutonianSurfaceSource(textures.albedo, textures.normalHeight),
-    [textures],
+    () => createPlutonianSurfaceSource(albedo, normalHeight),
+    [albedo, normalHeight],
   )
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
   return <PlutonianOrbEffect {...props} source={source} />
