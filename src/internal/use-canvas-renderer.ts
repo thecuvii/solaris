@@ -41,6 +41,7 @@ export function useCanvasRenderer<Settings, Input>(
     },
     // `getSettings` is an Effect Event. React 19 recreates that function every
     // render, so listing it here tears down the WebGL context on every slider tick.
+    // oxlint-disable-next-line react/preserve-manual-memoization -- intentional: keep the renderer alive across setting changes
     [createRenderer, input],
   )
 }
