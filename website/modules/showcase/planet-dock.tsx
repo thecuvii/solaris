@@ -21,6 +21,8 @@ const LOOP_COPIES = 3
 const LOOP_MID = 1
 const SET_WIDTH = planets.length * PITCH
 const TICKS_PER_STEP = 4
+// Strip edge band that the mask fades out; planets here count as out of view.
+const EDGE_FADE = 40
 const TICK_PX = PITCH / TICKS_PER_STEP
 const LOOP_SLIDES = Array.from({ length: LOOP_COPIES * planets.length }, (_, slot) => {
   const index = slot % planets.length
@@ -41,11 +43,13 @@ const SHEET_FILL = 'lab(5 0 0 / 0.42)'
 const SHEET_BLUR = 'blur(22px) saturate(0.72)'
 const DOCK_RADIUS = DOCK_HEIGHT / 2
 const SHEET_RADIUS = 16
+// Fade-out height where the settings body meets the planet row.
+const BODY_FADE = 28
 const SHEET_HEIGHT = '50dvh'
 const PRESET_SNAP = 0.25
-// Offset at the flush snap (max 50dvh − first snap 25dvh). Float morph finishes 5dvh later.
+// Offset at the first snap (max 50dvh − first snap 25dvh); the pill → sheet morph
+// completes over the travel from the dock to here.
 const PRESET_TRAVEL = '25dvh'
-const MORPH_RANGE = '5dvh'
 const EXPANDED_NUDGE_PX = 48
 // scrollend fallback: wrap clones once scroll events stop for this long.
 const SETTLE_FALLBACK_MS = 160
@@ -237,7 +241,15 @@ function PlanetStrip({
     onSelectPlanetRef.current(id)
   }
 
-  // Route changes recenter the already-selected planet. Clicks drive themselves.
+  // True when the planet is inside the strip's readable band (past the edge fades).
+  function isInView(strip: HTMLDivElement, index: number) {
+    const offset = offsetFor(nearestCopy(strip.scrollLeft, index), index)
+    const halfBand = strip.clientWidth / 2 - ITEM_SIZE / 2 - EDGE_FADE
+    return Math.abs(offset - strip.scrollLeft) <= halfBand
+  }
+
+  // Route changes only scroll when the selected planet is out of view; the
+  // strip otherwise stays where the user left it. Taps never scroll.
   useLayoutEffect(() => {
     const strip = stripRef.current
     if (!strip) return
@@ -251,6 +263,7 @@ function PlanetStrip({
       strip.scrollTo({ left: offsetFor(LOOP_MID, selectedIndex), behavior: 'instant' })
       return
     }
+    if (isInView(strip, selectedIndex)) return
     scrollToPlanet(selectedIndex, reducedMotion ? 'instant' : 'smooth')
   }, [reducedMotion, selectedIndex])
 
@@ -302,23 +315,16 @@ function PlanetStrip({
     }
   }, [])
 
-  function selectPlanet(copy: number, index: number) {
+  function selectPlanet(_copy: number, index: number) {
     if (ignoreClickRef.current) {
       ignoreClickRef.current = false
       return
     }
     armSound()
     commitSelection(planets[index].id)
+    // No recentring: the tapped planet highlights in place.
     const strip = stripRef.current
-    if (!strip) return
-    const target = offsetFor(copy, index)
-    if (Math.abs(strip.scrollLeft - target) < 1) {
-      wrapLoop(strip)
-      return
-    }
-    animatingRef.current = !reducedMotion
-    strip.scrollTo({ left: target, behavior: reducedMotion ? 'instant' : 'smooth' })
-    if (reducedMotion) wrapLoop(strip)
+    if (strip) wrapLoop(strip)
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
@@ -385,6 +391,30 @@ export function PlanetDock({
 }) {
   const [mode, setMode] = useState<DockMode>('dock')
   const [probe, setProbe] = useState<HTMLDivElement | null>(null)
+  const popupRef = useRef<HTMLDivElement>(null)
+  // Base UI writes `--drawer-snap-point-offset: 0px` until it has measured the
+  // popup and viewport, which paints the full sheet for a frame and then
+  // animates it *down* into the dock. Hold the popup below the viewport until
+  // the offset is real, then let the normal transition slide it up.
+  const [placed, setPlaced] = useState(false)
+
+  useEffect(() => {
+    if (placed) return
+    let frame = 0
+    const check = () => {
+      const popup = popupRef.current
+      const offset = popup
+        ? Number.parseFloat(getComputedStyle(popup).getPropertyValue('--drawer-snap-point-offset'))
+        : 0
+      if (offset > 0) {
+        setPlaced(true)
+        return
+      }
+      frame = requestAnimationFrame(check)
+    }
+    frame = requestAnimationFrame(check)
+    return () => cancelAnimationFrame(frame)
+  }, [placed])
   const safeBottom = useSafeAreaBottom(probe)
   const dockSnap: Drawer.Root.SnapPoint = `${DOCK_HEIGHT + FLOAT_GAP + safeBottom}px`
   const expandedSnap = useExpandedSnapPoint(EXPANDED_NUDGE_PX)
@@ -438,27 +468,20 @@ export function PlanetDock({
             {...stylex.props(styles.viewport)}
           >
             <div ref={setProbe} aria-hidden="true" {...stylex.props(styles.safeAreaProbe)} />
-            <Drawer.Popup initialFocus={false} {...stylex.props(styles.popup)}>
+            <Drawer.Popup
+              ref={popupRef}
+              initialFocus={false}
+              {...stylex.props(styles.popup, !placed && styles.popupPending)}
+            >
               <div {...stylex.props(styles.sheetSurface)}>
                 <div aria-hidden="true" {...stylex.props(styles.sheetBackdrop)} />
                 <div {...stylex.props(styles.sheetClip)}>
+                  {/*
+                    The sheet grows upward from the pill: handle and settings
+                    body stack above the planet row, which keeps the pill's
+                    exact position, width and controls in every state.
+                  */}
                   <div aria-hidden="true" {...stylex.props(styles.sheetHandle)} />
-                  <PlanetStrip
-                    onSelectPlanet={onSelectPlanet}
-                    reducedMotion={reducedMotion}
-                    selectedPlanet={selectedPlanet}
-                  >
-                    <button
-                      aria-hidden={mode !== 'dock'}
-                      aria-label="Open settings"
-                      onClick={() => changeMode('preset')}
-                      tabIndex={mode === 'dock' ? 0 : -1}
-                      type="button"
-                      {...stylex.props(styles.gear, mode !== 'dock' && styles.gearHidden)}
-                    >
-                      <SlidersIcon />
-                    </button>
-                  </PlanetStrip>
                   <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
                   <Drawer.Content {...stylex.props(styles.sheetBody)}>
                     <ScrollArea.Root {...stylex.props(styles.sheetScroll)}>
@@ -476,6 +499,21 @@ export function PlanetDock({
                       </ScrollArea.Scrollbar>
                     </ScrollArea.Root>
                   </Drawer.Content>
+                  <PlanetStrip
+                    onSelectPlanet={onSelectPlanet}
+                    reducedMotion={reducedMotion}
+                    selectedPlanet={selectedPlanet}
+                  >
+                    <button
+                      aria-expanded={mode !== 'dock'}
+                      aria-label={mode === 'dock' ? 'Open settings' : 'Close settings'}
+                      onClick={() => changeMode(mode === 'dock' ? 'preset' : 'dock')}
+                      type="button"
+                      {...stylex.props(styles.gear)}
+                    >
+                      <SlidersIcon />
+                    </button>
+                  </PlanetStrip>
                 </div>
                 <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
               </div>
@@ -511,18 +549,15 @@ const styles = stylex.create({
     cursor: 'pointer',
     display: 'grid',
     height: GEAR_SIZE,
-    // Slides out past the pill's edge as the sheet lifts; the clip hides it.
-    opacity: 'calc(1 - var(--dock-progress))',
     padding: 0,
     placeItems: 'center',
     pointerEvents: 'auto',
     position: 'absolute',
     right: GEAR_INSET + GEAR_NUDGE,
     top: GEAR_INSET,
-    transitionDuration: 'inherit',
-    transitionProperty: 'translate, opacity, color',
-    transitionTimingFunction: 'inherit',
-    translate: `calc(${GEAR_RESERVED}px * var(--dock-progress)) 0`,
+    transitionDuration: '180ms',
+    transitionProperty: 'color',
+    transitionTimingFunction: 'cubic-bezier(0.4, 0, 0.2, 1)',
     width: GEAR_SIZE,
     zIndex: 2,
     ':focus-visible': {
@@ -531,9 +566,6 @@ const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': {
       transition: 'none',
     },
-  },
-  gearHidden: {
-    pointerEvents: 'none',
   },
   gearIcon: {
     display: 'block',
@@ -594,11 +626,17 @@ const styles = stylex.create({
   },
   // Progress vars resolve here, where Drawer writes its travel vars, and
   // inherit down as plain numbers so children do not need `inherit` hacks.
+  //
+  // The popup is not translated by the snap offset. It stays pinned to the
+  // viewport bottom and consumes the offset as `padding-top`, so the surface
+  // grows in place and the planet row never moves. Splitting the offset
+  // between a compositor `transform` and a main-thread padding transition
+  // let the two run on different clocks and the row visibly jumped at the
+  // start of every snap.
   popup: {
     '--sheet-travel': 'calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y))',
     '--dock-lift': `calc(${SHEET_HEIGHT} - var(--dock-snap) - var(--sheet-travel))`,
     '--dock-progress': `clamp(0, var(--dock-lift) / (${PRESET_TRAVEL} - var(--dock-snap)), 1)`,
-    '--float-progress': `clamp(0, (${PRESET_TRAVEL} - var(--sheet-travel)) / ${MORPH_RANGE}, 1)`,
     '--float-bottom': `calc(${FLOAT_GAP}px + env(safe-area-inset-bottom, 0px))`,
     backgroundColor: 'transparent',
     boxSizing: 'border-box',
@@ -609,20 +647,20 @@ const styles = stylex.create({
     minHeight: 0,
     outline: 'none',
     overflow: 'visible',
-    paddingBottom: 'max(0px, var(--sheet-travel))',
-    pointerEvents: 'auto',
+    paddingTop: 'max(0px, var(--sheet-travel))',
+    // The padded area above the surface is empty; let taps reach the page.
+    pointerEvents: 'none',
     position: 'relative',
-    transform: 'translateY(var(--sheet-travel))',
+    transform: 'none',
     transitionDuration: '450ms',
-    transitionProperty: 'transform, padding-bottom',
+    transitionProperty: 'transform, padding-top',
     transitionTimingFunction: 'cubic-bezier(0.32, 0.72, 0, 1)',
     width: '100%',
-    willChange: 'transform',
     ':is([data-swiping])': {
       transitionDuration: '0ms',
     },
+    // Entrance/exit only: slide the whole popup; padding stays at rest.
     ':is([data-starting-style], [data-ending-style])': {
-      paddingBottom: 0,
       transform: 'translateY(100%)',
     },
     ':is([data-ending-style])': {
@@ -631,6 +669,13 @@ const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': {
       transition: 'none',
     },
+  },
+  // Before the snap offset is measured: parked off-screen, no transition, and
+  // already in pill geometry so the entrance is a plain slide up.
+  popupPending: {
+    '--dock-progress': '0',
+    transform: 'translateY(100%)',
+    transitionDuration: '0ms',
   },
   safeAreaProbe: {
     height: 'env(safe-area-inset-bottom, 0px)',
@@ -657,10 +702,10 @@ const styles = stylex.create({
   sheetBottomMask: {
     backgroundImage:
       'linear-gradient(in oklch to bottom, transparent 0%, lab(5 0 0 / 0.1) 20%, lab(5 0 0 / 0.34) 46%, lab(5 0 0 / 0.14) 74%, transparent 100%)',
-    bottom: `calc(-1 * (84px + ${FLOAT_GAP}px) * var(--float-progress))`,
-    height: `calc((116px + ${FLOAT_GAP}px) * var(--float-progress))`,
+    bottom: `calc(-1 * (84px + ${FLOAT_GAP}px) * var(--dock-progress))`,
+    height: `calc((116px + ${FLOAT_GAP}px) * var(--dock-progress))`,
     left: 0,
-    opacity: 'var(--float-progress)',
+    opacity: 'var(--dock-progress)',
     pointerEvents: 'none',
     position: 'absolute',
     right: 0,
@@ -703,6 +748,11 @@ const styles = stylex.create({
     minHeight: 0,
     overflow: 'hidden',
     position: 'relative',
+    // Relay the popup's timing to the handle and body, which use `inherit`;
+    // without this link they resolved to 0s and snapped into view.
+    transitionDuration: 'inherit',
+    transitionProperty: 'none',
+    transitionTimingFunction: 'inherit',
     zIndex: 1,
   },
   sheetScroll: {
@@ -714,12 +764,15 @@ const styles = stylex.create({
     position: 'relative',
   },
   sheetScrollContent: {
-    paddingBottom: 'calc(20px + env(safe-area-inset-bottom, 0px))',
+    // Room to scroll the last control clear of the fade above the planet row.
+    paddingBottom: BODY_FADE,
     paddingInline: 20,
     paddingTop: 4,
   },
   sheetScrollViewport: {
     flex: 1,
+    // Settings dissolve into the planet row instead of being cut at its edge.
+    maskImage: `linear-gradient(to bottom, black calc(100% - ${BODY_FADE}px), transparent 100%)`,
     minHeight: 0,
     overflowX: 'hidden',
     overflowY: 'scroll',
@@ -744,8 +797,8 @@ const styles = stylex.create({
     minHeight: 24,
     width: '100%',
   },
-  // Parked: a floating pill. Lifted to the first snap: flush bottom, sheet
-  // radius. Lifted further: floats again.
+  // Parked: a floating pill. Lifting stretches it upward into the sheet; the
+  // bottom gap and side inset stay, and all four corners morph 28px → 16px.
   sheetBackdrop: {
     backdropFilter: SHEET_BLUR,
     backgroundColor: SHEET_FILL,
@@ -759,20 +812,24 @@ const styles = stylex.create({
     '--slider-progress-bg': 'oklch(43.49% 0 0)',
     '--slider-track-bg': 'oklch(35.62% 0 0)',
     backgroundColor: 'transparent',
-    borderBottomLeftRadius: `calc(${DOCK_RADIUS}px * (1 - var(--dock-progress)) + ${SHEET_RADIUS}px * var(--float-progress))`,
-    borderBottomRightRadius: `calc(${DOCK_RADIUS}px * (1 - var(--dock-progress)) + ${SHEET_RADIUS}px * var(--float-progress))`,
+    // Bottom corners belong to the pill and stay; the top ones morph as the
+    // sheet rises out of it.
+    borderBottomLeftRadius: DOCK_RADIUS,
+    borderBottomRightRadius: DOCK_RADIUS,
     borderTopLeftRadius: `calc(${DOCK_RADIUS}px - ${DOCK_RADIUS - SHEET_RADIUS}px * var(--dock-progress))`,
     borderTopRightRadius: `calc(${DOCK_RADIUS}px - ${DOCK_RADIUS - SHEET_RADIUS}px * var(--dock-progress))`,
     display: 'flex',
     flex: 1,
     flexDirection: 'column',
-    marginBottom: 'calc(var(--float-bottom) * (1 - var(--dock-progress) + var(--float-progress)))',
-    marginInline: `calc(${PAGE_GUTTER} * (1 - var(--dock-progress)) + ${FLOAT_GAP}px * var(--dock-progress))`,
+    // Same inset as the pill in every state, so the planet row is untouched.
+    marginBottom: 'var(--float-bottom)',
+    marginInline: PAGE_GUTTER,
     minHeight: 0,
     overflow: 'visible',
+    pointerEvents: 'auto',
     position: 'relative',
     transitionDuration: 'inherit',
-    transitionProperty: 'margin, border-radius',
+    transitionProperty: 'border-radius',
     transitionTimingFunction: 'inherit',
     zIndex: 1,
     '@media (prefers-reduced-motion: reduce)': {
@@ -802,17 +859,11 @@ const styles = stylex.create({
   stripMask: {
     flex: '1 1 auto',
     height: '100%',
-    // Leave room for the settings button while parked; reclaim it as the sheet lifts.
-    marginRight: `calc(${GEAR_RESERVED}px * (1 - var(--dock-progress)))`,
+    // Room for the settings button; the row never changes shape.
+    marginRight: GEAR_RESERVED,
     minWidth: 0,
     overflow: 'hidden',
     position: 'relative',
-    transitionDuration: 'inherit',
-    transitionProperty: 'margin-right',
-    transitionTimingFunction: 'inherit',
-    '@media (prefers-reduced-motion: reduce)': {
-      transition: 'none',
-    },
   },
   // See the JSX comment: must stay > 1.05x the viewport height, transparent
   // (no background, no backdrop-filter) and the only fixed box in the dock.
