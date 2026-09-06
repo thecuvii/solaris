@@ -47,7 +47,6 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
   useVisualViewport()
   const reduceMotion = useReducedMotion()
   const pageRef = useRef<HTMLDivElement>(null)
-  const dockHostRef = useRef<HTMLDivElement>(null)
   const planet = planets.find(({ id }) => id === presentedPlanet) ?? planets[0]
   const chromeTransition: ChromeTransitionContext = {
     direction: transitionDirection,
@@ -176,18 +175,13 @@ function ShowcaseShell({ children }: { children: ReactNode }) {
         </main>
 
         {isMobile ? (
-          <>
-            {/* Sticky, in-flow host for the dock: no `position: fixed` on iOS. */}
-            <div ref={dockHostRef} {...stylex.props(styles.dockHost)} />
-            <PlanetDock
-              container={dockHostRef}
-              onSelectPlanet={selectPlanet}
-              reducedMotion={Boolean(reduceMotion)}
-              selectedPlanet={previewPlanet}
-            >
-              <Inspector planetId={presentedPlanet} />
-            </PlanetDock>
-          </>
+          <PlanetDock
+            onSelectPlanet={selectPlanet}
+            reducedMotion={Boolean(reduceMotion)}
+            selectedPlanet={previewPlanet}
+          >
+            <Inspector planetId={presentedPlanet} />
+          </PlanetDock>
         ) : (
           <AnimatePresence custom={chromeTransition} initial={false}>
             <motion.aside
@@ -233,19 +227,6 @@ function LayoutGridOverlay() {
 }
 
 const styles = stylex.create({
-  // Last flex child of `.page`; the negative margin keeps it from adding page
-  // height, and `sticky` pins it to the visual viewport bottom while the page
-  // scrolls. Height must match SHEET_HEIGHT in planet-dock.
-  dockHost: {
-    bottom: 'var(--visual-viewport-bottom-inset, 0px)',
-    flex: '0 0 auto',
-    height: '50dvh',
-    marginTop: '-50dvh',
-    order: 2,
-    pointerEvents: 'none',
-    position: 'sticky',
-    zIndex: 24,
-  },
   content: {
     gridColumn: 2,
     minWidth: 0,
@@ -375,8 +356,6 @@ const styles = stylex.create({
       '--showcase-wheel-height': '68px',
       display: 'flex',
       flexDirection: 'column',
-      // Inherits `overflow: clip` from the base; `hidden` would make `.page` a
-      // scroll container and trap the sticky dock host.
     },
   },
   planetTravelLayer: {

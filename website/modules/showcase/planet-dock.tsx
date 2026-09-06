@@ -4,7 +4,7 @@ import { Drawer } from '@base-ui/react/drawer'
 import { ScrollArea } from '@base-ui/react/scroll-area'
 import * as stylex from '@stylexjs/stylex'
 import { play } from 'cuelume'
-import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent, RefObject } from 'react'
+import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { hapticPress, hapticSettle, hapticTick } from './haptics'
@@ -33,14 +33,16 @@ const GEAR_NUDGE = 8
 const DOCK_GAP = 8
 const GEAR_RESERVED = GEAR_SIZE + GEAR_INSET + GEAR_NUDGE + DOCK_GAP
 const FLOAT_GAP = 12
+// How far the fixed shell over-extends above the viewport. WebKit's cutoff is
+// 1.05x; 50lvh leaves room for the visual viewport shrinking (toolbar expanded).
+const EDGE_ESCAPE = '50lvh'
 const PAGE_GUTTER = 'clamp(24px, 4vw, 64px)'
 const SHEET_FILL = 'lab(5 0 0 / 0.42)'
 const SHEET_BLUR = 'blur(22px) saturate(0.72)'
 const DOCK_RADIUS = DOCK_HEIGHT / 2
 const SHEET_RADIUS = 16
 const SHEET_HEIGHT = '50dvh'
-// Fraction of the drawer viewport, which is SHEET_HEIGHT tall: 0.5 × 50dvh = 25dvh.
-const PRESET_SNAP = 0.5
+const PRESET_SNAP = 0.25
 // Offset at the flush snap (max 50dvh − first snap 25dvh). Float morph finishes 5dvh later.
 const PRESET_TRAVEL = '25dvh'
 const MORPH_RANGE = '5dvh'
@@ -372,14 +374,11 @@ function PlanetStrip({
 
 export function PlanetDock({
   children,
-  container,
   onSelectPlanet,
   reducedMotion,
   selectedPlanet,
 }: {
   children: ReactNode
-  /** In-flow sticky host the drawer portals into; avoids `position: fixed`. */
-  container: RefObject<HTMLElement | null>
   onSelectPlanet: (id: PlanetId) => void
   reducedMotion: boolean
   selectedPlanet: PlanetId
@@ -421,55 +420,68 @@ export function PlanetDock({
       snapToSequentialPoints
       swipeDirection="down"
     >
-      <Drawer.Portal container={container}>
-        <Drawer.Viewport
-          style={{ '--dock-snap': dockSnap } as CSSProperties}
-          {...stylex.props(styles.viewport)}
-        >
-          <div ref={setProbe} aria-hidden="true" {...stylex.props(styles.safeAreaProbe)} />
-          <Drawer.Popup initialFocus={false} {...stylex.props(styles.popup)}>
-            <div {...stylex.props(styles.sheetSurface)}>
-              <div aria-hidden="true" {...stylex.props(styles.sheetBackdrop)} />
-              <div {...stylex.props(styles.sheetClip)}>
-                <div aria-hidden="true" {...stylex.props(styles.sheetHandle)} />
-                <PlanetStrip
-                  onSelectPlanet={onSelectPlanet}
-                  reducedMotion={reducedMotion}
-                  selectedPlanet={selectedPlanet}
-                >
-                  <button
-                    aria-hidden={mode !== 'dock'}
-                    aria-label="Open settings"
-                    onClick={() => changeMode('preset')}
-                    tabIndex={mode === 'dock' ? 0 : -1}
-                    type="button"
-                    {...stylex.props(styles.gear, mode !== 'dock' && styles.gearHidden)}
+      <Drawer.Portal>
+        {/*
+          The only `position: fixed` box in the dock. iOS 26 Safari hit-tests a
+          point 4px inside the bottom edge, walks up to the nearest fixed/sticky
+          ancestor and, if it finds one, paints a solid "colour extension" strip
+          under its glass toolbar instead of the page (WebKit
+          `LocalFrameView::fixedContainerEdges`). That strip is the black band
+          that stopped the canvas from filling the bar. A fixed box that is more
+          than 1.05x the viewport height is classified `TooLarge` and skipped, so
+          this shell over-extends upward and the walk ends with no container.
+          Everything inside is `absolute`, which the walk ignores.
+        */}
+        <div {...stylex.props(styles.fixedShell)}>
+          <Drawer.Viewport
+            style={{ '--dock-snap': dockSnap } as CSSProperties}
+            {...stylex.props(styles.viewport)}
+          >
+            <div ref={setProbe} aria-hidden="true" {...stylex.props(styles.safeAreaProbe)} />
+            <Drawer.Popup initialFocus={false} {...stylex.props(styles.popup)}>
+              <div {...stylex.props(styles.sheetSurface)}>
+                <div aria-hidden="true" {...stylex.props(styles.sheetBackdrop)} />
+                <div {...stylex.props(styles.sheetClip)}>
+                  <div aria-hidden="true" {...stylex.props(styles.sheetHandle)} />
+                  <PlanetStrip
+                    onSelectPlanet={onSelectPlanet}
+                    reducedMotion={reducedMotion}
+                    selectedPlanet={selectedPlanet}
                   >
-                    <SlidersIcon />
-                  </button>
-                </PlanetStrip>
-                <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
-                <Drawer.Content {...stylex.props(styles.sheetBody)}>
-                  <ScrollArea.Root {...stylex.props(styles.sheetScroll)}>
-                    <ScrollArea.Viewport {...stylex.props(styles.sheetScrollViewport)}>
-                      <ScrollArea.Content {...stylex.props(styles.sheetScrollContent)}>
-                        {children}
-                      </ScrollArea.Content>
-                    </ScrollArea.Viewport>
-                    <ScrollArea.Scrollbar
-                      keepMounted
-                      orientation="vertical"
-                      {...stylex.props(styles.sheetScrollbar)}
+                    <button
+                      aria-hidden={mode !== 'dock'}
+                      aria-label="Open settings"
+                      onClick={() => changeMode('preset')}
+                      tabIndex={mode === 'dock' ? 0 : -1}
+                      type="button"
+                      {...stylex.props(styles.gear, mode !== 'dock' && styles.gearHidden)}
                     >
-                      <ScrollArea.Thumb {...stylex.props(styles.sheetScrollbarThumb)} />
-                    </ScrollArea.Scrollbar>
-                  </ScrollArea.Root>
-                </Drawer.Content>
+                      <SlidersIcon />
+                    </button>
+                  </PlanetStrip>
+                  <Drawer.Title {...stylex.props(styles.visuallyHidden)}>Settings</Drawer.Title>
+                  <Drawer.Content {...stylex.props(styles.sheetBody)}>
+                    <ScrollArea.Root {...stylex.props(styles.sheetScroll)}>
+                      <ScrollArea.Viewport {...stylex.props(styles.sheetScrollViewport)}>
+                        <ScrollArea.Content {...stylex.props(styles.sheetScrollContent)}>
+                          {children}
+                        </ScrollArea.Content>
+                      </ScrollArea.Viewport>
+                      <ScrollArea.Scrollbar
+                        keepMounted
+                        orientation="vertical"
+                        {...stylex.props(styles.sheetScrollbar)}
+                      >
+                        <ScrollArea.Thumb {...stylex.props(styles.sheetScrollbarThumb)} />
+                      </ScrollArea.Scrollbar>
+                    </ScrollArea.Root>
+                  </Drawer.Content>
+                </div>
+                <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
               </div>
-              <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
-            </div>
-          </Drawer.Popup>
-        </Drawer.Viewport>
+            </Drawer.Popup>
+          </Drawer.Viewport>
+        </div>
       </Drawer.Portal>
     </Drawer.Root>
   )
@@ -802,18 +814,30 @@ const styles = stylex.create({
       transition: 'none',
     },
   },
-  // Fills the sticky host in showcase-layout instead of being `position: fixed`:
-  // any fixed layer makes iOS 26 Safari stop bleeding the page under its glass
-  // toolbar. Fractional snap points resolve against this height.
+  // See the JSX comment: must stay > 1.05x the viewport height, transparent
+  // (no background, no backdrop-filter) and the only fixed box in the dock.
+  fixedShell: {
+    height: `calc(var(--visual-viewport-height, 100dvh) + ${EDGE_ESCAPE})`,
+    left: 0,
+    pointerEvents: 'none',
+    position: 'fixed',
+    right: 0,
+    top: `calc(var(--visual-viewport-offset-top, 0px) - ${EDGE_ESCAPE})`,
+    zIndex: 24,
+  },
+  // Sized to the visual viewport (Base UI resolves fractional snap points
+  // against its offsetHeight), pinned to the shell's bottom edge.
   viewport: {
     alignItems: 'flex-end',
+    bottom: 0,
     display: 'flex',
-    height: SHEET_HEIGHT,
+    height: 'var(--visual-viewport-height, 100dvh)',
     justifyContent: 'center',
+    left: 0,
     pointerEvents: 'none',
-    position: 'relative',
+    position: 'absolute',
+    right: 0,
     touchAction: 'none',
-    width: '100%',
   },
   visuallyHidden: {
     borderWidth: 0,
