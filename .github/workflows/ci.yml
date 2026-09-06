@@ -32,8 +32,9 @@ jobs:
           node-version: 26
           run-install: false
       - run: vp install --frozen-lockfile
-      - run: vp test --run
+      # Build first: src/dist.test.ts verifies the emitted bundles.
       - run: vp pack
+      - run: vp test --run
       - run: npm pack --dry-run
 
   website:

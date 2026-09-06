@@ -15,6 +15,10 @@ export default defineConfig({
     plugins: ['typescript', 'react'],
   },
   pack: {
+    // Rolldown drops top-level directives from non-entry modules, and every
+    // planet entry is a re-export barrel. Re-attach the directive to each JS
+    // chunk so React Server Components treat the package as client-only.
+    banner: { js: "'use client'" },
     deps: {
       neverBundle: ['react', 'react-dom', 'react/jsx-runtime'],
     },
@@ -36,6 +40,7 @@ export default defineConfig({
       'venus/index': 'src/venus/index.ts',
     },
     format: ['esm'],
+    publint: true,
     sourcemap: true,
   },
   staged: {
