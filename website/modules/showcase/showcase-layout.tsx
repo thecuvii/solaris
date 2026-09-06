@@ -22,6 +22,7 @@ import type { ChromeTransitionContext } from './planet-transition'
 import { ShowcaseContext } from './showcase-context'
 import type { ShowcaseContextValue } from './showcase-context'
 import { planets } from './showcase-data'
+import { tokens } from './tokens.stylex'
 import type { PlanetId } from './showcase-data'
 
 export function ShowcaseLayout({ children }: { children: ReactNode }) {
@@ -239,8 +240,7 @@ const styles = stylex.create({
     },
   },
   gridOverlay: {
-    backgroundImage:
-      'repeating-linear-gradient(to bottom, transparent 0, transparent 7px, color-mix(in oklch, var(--control-accent) 3%, transparent) 7px, color-mix(in oklch, var(--control-accent) 3%, transparent) 8px), repeating-linear-gradient(to bottom, transparent 0, transparent 63px, color-mix(in oklch, var(--control-accent) 7%, transparent) 63px, color-mix(in oklch, var(--control-accent) 7%, transparent) 64px)',
+    backgroundImage: `repeating-linear-gradient(to bottom, transparent 0, transparent 7px, color-mix(in oklch, ${tokens.controlAccent} 3%, transparent) 7px, color-mix(in oklch, ${tokens.controlAccent} 3%, transparent) 8px), repeating-linear-gradient(to bottom, transparent 0, transparent 63px, color-mix(in oklch, ${tokens.controlAccent} 7%, transparent) 63px, color-mix(in oklch, ${tokens.controlAccent} 7%, transparent) 64px)`,
     display: 'grid',
     gridTemplateColumns: '300px minmax(400px, 1fr) 280px',
     inset: 0,
@@ -255,13 +255,13 @@ const styles = stylex.create({
     },
   },
   gridOverlayCenter: {
-    backgroundColor: 'color-mix(in oklch, var(--control-accent) 2%, transparent)',
+    backgroundColor: `color-mix(in oklch, ${tokens.controlAccent} 2%, transparent)`,
     height: '100%',
     minWidth: 0,
     paddingInline: 'clamp(24px, 4vw, 64px)',
   },
   gridOverlayColumn: {
-    backgroundColor: 'color-mix(in oklch, var(--control-accent) 5%, transparent)',
+    backgroundColor: `color-mix(in oklch, ${tokens.controlAccent} 5%, transparent)`,
   },
   gridOverlayColumnMobileHidden: {
     '@media (max-width: 960px)': {
@@ -283,7 +283,7 @@ const styles = stylex.create({
     },
   },
   gridOverlayRail: {
-    backgroundColor: 'color-mix(in oklch, var(--control-accent) 4%, transparent)',
+    backgroundColor: `color-mix(in oklch, ${tokens.controlAccent} 4%, transparent)`,
     '@media (max-width: 960px)': {
       display: 'none',
     },

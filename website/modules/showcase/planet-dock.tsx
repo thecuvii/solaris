@@ -15,6 +15,7 @@ import type {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { hapticPress, hapticSettle, hapticTick } from './haptics'
+import { tokens } from './tokens.stylex'
 import { planets, type PlanetId } from './showcase-data'
 
 // The dock is the settings drawer parked at its lowest snap point. The
@@ -39,13 +40,12 @@ const FLOAT_GAP = 12
 // 1.05x; 50lvh leaves room for the visual viewport shrinking (toolbar expanded).
 const EDGE_ESCAPE = '50lvh'
 const PAGE_GUTTER = 'clamp(24px, 4vw, 64px)'
-const SHEET_FILL = 'lab(5 0 0 / 0.42)'
+const SHEET_FILL = 'lab(5 0 0 / 0.95)'
 const SHEET_BLUR = 'blur(22px) saturate(0.72)'
 const DOCK_RADIUS = DOCK_HEIGHT / 2
 const SHEET_RADIUS = 16
-// Progressive blur band where the settings body meets the planet row.
-const BODY_FADE = 64
-const BODY_FADE_STEPS = [1, 2, 4, 8] as const
+// Fade-out height where the settings body meets the planet row.
+const BODY_FADE = 6
 const SHEET_HEIGHT = '50dvh'
 const PRESET_SNAP = 0.25
 // Offset at the first snap (max 50dvh − first snap 25dvh); the pill → sheet morph
@@ -129,40 +129,6 @@ function useSafeAreaBottom(probe: HTMLDivElement | null) {
   }, [probe])
 
   return inset
-}
-
-function SheetBodyFade() {
-  return (
-    <div aria-hidden="true" {...stylex.props(styles.bodyFade)}>
-      {BODY_FADE_STEPS.map((blur, index) => {
-        const start = (index / BODY_FADE_STEPS.length) * 100
-        const end = ((index + 1) / BODY_FADE_STEPS.length) * 100
-        const mask = `linear-gradient(to bottom, transparent ${start}%, black ${end}%)`
-        return (
-          <div
-            key={blur}
-            style={{
-              backdropFilter: `blur(${blur}px)`,
-              inset: 0,
-              maskImage: mask,
-              position: 'absolute',
-              WebkitBackdropFilter: `blur(${blur}px)`,
-              WebkitMaskImage: mask,
-            }}
-          />
-        )
-      })}
-      <div
-        style={{
-          background: 'linear-gradient(to bottom, transparent, lab(5 0 0 / 0.55))',
-          inset: 0,
-          maskImage: 'linear-gradient(to top, lab(5 0 0) 42%, transparent)',
-          position: 'absolute',
-          WebkitMaskImage: 'linear-gradient(to top, lab(5 0 0) 42%, transparent)',
-        }}
-      />
-    </div>
-  )
 }
 
 function SlidersIcon() {
@@ -347,7 +313,6 @@ function PlanetStrip({
 
   return (
     <div {...stylex.props(styles.dockRow)}>
-      <SheetBodyFade />
       <div {...stylex.props(styles.stripMask)}>
         <div
           ref={emblaRef}
@@ -514,6 +479,7 @@ export function PlanetDock({
                     </button>
                   </PlanetStrip>
                 </div>
+                <div aria-hidden="true" {...stylex.props(styles.sheetBottomMask)} />
               </div>
             </Drawer.Popup>
           </Drawer.Viewport>
@@ -537,7 +503,7 @@ const styles = stylex.create({
     borderWidth: 0,
     boxShadow: {
       default: 'none',
-      ':focus-visible': '0 0 0 3px color-mix(in oklch, var(--control-accent) 22%, transparent)',
+      ':focus-visible': `0 0 0 3px color-mix(in oklch, ${tokens.controlAccent} 22%, transparent)`,
     },
     color: {
       default: 'rgba(242, 232, 208, 0.72)',
@@ -700,6 +666,24 @@ const styles = stylex.create({
       transition: 'none',
     },
   },
+  sheetBottomMask: {
+    backgroundImage:
+      'linear-gradient(in oklch to bottom, transparent 0%, lab(5 0 0 / 0.22) 38%, lab(5 0 0 / 0.08) 68%, transparent 100%)',
+    bottom: `calc(-1 * (84px + ${FLOAT_GAP}px) * var(--dock-progress))`,
+    height: `calc((96px + ${FLOAT_GAP}px) * var(--dock-progress))`,
+    left: 0,
+    opacity: 'var(--dock-progress)',
+    pointerEvents: 'none',
+    position: 'absolute',
+    right: 0,
+    transitionDuration: 'inherit',
+    transitionProperty: 'opacity, height, bottom',
+    transitionTimingFunction: 'inherit',
+    zIndex: 2,
+    '@media (prefers-reduced-motion: reduce)': {
+      transition: 'none',
+    },
+  },
   sheetHandle: {
     alignItems: 'center',
     display: 'flex',
@@ -746,18 +730,6 @@ const styles = stylex.create({
     overflow: 'hidden',
     position: 'relative',
   },
-  bodyFade: {
-    // Sits on the dock's top edge and grows upward into the settings list.
-    bottom: '100%',
-    height: BODY_FADE,
-    left: 0,
-    opacity: 'var(--dock-progress)',
-    overflow: 'hidden',
-    pointerEvents: 'none',
-    position: 'absolute',
-    right: 0,
-    zIndex: 2,
-  },
   sheetScrollContent: {
     // Room to scroll the last control clear of the fade above the planet row.
     paddingBottom: BODY_FADE,
@@ -766,6 +738,8 @@ const styles = stylex.create({
   },
   sheetScrollViewport: {
     flex: 1,
+    // Settings dissolve into the planet row instead of being cut at its edge.
+    maskImage: `linear-gradient(to bottom, black calc(100% - ${BODY_FADE}px), transparent 100%)`,
     minHeight: 0,
     overflowX: 'hidden',
     overflowY: 'scroll',
@@ -806,14 +780,12 @@ const styles = stylex.create({
   // fill on that page only.
   sheetBackdropFlat: {
     backdropFilter: 'none',
-    backgroundColor: 'lab(5 0 0 / 0.78)',
+    backgroundColor: SHEET_FILL,
   },
   sheetSurface: {
     // The sheet is always a dark surface, so labels inside it keep the cream
     // ink regardless of what the Sky canvas is doing behind it.
     '--showcase-label-ink': 'rgba(242, 232, 208, 0.66)',
-    '--slider-progress-bg': 'oklch(43.49% 0 0)',
-    '--slider-track-bg': 'oklch(35.62% 0 0)',
     backgroundColor: 'transparent',
     // Bottom corners belong to the pill and stay; the top ones morph as the
     // sheet rises out of it.

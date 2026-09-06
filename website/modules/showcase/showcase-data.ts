@@ -50,11 +50,26 @@ export const githubSourceUrl = (sourceFile: string) =>
 
 export const planets: readonly Planet[] = [
   {
-    id: 'sun',
-    name: 'Sun',
-    packageName: 'sun',
-    sourceFile: 'src/sun/solar-orb.effect.tsx',
-    summary: 'A data-driven solar surface with active regions, filaments, and limb emission.',
+    id: 'earth',
+    name: 'Earth',
+    packageName: 'earth',
+    sourceFile: 'src/earth/atmospheric-orb.effect.tsx',
+    summary: 'Layered atmosphere, moving clouds, ocean glint, and emissive city lights.',
+  },
+  {
+    id: 'moon',
+    name: 'Moon',
+    packageName: 'moon',
+    sourceFile: 'src/moon/lunar-orb.effect.tsx',
+    summary: 'High-relief lunar shading with opposition surge, earthshine, and grazing shadows.',
+  },
+  {
+    componentName: 'LunarEclipse',
+    id: 'lunar-eclipse',
+    name: 'Lunar Eclipse',
+    packageName: 'moon',
+    sourceFile: 'src/moon/lunar-eclipse.effect.tsx',
+    summary: 'A lunar eclipse with refracted atmospheric light, soft penumbra, and relief shadows.',
   },
   {
     id: 'sky',
@@ -77,28 +92,6 @@ export const planets: readonly Planet[] = [
     packageName: 'venus',
     sourceFile: 'src/venus/venusian-orb.effect.tsx',
     summary: 'Dense sulfur clouds with super-rotating flow, haze, and forward scattering.',
-  },
-  {
-    id: 'earth',
-    name: 'Earth',
-    packageName: 'earth',
-    sourceFile: 'src/earth/atmospheric-orb.effect.tsx',
-    summary: 'Layered atmosphere, moving clouds, ocean glint, and emissive city lights.',
-  },
-  {
-    id: 'moon',
-    name: 'Moon',
-    packageName: 'moon',
-    sourceFile: 'src/moon/lunar-orb.effect.tsx',
-    summary: 'High-relief lunar shading with opposition surge, earthshine, and grazing shadows.',
-  },
-  {
-    componentName: 'LunarEclipse',
-    id: 'lunar-eclipse',
-    name: 'Lunar Eclipse',
-    packageName: 'moon',
-    sourceFile: 'src/moon/lunar-eclipse.effect.tsx',
-    summary: 'A lunar eclipse with refracted atmospheric light, soft penumbra, and relief shadows.',
   },
   {
     id: 'mars',
@@ -148,6 +141,13 @@ export const planets: readonly Planet[] = [
     packageName: 'pluto',
     sourceFile: 'src/pluto/plutonian-orb.effect.tsx',
     summary: 'An icy dwarf planet with albedo variation, rugged relief, and a tenuous haze.',
+  },
+  {
+    id: 'sun',
+    name: 'Sun',
+    packageName: 'sun',
+    sourceFile: 'src/sun/solar-orb.effect.tsx',
+    summary: 'A data-driven solar surface with active regions, filaments, and limb emission.',
   },
 ]
 

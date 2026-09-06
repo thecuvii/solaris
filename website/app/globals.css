@@ -1,5 +1,4 @@
 :root {
-  --control-accent: oklch(31.32% 0 0);
   /* --font-inter is injected by next/font (see app/fonts.ts); it already
      includes the size-adjusted fallback. sans-serif is a last resort. */
   --font-sans: var(--font-inter), sans-serif;

@@ -6,6 +6,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerE
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { hapticPress, hapticTick } from './haptics'
+import { tokens } from './tokens.stylex'
 import { numberFlowFormat, numberFlowTimings } from './setting-format'
 import { useMobileShowcase } from './use-mobile-showcase'
 import type { PlanetId } from './showcase-data'
@@ -435,7 +436,7 @@ const styles = stylex.create({
     backgroundColor: 'oklch(86.4% 0.003 84.6 / 0.48)',
   },
   pad: {
-    backgroundColor: 'var(--slider-track-bg, oklch(20.07% 0 0))',
+    backgroundColor: tokens.sliderTrackBg,
     borderRadius: 10,
     boxShadow:
       '0 1px 2px oklch(0% 0 0 / 0.07), 0 1px 1px oklch(0% 0 0 / 0.04), inset 0 1px 0 oklch(100% 0 0 / 0.045), inset 0 -1px 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025)',
@@ -451,7 +452,7 @@ const styles = stylex.create({
     userSelect: 'none',
     width: '100%',
     ':focus-visible': {
-      outline: '1px solid color-mix(in oklch, var(--control-accent) 28%, transparent)',
+      outline: `1px solid color-mix(in oklch, ${tokens.controlAccent} 28%, transparent)`,
     },
   },
   padActive: {
@@ -531,7 +532,6 @@ const styles = stylex.create({
     backgroundColor: 'transparent',
     backgroundImage:
       'linear-gradient(180deg, oklch(100% 0 0) 0%, oklch(98.5% 0 0) 58%, oklch(95.6% 0 0) 100%)',
-    boxShadow:
-      '0 1px 1px color-mix(in oklch, var(--control-accent) 25%, transparent), 0 0 0 0.5px color-mix(in oklch, var(--control-accent) 65%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.78)',
+    boxShadow: `0 1px 1px color-mix(in oklch, ${tokens.controlAccent} 25%, transparent), 0 0 0 0.5px color-mix(in oklch, ${tokens.controlAccent} 65%, transparent), inset 0 1px 0 oklch(100% 0 0 / 0.78)`,
   },
 })
