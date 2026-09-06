@@ -474,7 +474,13 @@ export function PlanetDock({
               {...stylex.props(styles.popup, !placed && styles.popupPending)}
             >
               <div {...stylex.props(styles.sheetSurface)}>
-                <div aria-hidden="true" {...stylex.props(styles.sheetBackdrop)} />
+                <div
+                  aria-hidden="true"
+                  {...stylex.props(
+                    styles.sheetBackdrop,
+                    selectedPlanet === 'sky' && styles.sheetBackdropFlat,
+                  )}
+                />
                 <div {...stylex.props(styles.sheetClip)}>
                   {/*
                     The sheet grows upward from the pill: handle and settings
@@ -807,6 +813,13 @@ const styles = stylex.create({
     inset: 0,
     pointerEvents: 'none',
     position: 'absolute',
+  },
+  // The Sky canvas fills the viewport and repaints every frame, so a backdrop
+  // blur over it is re-evaluated every frame on the GPU. Trade it for a denser
+  // fill on that page only.
+  sheetBackdropFlat: {
+    backdropFilter: 'none',
+    backgroundColor: 'lab(5 0 0 / 0.78)',
   },
   sheetSurface: {
     '--slider-progress-bg': 'oklch(43.49% 0 0)',

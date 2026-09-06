@@ -95,27 +95,41 @@ type SkySettings = {
 }
 
 type SkyUniforms = {
+  apparentBottom: WebGLUniformLocation | null
+  apparentCentre: WebGLUniformLocation | null
+  apparentTop: WebGLUniformLocation | null
+  bloomInner: WebGLUniformLocation | null
+  bloomOuter: WebGLUniformLocation | null
+  bloomTint: WebGLUniformLocation | null
+  centreLuminance: WebGLUniformLocation | null
   cloudStreaks: WebGLUniformLocation | null
   compositionCenter: WebGLUniformLocation | null
   compositionScale: WebGLUniformLocation | null
+  directSunFactor: WebGLUniformLocation | null
+  drift: WebGLUniformLocation | null
   duskFlush: WebGLUniformLocation | null
   exposure: WebGLUniformLocation | null
   field: WebGLUniformLocation | null
   flare: WebGLUniformLocation | null
-  flareAngle: WebGLUniformLocation | null
+  flareAmount: WebGLUniformLocation | null
+  flarePos: WebGLUniformLocation | null
+  flareRad: WebGLUniformLocation | null
   flareRays: WebGLUniformLocation | null
   flareStar: WebGLUniformLocation | null
   glare: WebGLUniformLocation | null
+  glowScale: WebGLUniformLocation | null
+  glowTint: WebGLUniformLocation | null
   haze: WebGLUniformLocation | null
-  ozone: WebGLUniformLocation | null
-  refraction: WebGLUniformLocation | null
+  opticalDepth: WebGLUniformLocation | null
+  over: WebGLUniformLocation | null
   resolution: WebGLUniformLocation | null
   saturation: WebGLUniformLocation | null
   seeingAmount: WebGLUniformLocation | null
-  seeingSpeed: WebGLUniformLocation | null
-  streakDrift: WebGLUniformLocation | null
+  seeingPhase: WebGLUniformLocation | null
+  skyLightFactor: WebGLUniformLocation | null
   sunElevation: WebGLUniformLocation | null
   sunScale: WebGLUniformLocation | null
+  sunTransmittance: WebGLUniformLocation | null
   time: WebGLUniformLocation | null
 }
 
@@ -144,21 +158,38 @@ uniform float uDuskFlush;
 uniform float uExposure;
 uniform float uField;
 uniform float uFlare;
-uniform float uFlareAngle;
 uniform float uFlareRays;
 uniform float uFlareStar;
 uniform float uGlare;
 uniform float uHaze;
-uniform float uOzone;
-uniform float uRefraction;
 uniform vec2 uResolution;
 uniform float uSaturation;
 uniform float uSeeingAmount;
-uniform float uSeeingSpeed;
-uniform float uStreakDrift;
 uniform float uSunElevation;
 uniform float uSunScale;
 uniform float uTime;
+
+// Per-frame constants that depend only on the settings above. Evaluated once
+// on the CPU (see frameConstants) instead of once per fragment.
+uniform float uApparentBottom;
+uniform float uApparentCentre;
+uniform float uApparentTop;
+uniform float uBloomInner;
+uniform float uBloomOuter;
+uniform vec3 uBloomTint;
+uniform float uCentreLuminance;
+uniform float uDirectSunFactor;
+uniform float uDrift;
+uniform float uFlareAmount;
+uniform vec2 uFlarePos;
+uniform float uFlareRad;
+uniform float uGlowScale;
+uniform vec3 uGlowTint;
+uniform vec3 uOpticalDepth;
+uniform float uOver;
+uniform float uSeeingPhase;
+uniform float uSkyLightFactor;
+uniform vec3 uSunTransmittance;
 
 out vec4 fragColor;
 
@@ -240,39 +271,14 @@ vec2 cirrusSheet(
   return vec2(band, band * (1.0 - band) * 4.0);
 }
 
-// NOAA solar-position refraction in degrees for a true elevation in degrees.
-float refractionCorrection(float elevationDegrees) {
-  if (elevationDegrees > 85.0) return 0.0;
-  float tangent = tan(radians(elevationDegrees));
-  if (elevationDegrees > 5.0) {
-    return (58.1 / tangent - 0.07 / pow(tangent, 3.0) + 0.000086 / pow(tangent, 5.0)) /
-      3600.0;
-  }
-  if (elevationDegrees > -0.575) {
-    return (
-      1735.0 - 518.2 * elevationDegrees + 103.4 * elevationDegrees * elevationDegrees -
-      12.79 * pow(elevationDegrees, 3.0) + 0.711 * pow(elevationDegrees, 4.0)
-    ) / 3600.0;
-  }
-  return (-20.772 / tangent) / 3600.0;
-}
-
-float apparentElevation(float trueElevation) {
-  return trueElevation + refractionCorrection(trueElevation) * uRefraction;
-}
-
 // Kasten–Young (1989) relative airmass; ~38 at the horizon.
 float airmass(float elevationDegrees) {
   float h = max(elevationDegrees, 0.0);
   return 1.0 / (sin(radians(h)) + 0.50572 * pow(h + 6.07995, -1.6364));
 }
 
-vec3 opticalDepth() {
-  return TAU_RAYLEIGH + TAU_AEROSOL * mix(0.3, 2.5, uHaze) + TAU_OZONE * uOzone;
-}
-
 vec3 transmittance(float elevationDegrees) {
-  return exp(-opticalDepth() * airmass(elevationDegrees));
+  return exp(-uOpticalDepth * airmass(elevationDegrees));
 }
 
 float rayleighPhase(float mu) {
@@ -420,36 +426,36 @@ void main() {
   vec2 angular = screen * (SUN_RADIUS / uSunScale);
 
   float trueCentre = uSunElevation;
-  float apparentCentre = apparentElevation(trueCentre);
-  float apparentTop = apparentElevation(trueCentre + SUN_RADIUS);
-  float apparentBottom = apparentElevation(trueCentre - SUN_RADIUS);
+  float apparentCentre = uApparentCentre;
   float apparentElev = apparentCentre + angular.y;
 
   // Seeing: low-frequency animated warp of the viewing direction near the horizon.
-  float horizonProximity = exp(-max(apparentElev, 0.0) / 2.5);
-  float seeingPhase = uTime * uSeeingSpeed;
-  vec2 seeing = vec2(
-    fbm2(angular * 7.0 + vec2(seeingPhase * 0.55, 0.0)),
-    fbm2(angular * 7.0 + vec2(13.7, -seeingPhase * 0.45))
-  ) - 0.5;
-  vec2 discAngular = angular + seeing * (0.025 * uSeeingAmount * horizonProximity);
+  vec2 discAngular = angular;
+  if (uSeeingAmount > 0.0) {
+    float horizonProximity = exp(-max(apparentElev, 0.0) / 2.5);
+    vec2 seeing = vec2(
+      fbm2(angular * 7.0 + vec2(uSeeingPhase * 0.55, 0.0)),
+      fbm2(angular * 7.0 + vec2(13.7, -uSeeingPhase * 0.45))
+    ) - 0.5;
+    discAngular += seeing * (0.025 * uSeeingAmount * horizonProximity);
+  }
   float discApparentElev = apparentCentre + discAngular.y;
 
   // Apparent -> true disc coordinate. The lower half is compressed more than
   // the upper half because refraction grows fastest toward the horizon.
   float yTrue = discApparentElev < apparentCentre
-    ? (discApparentElev - apparentCentre) / max(apparentCentre - apparentBottom, 1e-4) * SUN_RADIUS
-    : (discApparentElev - apparentCentre) / max(apparentTop - apparentCentre, 1e-4) * SUN_RADIUS;
+    ? (discApparentElev - apparentCentre) / max(apparentCentre - uApparentBottom, 1e-4) * SUN_RADIUS
+    : (discApparentElev - apparentCentre) / max(uApparentTop - apparentCentre, 1e-4) * SUN_RADIUS;
   float radial = length(vec2(discAngular.x, yTrue)) / SUN_RADIUS;
   float edgeDistance = (radial - 1.0) * SUN_RADIUS;
   float outsideEdge = max(edgeDistance, 0.0);
 
   // Direct sunlight colour; the disc centre defines the exposure reference.
-  vec3 sunTransmittance = transmittance(trueCentre);
-  float centreLuminance = max(dot(sunTransmittance, LUMINANCE), 1e-5);
-  vec3 sunTint = sunTransmittance / centreLuminance;
-  float skyLightFactor = smoothstep(-9.0, 3.5, trueCentre);
-  float directSunFactor = smoothstep(-4.5, 1.7, trueCentre);
+  vec3 sunTransmittance = uSunTransmittance;
+  float centreLuminance = uCentreLuminance;
+  float skyLightFactor = uSkyLightFactor;
+  float directSunFactor = uDirectSunFactor;
+  vec3 glowTint = uGlowTint;
 
   // Disc: per-row extinction, Neckel limb darkening, Heckel softSunDisc edge.
   float muLimb = sqrt(max(1.0 - radial * radial, 0.0));
@@ -457,7 +463,6 @@ void main() {
   float rowElevation = trueCentre + yTrue * DISC_GRADIENT_STRETCH;
   vec3 discRadiance = transmittance(rowElevation) / centreLuminance * limb;
   discRadiance = saturateColor(discRadiance, uSaturation);
-  vec3 glowTint = saturateColor(sunTint * GLARE_TINT, uSaturation);
   float theta = length(vec2(discAngular.x, yTrue));
   float height = clamp(yTrue / SUN_RADIUS, -1.2, 1.2);
   // Physical path: Heckel softSunDisc, haze-widened. Poster path: keep the
@@ -477,23 +482,29 @@ void main() {
   vec3 posterRamp = mix(vec3(1.16, 1.06, 0.34), vec3(1.08, 0.50, 0.08), toAmber);
   posterRamp = mix(posterRamp, vec3(1.04, 0.12, 0.44), toMagenta);
 
-  // Cirrus / stratus: a few anisotropic sheets, not 1D scanlines.
-  float streakHeight = mix(0.28, 1.0, exp(-max(discApparentElev, 0.0) / 11.0));
-  float drift = uTime * uStreakDrift;
-  vec2 streakField = vec2(angular.x, discApparentElev);
-  vec2 sheetA = cirrusSheet(streakField, 0.045, 0.42, 11.0, drift * 0.085, 3.2);
-  vec2 sheetB = cirrusSheet(streakField, -0.08, 0.28, 16.5, drift * 0.13, 18.7);
-  vec2 sheetC = cirrusSheet(streakField, 0.12, 0.2, 22.0, drift * 0.055, 41.4);
-  float streakOptical = (sheetA.x * 0.72 + sheetB.x * 0.5 + sheetC.x * 0.32) * streakHeight;
-  float streakLining = (sheetA.y * 0.7 + sheetB.y * 0.45 + sheetC.y * 0.28) * streakHeight;
-  float streakDepth = streakOptical * uCloudStreaks;
-  float streaks = exp(-streakDepth * 1.85);
-  float skyStreaks = exp(-streakDepth * 0.42);
+  // Cirrus / stratus: a few anisotropic sheets, not 1D scanlines. This is the
+  // most expensive pass (15 fbm2 evaluations), so it is skipped entirely when
+  // the streak amount is zero.
+  float streaks = 1.0;
+  float skyStreaks = 1.0;
+  float streakLining = 0.0;
+  if (uCloudStreaks > 0.0) {
+    float streakHeight = mix(0.28, 1.0, exp(-max(discApparentElev, 0.0) / 11.0));
+    vec2 streakField = vec2(angular.x, discApparentElev);
+    vec2 sheetA = cirrusSheet(streakField, 0.045, 0.42, 11.0, uDrift * 0.085, 3.2);
+    vec2 sheetB = cirrusSheet(streakField, -0.08, 0.28, 16.5, uDrift * 0.13, 18.7);
+    vec2 sheetC = cirrusSheet(streakField, 0.12, 0.2, 22.0, uDrift * 0.055, 41.4);
+    float streakOptical = (sheetA.x * 0.72 + sheetB.x * 0.5 + sheetC.x * 0.32) * streakHeight;
+    streakLining = (sheetA.y * 0.7 + sheetB.y * 0.45 + sheetC.y * 0.28) * streakHeight;
+    float streakDepth = streakOptical * uCloudStreaks;
+    streaks = exp(-streakDepth * 1.85);
+    skyStreaks = exp(-streakDepth * 0.42);
+  }
 
   // Two-airmass single scatter (Heckel light-march, closed form for a ground observer).
   vec3 viewTransmittance = transmittance(apparentElev);
   float phaseMu = cos(radians(length(angular)));
-  vec3 extinction = max(opticalDepth(), vec3(1e-5));
+  vec3 extinction = max(uOpticalDepth, vec3(1e-5));
   vec3 scatterCoeff =
     TAU_RAYLEIGH * rayleighPhase(phaseMu) +
     TAU_AEROSOL * mix(0.3, 2.5, uHaze) * miePhase(phaseMu);
@@ -515,49 +526,38 @@ void main() {
   vec3 glare = mix(physicalGlare, posterGlare, uDuskFlush);
 
   // Lens flare (mu6k layout). The sun sits at the composition centre, so a
-  // virtual optical centre is placed along uFlareAngle; ghosts line up on
-  // that axis. Frame space: height 1, sun at flarePos.
-  float canvasUnit = min(uResolution.x, uResolution.y);
-  vec2 fromSun = (gl_FragCoord.xy - uCompositionCenter) / canvasUnit;
-  float flareRad = radians(uFlareAngle);
-  vec2 flareAxis = vec2(cos(flareRad), sin(flareRad));
-  vec2 flarePos = -flareAxis * 0.32;
-  vec2 flareUv = fromSun + flarePos;
-  float flareAmt = uFlare * mix(directSunFactor, 1.0, uDuskFlush * 0.55);
-  // Disc radius in frame units. The flare was tuned around a ~0.01 disc; a
-  // larger disc grows the glow (sub-linearly, so a full-frame disc does not
-  // flood the image) and the bloom must always cover the disc, or it reads
-  // as a white dot painted on the sun.
-  float discFrame = uSunScale * uCompositionScale / (2.0 * canvasUnit);
-  float discRatio = max(discFrame / 0.0095, 1.0);
-  float glowScale = clamp(pow(discRatio, 0.5), 1.0, 4.0);
-  float hotspot = flareRays(flareUv, flarePos, 1.15, glowScale, uFlareRays);
-  vec3 ghosts = flareGhosts(flareUv, flarePos);
-  // Halo ring (Chapman): a circle about the optical centre whose radius is
-  // the centre-to-sun distance, so it always passes through the sun.
-  float haloRing = exp(-pow((length(flareUv) - length(flarePos)) / 0.04, 2.0));
-  float star = apertureStar(fromSun, flareRad, glowScale);
-  // Sensor bloom. Charge spill grows with over-exposure: below clipping it is
-  // a faint warm glow around the disc; past it the blown region turns white
-  // and outgrows the disc, as in photographs. Super-gaussian plateau gives a
-  // clipped core with a quick shoulder; the tight term lifts the deep-orange
-  // low-sun disc so it does not show as a yellow dot inside the white.
-  float flareR = length(fromSun);
-  float over = max(uExposure * 0.45 - 0.8, 0.0);
-  float bloomOuter = max(0.04, discFrame * 1.7);
-  float bloomInner = max(0.014, discFrame * 1.15);
-  float bloomShape = exp(-pow(flareR / bloomOuter, 3.0)) * 0.45 + exp(-pow(flareR / bloomInner, 2.0)) * 0.45;
-  float bloom = bloomShape * (0.35 + over * 1.4);
-  vec3 bloomTint = mix(glowTint, vec3(1.0), clamp(0.3 + over * 0.35, 0.3, 0.85));
-  // Rays and glow carry the sky's warm tint; ghosts lean red-orange like
-  // real coatings do. All scene-linear so exposure and ACES shape them.
-  vec3 flareEnergy = (
-    glowTint * hotspot * 0.3 +
-    bloomTint * bloom +
-    ghosts * vec3(1.0, 0.42, 0.26) * 1.0 +
-    vec3(1.0, 0.38, 0.18) * haloRing * (0.1 + 0.18 * uFlareStar) +
-    mix(glowTint, vec3(1.0), 0.3) * star * 0.45 * uFlareStar
-  ) * flareAmt;
+  // virtual optical centre is placed along the flare angle; ghosts line up on
+  // that axis. Frame space: height 1, sun at uFlarePos. The whole pass is
+  // scaled by uFlareAmount, so it is skipped when that is zero.
+  vec3 flareEnergy = vec3(0.0);
+  if (uFlareAmount > 0.0) {
+    float canvasUnit = min(uResolution.x, uResolution.y);
+    vec2 fromSun = (gl_FragCoord.xy - uCompositionCenter) / canvasUnit;
+    vec2 flareUv = fromSun + uFlarePos;
+    float hotspot = flareRays(flareUv, uFlarePos, 1.15, uGlowScale, uFlareRays);
+    vec3 ghosts = flareGhosts(flareUv, uFlarePos);
+    // Halo ring (Chapman): a circle about the optical centre whose radius is
+    // the centre-to-sun distance, so it always passes through the sun.
+    float haloRing = exp(-pow((length(flareUv) - length(uFlarePos)) / 0.04, 2.0));
+    float star = uFlareStar > 0.0 ? apertureStar(fromSun, uFlareRad, uGlowScale) : 0.0;
+    // Sensor bloom. Charge spill grows with over-exposure: below clipping it is
+    // a faint warm glow around the disc; past it the blown region turns white
+    // and outgrows the disc, as in photographs. Super-gaussian plateau gives a
+    // clipped core with a quick shoulder; the tight term lifts the deep-orange
+    // low-sun disc so it does not show as a yellow dot inside the white.
+    float flareR = length(fromSun);
+    float bloomShape = exp(-pow(flareR / uBloomOuter, 3.0)) * 0.45 + exp(-pow(flareR / uBloomInner, 2.0)) * 0.45;
+    float bloom = bloomShape * (0.35 + uOver * 1.4);
+    // Rays and glow carry the sky's warm tint; ghosts lean red-orange like
+    // real coatings do. All scene-linear so exposure and ACES shape them.
+    flareEnergy = (
+      glowTint * hotspot * 0.3 +
+      uBloomTint * bloom +
+      ghosts * vec3(1.0, 0.42, 0.26) * 1.0 +
+      vec3(1.0, 0.38, 0.18) * haloRing * (0.1 + 0.18 * uFlareStar) +
+      mix(glowTint, vec3(1.0), 0.3) * star * 0.45 * uFlareStar
+    ) * uFlareAmount;
+  }
 
   // Apparent horizon with a dark ground. A zero field is a full indigo plate.
   float pixelAngle = (SUN_RADIUS / uSunScale) * 3.0 / max(uCompositionScale, 1.0);
@@ -628,28 +628,194 @@ function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
 
 function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): SkyUniforms {
   return {
+    apparentBottom: gl.getUniformLocation(program, 'uApparentBottom'),
+    apparentCentre: gl.getUniformLocation(program, 'uApparentCentre'),
+    apparentTop: gl.getUniformLocation(program, 'uApparentTop'),
+    bloomInner: gl.getUniformLocation(program, 'uBloomInner'),
+    bloomOuter: gl.getUniformLocation(program, 'uBloomOuter'),
+    bloomTint: gl.getUniformLocation(program, 'uBloomTint'),
+    centreLuminance: gl.getUniformLocation(program, 'uCentreLuminance'),
     cloudStreaks: gl.getUniformLocation(program, 'uCloudStreaks'),
     compositionCenter: gl.getUniformLocation(program, 'uCompositionCenter'),
     compositionScale: gl.getUniformLocation(program, 'uCompositionScale'),
+    directSunFactor: gl.getUniformLocation(program, 'uDirectSunFactor'),
+    drift: gl.getUniformLocation(program, 'uDrift'),
     duskFlush: gl.getUniformLocation(program, 'uDuskFlush'),
     exposure: gl.getUniformLocation(program, 'uExposure'),
     field: gl.getUniformLocation(program, 'uField'),
     flare: gl.getUniformLocation(program, 'uFlare'),
-    flareAngle: gl.getUniformLocation(program, 'uFlareAngle'),
+    flareAmount: gl.getUniformLocation(program, 'uFlareAmount'),
+    flarePos: gl.getUniformLocation(program, 'uFlarePos'),
+    flareRad: gl.getUniformLocation(program, 'uFlareRad'),
     flareRays: gl.getUniformLocation(program, 'uFlareRays'),
     flareStar: gl.getUniformLocation(program, 'uFlareStar'),
     glare: gl.getUniformLocation(program, 'uGlare'),
+    glowScale: gl.getUniformLocation(program, 'uGlowScale'),
+    glowTint: gl.getUniformLocation(program, 'uGlowTint'),
     haze: gl.getUniformLocation(program, 'uHaze'),
-    ozone: gl.getUniformLocation(program, 'uOzone'),
-    refraction: gl.getUniformLocation(program, 'uRefraction'),
+    opticalDepth: gl.getUniformLocation(program, 'uOpticalDepth'),
+    over: gl.getUniformLocation(program, 'uOver'),
     resolution: gl.getUniformLocation(program, 'uResolution'),
     saturation: gl.getUniformLocation(program, 'uSaturation'),
     seeingAmount: gl.getUniformLocation(program, 'uSeeingAmount'),
-    seeingSpeed: gl.getUniformLocation(program, 'uSeeingSpeed'),
-    streakDrift: gl.getUniformLocation(program, 'uStreakDrift'),
+    seeingPhase: gl.getUniformLocation(program, 'uSeeingPhase'),
+    skyLightFactor: gl.getUniformLocation(program, 'uSkyLightFactor'),
     sunElevation: gl.getUniformLocation(program, 'uSunElevation'),
     sunScale: gl.getUniformLocation(program, 'uSunScale'),
+    sunTransmittance: gl.getUniformLocation(program, 'uSunTransmittance'),
     time: gl.getUniformLocation(program, 'uTime'),
+  }
+}
+
+/*
+ * CPU mirrors of the shader's uniform-only math. These must stay in step with
+ * the GLSL constants above; the shader reads the results as uniforms.
+ */
+const SUN_RADIUS = 0.2665
+const LUMINANCE = [0.2126, 0.7152, 0.0722] as const
+const TAU_RAYLEIGH = [0.05, 0.098, 0.218] as const
+const TAU_AEROSOL = [0.045, 0.05, 0.06] as const
+const TAU_OZONE = [0.012, 0.035, 0.0016] as const
+const GLARE_TINT = [1, 0.8, 0.46] as const
+
+type Vec3 = [number, number, number]
+
+type FrameConstants = {
+  apparentBottom: number
+  apparentCentre: number
+  apparentTop: number
+  bloomInner: number
+  bloomOuter: number
+  bloomTint: Vec3
+  centreLuminance: number
+  directSunFactor: number
+  flareAmount: number
+  flarePos: [number, number]
+  flareRad: number
+  glowScale: number
+  glowTint: Vec3
+  opticalDepth: Vec3
+  over: number
+  skyLightFactor: number
+  sunTransmittance: Vec3
+}
+
+function mix(a: number, b: number, t: number): number {
+  return a + (b - a) * t
+}
+
+function smoothstep(edge0: number, edge1: number, value: number): number {
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1)
+  return t * t * (3 - 2 * t)
+}
+
+// NOAA solar-position refraction in degrees for a true elevation in degrees.
+function refractionCorrection(elevationDegrees: number): number {
+  if (elevationDegrees > 85) return 0
+  const tangent = Math.tan((elevationDegrees * Math.PI) / 180)
+  if (elevationDegrees > 5) {
+    return (58.1 / tangent - 0.07 / tangent ** 3 + 0.000086 / tangent ** 5) / 3600
+  }
+  if (elevationDegrees > -0.575) {
+    return (
+      (1735 -
+        518.2 * elevationDegrees +
+        103.4 * elevationDegrees * elevationDegrees -
+        12.79 * elevationDegrees ** 3 +
+        0.711 * elevationDegrees ** 4) /
+      3600
+    )
+  }
+  return -20.772 / tangent / 3600
+}
+
+// Kasten–Young (1989) relative airmass; ~38 at the horizon.
+function airmass(elevationDegrees: number): number {
+  const h = Math.max(elevationDegrees, 0)
+  return 1 / (Math.sin((h * Math.PI) / 180) + 0.50572 * (h + 6.07995) ** -1.6364)
+}
+
+function saturateColor(color: Vec3, amount: number): Vec3 {
+  const luminance = Math.max(
+    color[0] * LUMINANCE[0] + color[1] * LUMINANCE[1] + color[2] * LUMINANCE[2],
+    0,
+  )
+  return [
+    mix(luminance, color[0], amount),
+    mix(luminance, color[1], amount),
+    mix(luminance, color[2], amount),
+  ]
+}
+
+function frameConstants(
+  settings: SkySettings,
+  compositionScale: number,
+  canvasUnit: number,
+): FrameConstants {
+  const trueCentre = settings.sunElevation
+  const apparent = (elevation: number) =>
+    elevation + refractionCorrection(elevation) * settings.refraction
+
+  const aerosol = mix(0.3, 2.5, settings.haze)
+  const opticalDepth: Vec3 = [
+    TAU_RAYLEIGH[0] + TAU_AEROSOL[0] * aerosol + TAU_OZONE[0] * settings.ozone,
+    TAU_RAYLEIGH[1] + TAU_AEROSOL[1] * aerosol + TAU_OZONE[1] * settings.ozone,
+    TAU_RAYLEIGH[2] + TAU_AEROSOL[2] * aerosol + TAU_OZONE[2] * settings.ozone,
+  ]
+  const centreAirmass = airmass(trueCentre)
+  const sunTransmittance: Vec3 = [
+    Math.exp(-opticalDepth[0] * centreAirmass),
+    Math.exp(-opticalDepth[1] * centreAirmass),
+    Math.exp(-opticalDepth[2] * centreAirmass),
+  ]
+  const centreLuminance = Math.max(
+    sunTransmittance[0] * LUMINANCE[0] +
+      sunTransmittance[1] * LUMINANCE[1] +
+      sunTransmittance[2] * LUMINANCE[2],
+    1e-5,
+  )
+  const glowTint = saturateColor(
+    [
+      (sunTransmittance[0] / centreLuminance) * GLARE_TINT[0],
+      (sunTransmittance[1] / centreLuminance) * GLARE_TINT[1],
+      (sunTransmittance[2] / centreLuminance) * GLARE_TINT[2],
+    ],
+    settings.saturation,
+  )
+  const directSunFactor = smoothstep(-4.5, 1.7, trueCentre)
+
+  const flareRad = (settings.flareAngle * Math.PI) / 180
+  // Disc radius in frame units. The flare was tuned around a ~0.01 disc; a
+  // larger disc grows the glow (sub-linearly, so a full-frame disc does not
+  // flood the image) and the bloom must always cover the disc, or it reads
+  // as a white dot painted on the sun.
+  const discFrame = (settings.sunScale * compositionScale) / (2 * canvasUnit)
+  const discRatio = Math.max(discFrame / 0.0095, 1)
+  const over = Math.max(settings.exposure * 0.45 - 0.8, 0)
+  const bloomMix = clamp(0.3 + over * 0.35, 0.3, 0.85)
+
+  return {
+    apparentBottom: apparent(trueCentre - SUN_RADIUS),
+    apparentCentre: apparent(trueCentre),
+    apparentTop: apparent(trueCentre + SUN_RADIUS),
+    bloomInner: Math.max(0.014, discFrame * 1.15),
+    bloomOuter: Math.max(0.04, discFrame * 1.7),
+    bloomTint: [
+      mix(glowTint[0], 1, bloomMix),
+      mix(glowTint[1], 1, bloomMix),
+      mix(glowTint[2], 1, bloomMix),
+    ],
+    centreLuminance,
+    directSunFactor,
+    flareAmount: settings.flare * mix(directSunFactor, 1, settings.duskFlush * 0.55),
+    flarePos: [-Math.cos(flareRad) * 0.32, -Math.sin(flareRad) * 0.32],
+    flareRad,
+    glowScale: clamp(Math.sqrt(discRatio), 1, 4),
+    glowTint,
+    opticalDepth,
+    over,
+    skyLightFactor: smoothstep(-9, 3.5, trueCentre),
+    sunTransmittance,
   }
 }
 
@@ -726,11 +892,17 @@ function createSkyRenderer(
   let compositionScale = 1
   let lastFrameSettings: SkySettings | null = null
   let lastSanitized: SkySettings | null = null
+  let lastConstantsKey = ''
+  let constants: FrameConstants | null = null
+  // Set whenever something other than time changed; a static sky is drawn once.
+  let needsFrame = true
   const visualViewport = window.visualViewport
 
   function resize(): void {
     const bounds = canvas.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
+    // The sky is low-frequency gradients; 1.5x is indistinguishable from 2x
+    // and costs 44% fewer fragments for the heaviest shader in the package.
+    const dpr = Math.min(window.devicePixelRatio, 1.5)
     const width = Math.max(Math.round(bounds.width * dpr), 1)
     const height = Math.max(Math.round(bounds.height * dpr), 1)
     if (canvas.width !== width || canvas.height !== height) {
@@ -749,19 +921,46 @@ function createSkyRenderer(
       Math.min(compositionBounds.width * scaleX, compositionBounds.height * scaleY),
       1,
     )
+    needsFrame = true
   }
 
   function settingsForFrame(frameSettings: SkySettings): SkySettings {
     if (lastFrameSettings === frameSettings && lastSanitized) return lastSanitized
     lastFrameSettings = frameSettings
     lastSanitized = sanitizedSettings(frameSettings)
+    needsFrame = true
     return lastSanitized
+  }
+
+  function constantsForFrame(settings: SkySettings): FrameConstants {
+    // Cheap to recompute, but the key lets a resize or settings change reuse
+    // the previous result when nothing that feeds it actually moved.
+    const canvasUnit = Math.min(canvas.width, canvas.height)
+    const key = `${settings.sunElevation}|${settings.refraction}|${settings.haze}|${settings.ozone}|${settings.saturation}|${settings.flareAngle}|${settings.sunScale}|${settings.exposure}|${settings.flare}|${settings.duskFlush}|${compositionScale}|${canvasUnit}`
+    if (constants && key === lastConstantsKey) return constants
+    lastConstantsKey = key
+    constants = frameConstants(settings, compositionScale, canvasUnit)
+    return constants
+  }
+
+  // Only seeing, streak drift and the flare grain read uTime. Without them the
+  // image is static and does not need to be redrawn every frame.
+  function isAnimated(settings: SkySettings): boolean {
+    return (
+      (settings.seeingAmount > 0 && settings.seeingSpeed > 0) ||
+      (settings.cloudStreaks > 0 && settings.streakDrift > 0) ||
+      (settings.flare > 0 && settings.field > 0)
+    )
   }
 
   function render(timestamp: number, frameSettings: SkySettings): void {
     if (disposed || contextLost || !resources) return
     const settings = settingsForFrame(frameSettings)
+    if (!needsFrame && !isAnimated(settings)) return
+    needsFrame = false
+    const frame = constantsForFrame(settings)
     const { program, uniforms, vertexArray } = resources
+    const time = (timestamp - startTime) / 1000
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.viewport(0, 0, canvas.width, canvas.height)
@@ -777,21 +976,46 @@ function createSkyRenderer(
     gl.uniform1f(uniforms.exposure, settings.exposure)
     gl.uniform1f(uniforms.field, settings.field)
     gl.uniform1f(uniforms.flare, settings.flare)
-    gl.uniform1f(uniforms.flareAngle, settings.flareAngle)
     gl.uniform1f(uniforms.flareRays, settings.flareRays)
     gl.uniform1f(uniforms.flareStar, settings.flareStar)
     gl.uniform1f(uniforms.glare, settings.glare)
     gl.uniform1f(uniforms.haze, settings.haze)
-    gl.uniform1f(uniforms.ozone, settings.ozone)
-    gl.uniform1f(uniforms.refraction, settings.refraction)
     gl.uniform2f(uniforms.resolution, canvas.width, canvas.height)
     gl.uniform1f(uniforms.saturation, settings.saturation)
     gl.uniform1f(uniforms.seeingAmount, settings.seeingAmount)
-    gl.uniform1f(uniforms.seeingSpeed, settings.seeingSpeed)
-    gl.uniform1f(uniforms.streakDrift, settings.streakDrift)
     gl.uniform1f(uniforms.sunElevation, settings.sunElevation)
     gl.uniform1f(uniforms.sunScale, settings.sunScale)
-    gl.uniform1f(uniforms.time, (timestamp - startTime) / 1000)
+    gl.uniform1f(uniforms.time, time)
+
+    gl.uniform1f(uniforms.apparentBottom, frame.apparentBottom)
+    gl.uniform1f(uniforms.apparentCentre, frame.apparentCentre)
+    gl.uniform1f(uniforms.apparentTop, frame.apparentTop)
+    gl.uniform1f(uniforms.bloomInner, frame.bloomInner)
+    gl.uniform1f(uniforms.bloomOuter, frame.bloomOuter)
+    gl.uniform3f(uniforms.bloomTint, frame.bloomTint[0], frame.bloomTint[1], frame.bloomTint[2])
+    gl.uniform1f(uniforms.centreLuminance, frame.centreLuminance)
+    gl.uniform1f(uniforms.directSunFactor, frame.directSunFactor)
+    gl.uniform1f(uniforms.drift, time * settings.streakDrift)
+    gl.uniform1f(uniforms.flareAmount, frame.flareAmount)
+    gl.uniform2f(uniforms.flarePos, frame.flarePos[0], frame.flarePos[1])
+    gl.uniform1f(uniforms.flareRad, frame.flareRad)
+    gl.uniform1f(uniforms.glowScale, frame.glowScale)
+    gl.uniform3f(uniforms.glowTint, frame.glowTint[0], frame.glowTint[1], frame.glowTint[2])
+    gl.uniform3f(
+      uniforms.opticalDepth,
+      frame.opticalDepth[0],
+      frame.opticalDepth[1],
+      frame.opticalDepth[2],
+    )
+    gl.uniform1f(uniforms.over, frame.over)
+    gl.uniform1f(uniforms.seeingPhase, time * settings.seeingSpeed)
+    gl.uniform1f(uniforms.skyLightFactor, frame.skyLightFactor)
+    gl.uniform3f(
+      uniforms.sunTransmittance,
+      frame.sunTransmittance[0],
+      frame.sunTransmittance[1],
+      frame.sunTransmittance[2],
+    )
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
   }

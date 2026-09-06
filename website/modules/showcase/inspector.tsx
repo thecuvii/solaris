@@ -7,7 +7,7 @@ import * as stylex from '@stylexjs/stylex'
 import NumberFlow, { continuous } from '@number-flow/react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
 import { hapticPress, hapticTick } from './haptics'
@@ -24,6 +24,18 @@ import {
   settingAtom,
 } from './showcase-settings'
 import { track } from './track'
+
+// Keys Base UI's slider thumb turns into value changes.
+const SLIDER_KEYS = new Set([
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowUp',
+  'End',
+  'Home',
+  'PageDown',
+  'PageUp',
+])
 
 export function Inspector({ planetId }: { planetId: PlanetId }) {
   const groups = parameterGroupsByPlanet.get(planetId) ?? []
@@ -304,11 +316,25 @@ const ParameterSlider = memo(function ParameterSlider({
   const interactingRef = useRef(false)
   const lastHapticValueRef = useRef(value)
   const editingRef = useRef(false)
+  const keyboardGestureRef = useRef(false)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const animationRef = useRef<ReturnType<typeof animate> | null>(null)
+  // Track geometry, measured only when the track or its labels resize, so the
+  // per-tick math below never forces a synchronous layout.
+  const trackRectRef = useRef<DOMRect | null>(null)
+  const geometryRef = useRef({ labelEnd: 0, valueStart: 1 })
+  const fadeRef = useRef(0.05)
   const progress = useMotionValue(getNormalizedValue(value))
   const handleOpacity = useMotionValue(1)
   const fillWidth = useTransform(progress, (current) => `${current * 100}%`)
+  // The fill spans the whole track and slides left by (1 - p) track widths, so
+  // a tick is a transform (paint-only) instead of a width change (layout). The
+  // element is 10px wider than the track (content-box padding); the second
+  // term cancels that so the slide is measured in track widths.
+  const fillX = useTransform(
+    progress,
+    (current) => `calc(${current - 1} * 100% - ${current - 1} * 10px)`,
+  )
   const [hovered, setHovered] = useState(false)
   const [interacting, setInteracting] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -353,10 +379,10 @@ const ParameterSlider = memo(function ParameterSlider({
     const track = trackRef.current
     if (!track) return value
 
-    const rect = track.getBoundingClientRect()
-    const scale = rect.width / track.offsetWidth || 1
-    const localX = (clientX - rect.left) / scale
-    const rawProgress = localX / track.offsetWidth
+    // Measured once per gesture (see handlePointerDown); every move after that
+    // would otherwise force a synchronous layout on a page React just dirtied.
+    const rect = (trackRectRef.current ??= track.getBoundingClientRect())
+    const rawProgress = (clientX - rect.left) / Math.max(rect.width, 1)
     const nextProgress = clampValue(rawProgress, 0, 1)
 
     progress.set(nextProgress)
@@ -368,6 +394,7 @@ const ParameterSlider = memo(function ParameterSlider({
   const cancelGesture = useCallback(() => {
     if (!pointerRef.current) return
     pointerRef.current = null
+    trackRectRef.current = null
     interactingRef.current = false
     setInteracting(false)
     setSliderGesture(false)
@@ -406,6 +433,7 @@ const ParameterSlider = memo(function ParameterSlider({
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
     animationRef.current?.stop()
+    trackRectRef.current = event.currentTarget.getBoundingClientRect()
     // Touch starts pending so a vertical flick can scroll the drawer.
     // Mouse claims immediately — there is no competing pan.
     pointerRef.current = {
@@ -453,10 +481,26 @@ const ParameterSlider = memo(function ParameterSlider({
     if (pointer.axis === 'scroll') return
 
     const nextValue = updateFromPointer(event.clientX, !pointer.moved)
+    trackRectRef.current = null
     onValueChange(nextValue)
     hapticForValue(nextValue)
     setGestureActive(false)
     animateTo(getNormalizedValue(nextValue))
+  }
+
+  // Keyboard nudges arrive as key repeats. Hold the sky chrome ink for the
+  // duration of the key press, the same way a pointer drag does.
+  function handleKeyDownCapture(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (editingRef.current || keyboardGestureRef.current) return
+    if (!SLIDER_KEYS.has(event.key)) return
+    keyboardGestureRef.current = true
+    setSliderGesture(true)
+  }
+
+  function releaseKeyboardGesture() {
+    if (!keyboardGestureRef.current) return
+    keyboardGestureRef.current = false
+    setSliderGesture(false)
   }
 
   function beginEditing() {
@@ -499,26 +543,38 @@ const ParameterSlider = memo(function ParameterSlider({
   }, [animateTo, getNormalizedValue, value])
 
   useEffect(() => {
-    function updateHandleOpacity(current = progress.get()) {
+    // Positions are read only here, after layout, and normalised to the track
+    // width so the per-tick update below is pure arithmetic.
+    function measure() {
       const track = trackRef.current
       const labelElement = labelRef.current
       const valueElement = valueRef.current
       if (!track || !labelElement || !valueElement) return
+      const width = Math.max(track.offsetWidth, 1)
+      geometryRef.current = {
+        labelEnd: (labelElement.offsetLeft + labelElement.offsetWidth + 12) / width,
+        valueStart: (valueElement.offsetLeft - 12) / width,
+      }
+      // Fade distance is 10px, expressed in the same normalised space.
+      fadeRef.current = 10 / width
+      updateHandleOpacity()
+    }
 
-      const handleX = current * track.offsetWidth
-      const labelEnd = labelElement.offsetLeft + labelElement.offsetWidth + 12
-      const valueStart = valueElement.offsetLeft - 12
+    function updateHandleOpacity(current = progress.get()) {
+      const { labelEnd, valueStart } = geometryRef.current
+      const fade = fadeRef.current
       handleOpacity.set(
         Math.min(
-          Math.min(Math.max((handleX - labelEnd) / 10, 0), 1),
-          Math.min(Math.max((valueStart - handleX) / 10, 0), 1),
+          Math.min(Math.max((current - labelEnd) / fade, 0), 1),
+          Math.min(Math.max((valueStart - current) / fade, 0), 1),
         ),
       )
     }
 
-    updateHandleOpacity()
+    measure()
     const stopListening = progress.on('change', updateHandleOpacity)
-    const resizeObserver = new ResizeObserver(() => updateHandleOpacity())
+    // Fires after layout, so reading offsets inside it is free.
+    const resizeObserver = new ResizeObserver(measure)
     if (trackRef.current) resizeObserver.observe(trackRef.current)
     if (labelRef.current) resizeObserver.observe(labelRef.current)
     if (valueRef.current) resizeObserver.observe(valueRef.current)
@@ -559,9 +615,14 @@ const ParameterSlider = memo(function ParameterSlider({
         max={max}
         min={min}
         onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false)
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            setFocused(false)
+            releaseKeyboardGesture()
+          }
         }}
         onFocusCapture={() => setFocused(true)}
+        onKeyDownCapture={handleKeyDownCapture}
+        onKeyUpCapture={releaseKeyboardGesture}
         onValueChange={onValueChange}
         step={step}
         value={value}
@@ -583,7 +644,7 @@ const ParameterSlider = memo(function ParameterSlider({
           {...stylex.props(styles.sliderTrack)}
         >
           <motion.div
-            style={{ width: fillWidth }}
+            style={{ x: fillX }}
             {...stylex.props(
               styles.sliderIndicator,
               (forceProgressHover || active) && styles.sliderIndicatorActive,
@@ -1041,6 +1102,9 @@ const styles = stylex.create({
     position: 'absolute',
     top: 0,
     transition: 'background-color 140ms ease-out, box-shadow 140ms ease-out',
+    // Full track width; progress is a translateX (see fillX), not a width.
+    width: '100%',
+    willChange: 'transform',
   },
   sliderIndicatorActive: {
     backgroundImage:

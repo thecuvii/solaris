@@ -122,7 +122,7 @@ export function CodeBlock({ planet }: { planet: Planet }) {
   }, [planet])
 
   return (
-    <section {...stylex.props(styles.codeSection)}>
+    <section {...stylex.props(styles.codeSection, planet.id === 'sky' && styles.codeSectionFlat)}>
       <div data-chrome-probe="code" {...stylex.props(styles.codeHeader)}>
         <div {...stylex.props(styles.codeFile)}>
           <CodeFileIcon />
@@ -353,6 +353,12 @@ const styles = stylex.create({
     paddingBottom: 6,
     paddingInline: 6,
     paddingTop: 0,
+  },
+  // The Sky canvas animates under this header every frame; a backdrop blur
+  // there is a per-frame GPU pass. Use a plain fill on that page instead.
+  codeSectionFlat: {
+    backdropFilter: 'none',
+    backgroundColor: 'rgba(7, 8, 13, 0.55)',
   },
   copyIcon: {
     display: 'block',
