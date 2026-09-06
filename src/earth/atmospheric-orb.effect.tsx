@@ -1163,6 +1163,7 @@ function createAtmosphericRenderer(
   let compositionCenterX = 0
   let compositionCenterY = 0
   let compositionScale = 1
+  let sizeDirty = true
   const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
 
   function ensureEarthResources(): EarthResources {
@@ -1246,6 +1247,7 @@ function createAtmosphericRenderer(
       height - (compositionBounds.top - bounds.top + compositionBounds.height / 2) * scaleY
     // Size stays locked to composition height so a taller canvas does not shrink the globe.
     compositionScale = Math.max(compositionBounds.height * scaleY, 1)
+    sizeDirty = false
   }
 
   function setPhysicalUniforms(program: WebGLProgram, current: AtmosphericFrameSettings): void {
@@ -1357,7 +1359,7 @@ function createAtmosphericRenderer(
 
   function render(timestamp: number, current: AtmosphericFrameSettings): void {
     if (disposed || contextLost) return
-    resize()
+    if (sizeDirty || canvas.width <= 1 || canvas.height <= 1) resize()
     gl.disable(gl.BLEND)
     gl.disable(gl.DEPTH_TEST)
     renderTransmittance(current)
@@ -1527,7 +1529,9 @@ function createAtmosphericRenderer(
     resize()
   }
 
-  const resizeObserver = new ResizeObserver(resize)
+  const resizeObserver = new ResizeObserver(() => {
+    sizeDirty = true
+  })
   resizeObserver.observe(canvas)
   if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
   const pointerTarget: HTMLElement = compositionRef.current ?? canvas
@@ -1640,8 +1644,10 @@ export function AtmosphericOrbEffect({
         >
           <canvas
             aria-hidden="true"
+            height={1}
             ref={canvasRef}
             style={{ display: 'block', height: '100%', pointerEvents: 'none', width: '100%' }}
+            width={1}
           />
         </div>
       </div>
@@ -1652,8 +1658,10 @@ export function AtmosphericOrbEffect({
     <canvas
       aria-hidden="true"
       className={className}
+      height={1}
       ref={canvasRef}
       style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      width={1}
     />
   )
 }

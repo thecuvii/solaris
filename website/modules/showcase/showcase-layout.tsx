@@ -230,6 +230,7 @@ function LayoutGridOverlay() {
 const styles = stylex.create({
   content: {
     gridColumn: 2,
+    minHeight: 0,
     minWidth: 0,
     paddingBlock: 0,
     paddingInline: 'clamp(24px, 4vw, 64px)',

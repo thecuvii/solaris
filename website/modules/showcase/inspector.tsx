@@ -1183,14 +1183,16 @@ const styles = stylex.create({
   },
   switchLabel: {
     alignItems: 'center',
-    backgroundColor: 'transparent',
+    backgroundColor: tokens.sliderTrackBg,
     borderRadius: 8,
+    boxShadow:
+      '0 1px 2px oklch(0% 0 0 / 0.07), 0 1px 1px oklch(0% 0 0 / 0.04), inset 0 1px 0 oklch(100% 0 0 / 0.045), inset 0 -1px 1px oklch(0% 0 0 / 0.32), inset 1px 0 1px oklch(100% 0 0 / 0.025)',
     color: 'oklch(86.4% 0.003 84.6 / 0.72)',
     cursor: 'pointer',
     display: 'flex',
     fontSize: 13,
     fontWeight: 500,
-    height: 40,
+    height: 32,
     justifyContent: 'space-between',
     paddingLeft: 14,
     paddingRight: 10,
@@ -1198,6 +1200,7 @@ const styles = stylex.create({
   },
   switchLabelCompact: {
     backgroundColor: 'transparent',
+    boxShadow: 'none',
     fontSize: 10,
     gap: 8,
     height: 28,

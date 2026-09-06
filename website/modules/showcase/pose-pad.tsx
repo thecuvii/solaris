@@ -506,7 +506,7 @@ const styles = stylex.create({
     display: 'flex',
     gap: 16,
     minWidth: 0,
-    paddingInline: 2,
+    paddingInline: 14,
   },
   root: {
     display: 'flex',

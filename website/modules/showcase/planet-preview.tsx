@@ -22,22 +22,48 @@ export function PlanetIntroduction({
   chrome: ChromeTransitionContext
   planet: Planet
 }) {
-  const titleProps = stylex.props(styles.title, styles.eclipseTitleLighting)
+  // Drop-shadow is only for moon / eclipse lighting. It cannot sit on the
+  // gradient title: filter + background-clip:text smears Torph's per-glyph spans.
+  const haloLit = planet.id === 'moon' || planet.id === 'lunar-eclipse'
+  const fillProps = stylex.props(styles.titleType, styles.titleFill)
+  const shadowTypeProps = stylex.props(styles.titleType)
+  const titleMorph = {
+    disabled: chrome.reducedMotion,
+    duration: 220,
+    ease: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    scale: false,
+  } as const
 
   return (
     <>
       <div {...stylex.props(styles.titleRow)}>
-        <TextMorph
-          as="h1"
-          className={[titleProps.className, 'showcase-title-morph'].filter(Boolean).join(' ')}
-          disabled={chrome.reducedMotion}
-          duration={220}
-          ease="cubic-bezier(0.22, 1, 0.36, 1)"
-          scale={false}
-          style={titleProps.style}
-        >
-          {planet.name}
-        </TextMorph>
+        <div {...stylex.props(styles.titleStack)}>
+          {haloLit ? (
+            <span
+              aria-hidden="true"
+              {...stylex.props(styles.titleShadow, styles.eclipseTitleLighting)}
+            >
+              <TextMorph
+                as="span"
+                className={[shadowTypeProps.className, 'showcase-title-shadow']
+                  .filter(Boolean)
+                  .join(' ')}
+                style={shadowTypeProps.style}
+                {...titleMorph}
+              >
+                {planet.name}
+              </TextMorph>
+            </span>
+          ) : null}
+          <TextMorph
+            as="h1"
+            className={[fillProps.className, 'showcase-title-morph'].filter(Boolean).join(' ')}
+            style={fillProps.style}
+            {...titleMorph}
+          >
+            {planet.name}
+          </TextMorph>
+        </div>
         <a
           aria-label={`View ${planet.name} source on GitHub`}
           href={githubSourceUrl(planet.sourceFile)}
@@ -117,11 +143,33 @@ const styles = stylex.create({
       transition: 'none',
     },
   },
-  title: {
+  titleFill: {
     backgroundClip: 'text',
     backgroundImage:
       'linear-gradient(180deg, var(--showcase-title-top) 0%, var(--showcase-title-bottom) 100%)',
     color: 'transparent',
+    position: 'relative',
+    textShadow: 'none',
+    zIndex: 1,
+  },
+  titleShadow: {
+    color: 'var(--showcase-title-top)',
+    display: 'block',
+    inset: 0,
+    pointerEvents: 'none',
+    position: 'absolute',
+    textShadow: 'none',
+    userSelect: 'none',
+    zIndex: 0,
+  },
+  titleStack: {
+    marginTop: '-0.12em',
+    minWidth: 0,
+    overflow: 'visible',
+    position: 'relative',
+  },
+  titleType: {
+    display: 'block',
     fontFamily: 'var(--font-sans)',
     fontSize: 'var(--showcase-title-size)',
     fontWeight: 590,
@@ -129,7 +177,11 @@ const styles = stylex.create({
     lineHeight: 1.18,
     marginBottom: 0,
     marginInline: 0,
-    marginTop: '-0.12em',
+    marginTop: 0,
+    // Torph wraps each glyph in an inline-block with the same 0.22em pad as
+    // this heading. Without a reserved box the title grows ~0.22em when those
+    // spans appear, the summary drops, and the page height changes.
+    minHeight: 'calc(var(--showcase-title-size) * 1.18 + 0.44em)',
     minWidth: 0,
     overflow: 'visible',
     paddingBottom: '0.22em',

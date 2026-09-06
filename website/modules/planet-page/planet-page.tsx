@@ -88,6 +88,7 @@ const styles = stylex.create({
     gridTemplateColumns: 'repeat(8, minmax(0, 1fr))',
     marginInline: 'auto',
     maxWidth: 820,
+    minHeight: 0,
     paddingBottom: 44,
     paddingTop: 'var(--showcase-preview-top)',
     position: 'relative',
