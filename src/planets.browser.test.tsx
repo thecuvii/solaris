@@ -10,6 +10,7 @@ import { afterEach, describe, expect, test, vi } from 'vite-plus/test'
 
 import * as solaris from './index'
 import type { SourceStatus } from './source-lifecycle'
+import { SolarOrbEffect } from './sun/solar-orb.effect'
 
 const FIRST_FRAME_TIMEOUT = 45_000
 
@@ -181,4 +182,116 @@ test('paused planets do not present until resumed', async () => {
   await expect
     .poll(() => canvas.style.opacity, { interval: 50, timeout: FIRST_FRAME_TIMEOUT })
     .toBe('1')
+})
+
+test('Sun flow visibly advects broad plasma structure and respects zero controls', () => {
+  // Broad structures catch the former high-pass-only subpixel shimmer. A fine
+  // checkerboard would change even when the visible active regions stayed fixed.
+  const data = new Uint8Array(1024 * 1024 * 4)
+  for (let y = 0; y < 1024; y++) {
+    for (let x = 0; x < 1024; x++) {
+      const offset = (y * 1024 + x) * 4
+      data[offset] = 130 + 70 * Math.sin(x / 18) * Math.cos(y / 23)
+      data[offset + 1] = 90 + 60 * Math.cos(x / 25 + y / 19)
+      data[offset + 2] = 40
+      const radius = Math.hypot(x - 512, y - 512)
+      // Translucent off-limb emission must not breathe through alpha changes.
+      data[offset + 3] = radius < 410 ? 255 : radius < 440 ? 128 : 0
+    }
+  }
+  const source = {
+    render: () => ({
+      diskCenter: [0.5, 0.5] as const,
+      diskRadius: 0.4,
+      observation: { data, width: 1024, height: 1024 },
+    }),
+  }
+  const frames = new Map<number, FrameRequestCallback>()
+  let nextId = 0
+  const request = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+    frames.set(++nextId, callback)
+    return nextId
+  })
+  const cancel = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((id) => {
+    frames.delete(id)
+  })
+  const onError = vi.fn<(error: Error) => void>()
+
+  try {
+    const host = mount(<SolarOrbEffect source={source} lean={false} onError={onError} />)
+    const canvas = host.querySelector('canvas')!
+    const gl = canvas.getContext('webgl2')!
+    function readFrame(time: number) {
+      const callbacks = [...frames.values()]
+      frames.clear()
+      for (const callback of callbacks) callback(time)
+      const bytes = new Uint8Array(canvas.width * canvas.height * 4)
+      gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, bytes)
+      // This source has an empty frame around the disc. Scan the four UV
+      // boundaries, where divergent derivative-based LOD can leak coarse mips
+      // on affected GPU drivers. Keep sampling inside and outside each edge.
+      const frameRadius = Math.min(canvas.width, canvas.height) * 0.45
+      let borderAlpha = 0
+      let borderSamples = 0
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+          const edgeX = Math.abs(Math.abs(x + 0.5 - canvas.width / 2) - frameRadius)
+          const edgeY = Math.abs(Math.abs(y + 0.5 - canvas.height / 2) - frameRadius)
+          if (edgeX > 2 && edgeY > 2) continue
+          borderAlpha += bytes[(y * canvas.width + x) * 4 + 3]
+          borderSamples++
+        }
+      }
+      expect(borderSamples).toBeGreaterThan(0)
+      expect(borderAlpha).toBe(0)
+      return bytes
+    }
+    readFrame(0)
+    let time = 1000
+    for (const [flowAmount, flowSpeed] of [
+      [0, 2],
+      [18, 0],
+      [18, 1.4],
+      [32, 2],
+    ]) {
+      act(() =>
+        root!.render(
+          <SolarOrbEffect
+            source={source}
+            lean={false}
+            flowAmount={flowAmount}
+            flowSpeed={flowSpeed}
+            onError={onError}
+          />,
+        ),
+      )
+      const first = readFrame(time)
+      const last = readFrame(time + 2000)
+      time += 3000
+      let delta = 0
+      let samples = 0
+      let alphaDelta = 0
+      let translucentSamples = 0
+      for (let i = 0; i < first.length; i += 4) {
+        alphaDelta += Math.abs(first[i + 3] - last[i + 3])
+        if (first[i + 3] > 0 && first[i + 3] < 255) translucentSamples++
+        if (first[i + 3] !== 255) continue
+        for (let channel = 0; channel < 3; channel++) {
+          delta += Math.abs(first[i + channel] - last[i + channel])
+          samples++
+        }
+      }
+      expect(samples).toBeGreaterThan(0)
+      expect(translucentSamples).toBeGreaterThan(0)
+      expect(alphaDelta).toBe(0)
+      if (flowAmount === 0 || flowSpeed === 0) expect(delta).toBe(0)
+      else expect(delta / samples).toBeGreaterThan(5)
+    }
+    expect(onError).not.toHaveBeenCalled()
+  } finally {
+    act(() => root?.unmount())
+    root = null
+    request.mockRestore()
+    cancel.mockRestore()
+  }
 })

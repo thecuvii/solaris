@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 13 13">
+  <defs>
+    <mask id="shadow" maskUnits="userSpaceOnUse" x="0" y="0" width="11" height="11">
+      <circle cx="5.5" cy="5.5" r="5.5" fill="white" />
+      <circle cx="2.5" cy="3.5" r="5.5" fill="black" />
+    </mask>
+  </defs>
+  <circle cx="5.5" cy="5.5" r="5.5" fill="#f2e8d0" />
+  <circle cx="5.5" cy="5.5" r="5.5" fill="#101112" fill-opacity=".52" mask="url(#shadow)" />
+</svg>

@@ -153,7 +153,7 @@ Local adaptations:
 - Fitted a fully opaque observed disk independently of RGB intensity, so dark on-disk filaments remain opaque.
 - Subtracted the smooth dark-red exterior background and retained only connected, attached off-limb emission; background-subtracted emission is stored as straight color plus coverage alpha.
 - Dilated hidden edge color for safe filtering. The copied Effect builds its mip chain with alpha-weighted RGB so minification does not create a dark fringe.
-- Applies only restrained linear-light grading and a small periodic displacement of high-frequency residual detail; the low-pass observation, active-region positions, prominences, and alpha remain fixed.
+- At low flow amounts, applies restrained linear-light grading and a small periodic displacement of high-frequency residual detail. Above 3 source texels, progressively advects broader on-disk structure and modulates the brightness of existing active regions and off-limb emission. The disk outline and observed emission footprint remain fixed; no new prominence geometry is generated. This is an illustrative animation of a single observation, not an observed solar time series.
 
 The source URL, output hash, processing thresholds, fitted center/radius, observation time, tool versions, and full modification record are stored in `sun-texture-manifest.json`. Research, rejected visual models, source-code audits, and validation criteria are recorded in `research/sun-rendering-webgl-shader-survey.md`.
 

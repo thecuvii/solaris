@@ -42,7 +42,7 @@ export type SolarOrbEffectProps = OrbCanvasProps &
     exposure?: number
     /** Darkening of filaments and other locally dark structure. Range 0–1.5. @default 0.42 */
     filamentDepth?: number
-    /** Amplitude of the animated plasma flow warp in source texels. 0 disables it. Range 0–6. @default 1.6 */
+    /** Plasma displacement in source texels. Above 3, broad structure and emission also evolve. 0 disables flow. Range 0–32. @default 1.6 */
     flowAmount?: number
     /** Speed multiplier for the flow warp. 0 freezes it. Range 0–2. @default 1 */
     flowSpeed?: number
@@ -219,10 +219,13 @@ void flowMaskAndGradient(vec2 position, out float mask, out vec2 gradient) {
   gradient = radialDerivative * position / max(radius, 0.0001);
 }
 
-float sourceLod(vec2 uv) {
-  vec2 derivativeX = dFdx(uv) * SOURCE_SIZE;
-  vec2 derivativeY = dFdy(uv) * SOURCE_SIZE;
-  float footprint = max(length(derivativeX), length(derivativeY));
+float sourceLod() {
+  // The mapping is an affine rotation + uniform scale + translation. Its
+  // texels-per-pixel footprint is constant; roll and pointer offsets don't
+  // change it. Derivatives after the per-fragment UV return below are undefined
+  // on boundary quads and can select coarse, nontransparent mips at frame edges.
+  float footprint = 2.0 * uDiskRadius * SOURCE_SIZE /
+    (SCREEN_DISK_RADIUS * uCompositionScale);
   return clamp(log2(max(footprint, 1.0)), 0.0, 8.0);
 }
 
@@ -255,7 +258,7 @@ void main() {
     return;
   }
 
-  float baseLod = sourceLod(sourceUv);
+  float baseLod = sourceLod();
   vec4 sourceSample = textureLod(uObservationTexture, sourceUv, baseLod);
   float alpha = sourceSample.a;
   if (alpha <= 0.5 / 255.0) {
@@ -280,11 +283,24 @@ void main() {
     sin(flowPhase) * maskedFlowTwo;
   vec2 warpedUv = sourceUv + flow * (uFlowAmount / SOURCE_SIZE);
 
+  // Preserve the restrained detail-only treatment at low settings. Higher
+  // amounts advect the broad observation too, so flow reads at card scale
+  // instead of leaving the bright structures fixed beneath subpixel shimmer.
+  float activity = smoothstep(3.0, 12.0, uFlowAmount);
   float lowPassLod = min(baseLod + 2.25, 9.0);
-  vec3 fixedLowPass = sampleLinear(sourceUv, lowPassLod);
+  vec3 lowPass = mix(
+    sampleLinear(sourceUv, lowPassLod),
+    sampleLinear(warpedUv, lowPassLod),
+    activity
+  );
   vec3 warpedBandPass =
     sampleLinear(warpedUv, baseLod) - sampleLinear(warpedUv, lowPassLod);
-  vec3 color = max(fixedLowPass + warpedBandPass, 0.0);
+  vec3 color = max(lowPass + warpedBandPass, 0.0);
+
+  // Slowly brighten/fade existing observed emission, with regional phase
+  // offsets rather than flashing the whole disc. No new coronal geometry.
+  float emissionPulse = 1.0 + activity * 0.2 *
+    sin(flowPhase * 2.0 + dot(diskPosition, vec2(3.1, -2.7)));
 
   float offLimb = smoothstep(
     uDiskRadius - 2.0 / SOURCE_SIZE,
@@ -306,7 +322,7 @@ void main() {
     smoothstep(0.24, 0.72, luminance) *
     smoothstep(1.12, 2.6, relativeBrightness) *
     onDisk;
-  color *= 1.0 + activeRegion * uActiveRegionGain * 0.72;
+  color *= 1.0 + activeRegion * uActiveRegionGain * 0.72 * emissionPulse;
 
   luminance = max(dot(color, LUMINANCE), 0.00001);
   float contrastedLuminance = 0.18 * pow(luminance / 0.18, uContrast);
@@ -317,7 +333,7 @@ void main() {
 
   float limbAlphaGain = min(uLimbEmission, 1.0);
   alpha *= mix(1.0, limbAlphaGain, offLimb);
-  color *= mix(1.0, max(uLimbEmission, 1.0), offLimb);
+  color *= mix(1.0, max(uLimbEmission, 1.0) * emissionPulse, offLimb);
   if (alpha <= 0.5 / 255.0) {
     fragColor = vec4(0.0);
     return;
@@ -494,7 +510,7 @@ const spec: OrbRendererSpec<SolarResources, SolarOrbSettings, SolarOrbFrame> = {
     gl.uniform1f(uniforms.uDiskRadius, resources.diskRadius)
     gl.uniform1f(uniforms.uExposure, clamp(settings.exposure, 0, 2))
     gl.uniform1f(uniforms.uFilamentDepth, clamp(settings.filamentDepth, 0, 1.5))
-    gl.uniform1f(uniforms.uFlowAmount, clamp(settings.flowAmount, 0, 6))
+    gl.uniform1f(uniforms.uFlowAmount, clamp(settings.flowAmount, 0, 32))
     gl.uniform1f(uniforms.uFlowSpeed, clamp(settings.flowSpeed, 0, 2))
     gl.uniform1f(uniforms.uLimbEmission, clamp(settings.limbEmission, 0, 2))
     gl.uniform2f(uniforms.uPointer, pointerX, pointerY)

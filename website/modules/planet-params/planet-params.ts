@@ -337,7 +337,7 @@ export const parameterDefinitions: Record<PlanetId, readonly ParameterDefinition
     exposure(1),
     lean,
     unit('filamentDepth', 0.42, { group: 'surface', label: 'Filaments' }),
-    number('flowAmount', 1.6, 0, 3, 0.01, { group: 'motion', label: 'Flow amount' }),
+    number('flowAmount', 1.6, 0, 32, 0.1, { group: 'motion', label: 'Flow amount' }),
     number('flowSpeed', 1, 0, 2, 0.01, { group: 'motion', label: 'Flow speed' }),
     amount('limbEmission', 1, { group: 'lighting', label: 'Limb' }),
     number('saturation', 1.04, 0, 2, 0.01, { group: 'lighting', label: 'Saturation' }),
@@ -441,8 +441,7 @@ function look(
   label: string,
   overrides: PlanetSettings = {},
 ): PlanetPreset {
-  const image =
-    planetId === 'sky' ? `/thumbnails/v1/sky-${id}.avif` : `/thumbnails/v1/${planetId}.avif`
+  const image = `/thumbnails/v1/${planetId}-${id}.avif`
   return {
     id,
     image,
@@ -453,99 +452,168 @@ function look(
 
 export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
   earth: [
-    look('earth', 'studio', 'Studio'),
-    look('earth', 'terminator', 'Terminator', {
-      cityLights: 0.35,
-      sunAzimuth: -72,
-      sunElevation: 3,
+    // Earth uses a different light convention: +90° faces the camera.
+    // Stop the orbit so each preset keeps its intended phase.
+    look('earth', 'studio', 'Day', {
+      cityLights: 0,
+      cloudDensity: 0.7,
+      lean: false,
+      sunOrbit: 0,
+      sunAzimuth: 65,
+      sunElevation: 20,
     }),
-    look('earth', 'night', 'Night side', {
-      cityLights: 2.15,
-      sunAzimuth: -18,
-      sunElevation: -14,
+    look('earth', 'terminator', 'Dusk', {
+      cityLights: 0.5,
+      cloudDensity: 0.4,
+      density: 1.4,
+      lean: false,
+      sunOrbit: 0,
+      sunAzimuth: 0,
+      sunElevation: 5,
+    }),
+    look('earth', 'night', 'Night', {
+      cityLights: 3,
+      cloudDensity: 0.3,
+      density: 0.7,
+      lean: false,
+      sunOrbit: 0,
+      sunAzimuth: -85,
+      sunElevation: 10,
     }),
   ],
   jupiter: [
-    look('jupiter', 'studio', 'Studio'),
-    look('jupiter', 'grazing', 'Grazing', {
-      jetStrength: 0.88,
-      sunElevation: 4,
-      vortexStrength: 0.62,
+    look('jupiter', 'studio', 'Bands'),
+    look('jupiter', 'grazing', 'Rim', {
+      exposure: 1.15,
+      limbHaze: 0.55,
+      sunAzimuth: 130,
+      sunElevation: -15,
+      tilt: 25,
     }),
-    look('jupiter', 'storm', 'Storm belt', {
-      detailIntensity: 0.28,
-      jetStrength: 0.9,
-      vortexStrength: 0.78,
+    look('jupiter', 'storm', 'Storm', {
+      detailIntensity: 0.5,
+      detailScale: 2,
+      jetStrength: 1,
+      sunAzimuth: 65,
+      sunElevation: 20,
+      tilt: -25,
+      vortexStrength: 1,
+      yaw: -20,
     }),
   ],
   mars: [
-    look('mars', 'studio', 'Studio'),
-    look('mars', 'dust-storm', 'Dust storm', {
-      density: 0.58,
-      dustAerosol: 0.84,
-      photometricMix: 0.68,
+    look('mars', 'studio', 'Rust'),
+    look('mars', 'dust-storm', 'Dust', {
+      density: 1,
+      dustAerosol: 1,
+      dustDetail: 0.6,
+      exposure: 1.15,
+      normalStrength: 0.4,
+      photometricMix: 0.8,
+      sunAzimuth: 15,
+      sunElevation: 20,
     }),
-    look('mars', 'terminator', 'Terminator', {
-      normalStrength: 2.15,
-      reliefShadowStrength: 1.35,
-      sunElevation: 3,
+    look('mars', 'terminator', 'Ridge', {
+      blueAureole: 0.8,
+      density: 0.2,
+      dustAerosol: 0.05,
+      normalStrength: 2.8,
+      reliefShadowStrength: 1.6,
+      sunAzimuth: 95,
+      sunElevation: 5,
     }),
   ],
   mercury: [
-    look('mercury', 'studio', 'Studio'),
-    look('mercury', 'raking', 'Raking light', {
-      normalStrength: 1.9,
-      reliefShadowStrength: 0.94,
-      sunElevation: 6,
+    look('mercury', 'studio', 'Craters', {
+      normalStrength: 1.8,
+      reliefShadowStrength: 0.9,
+      sunAzimuth: -75,
+      sunElevation: 10,
     }),
-    look('mercury', 'noon', 'High sun', {
-      photometricStrength: 1.25,
-      reliefShadowStrength: 0.28,
-      sunElevation: 48,
+    look('mercury', 'raking', 'Rim', {
+      exposure: 1.1,
+      normalStrength: 2.4,
+      reliefShadowStrength: 1,
+      sunAzimuth: 135,
+      sunElevation: -10,
+    }),
+    look('mercury', 'noon', 'Full', {
+      exposure: 0.85,
+      normalStrength: 0.6,
+      photometricStrength: 1.6,
+      reliefShadowStrength: 0.1,
+      sunAzimuth: 0,
+      sunElevation: 0,
+      yaw: 70,
     }),
   ],
   moon: [
-    look('moon', 'studio', 'Studio'),
-    look('moon', 'terminator', 'Terminator', {
+    look('moon', 'studio', 'Full', {
+      exposure: 0.65,
+      normalStrength: 0.7,
+      oppositionStrength: 0.6,
+      photometricMix: 0.05,
+      sunAzimuth: 0,
+      sunElevation: 0,
+    }),
+    look('moon', 'terminator', 'Half', {
+      earthshineIntensity: 3,
       normalStrength: 1.25,
       reliefShadowStrength: 0.88,
-      sunElevation: 5,
+      sunAzimuth: -90,
+      sunElevation: 12,
     }),
-    look('moon', 'earthshine', 'Earthshine', {
+    look('moon', 'earthshine', 'Glow', {
+      bloomIntensity: 0.25,
+      bloomRadius: 0.1,
       earthshineIntensity: 32,
-      sunElevation: -10,
+      sunAzimuth: 140,
+      sunElevation: -12,
     }),
   ],
   'lunar-eclipse': [
-    look('lunar-eclipse', 'studio', 'Studio'),
-    look('lunar-eclipse', 'umbra', 'Deep umbra', {
-      refractedLightIntensity: 2.1,
-      sunAzimuth: -2,
-      sunElevation: 2,
+    look('lunar-eclipse', 'studio', 'Partial'),
+    look('lunar-eclipse', 'umbra', 'Total', {
+      atmosphericOpticalDepth: 2.6,
+      haloIntensity: 0.3,
+      refractedLightIntensity: 1.6,
+      sunAzimuth: 0,
+      sunElevation: 0,
       umbraRadius: 2.7,
     }),
-    look('lunar-eclipse', 'grazing', 'Grazing', {
-      penumbraWidth: 1.15,
-      sunAzimuth: -29,
-      sunElevation: 8,
+    look('lunar-eclipse', 'grazing', 'Contact', {
+      haloIntensity: 0.5,
+      penumbraWidth: 0.45,
+      sunAzimuth: -45,
+      sunElevation: 15,
+      umbraRadius: 1.7,
     }),
   ],
   neptune: [
-    look('neptune', 'studio', 'Studio'),
+    look('neptune', 'studio', 'Calm'),
     look('neptune', 'storm', 'Storm', {
-      vortexCirculation: 0.82,
-      vortexDarkness: 0.72,
-      windScale: 0.9,
+      cloudRelief: 1.8,
+      companionCloud: 1,
+      flowDetail: 0.9,
+      hazeOpticalDepth: 0.15,
+      sunAzimuth: 65,
+      sunElevation: 20,
+      tilt: -30,
+      vortexCirculation: 1,
+      vortexDarkness: 1,
+      windScale: 1,
     }),
-    look('neptune', 'limb', 'Limb', {
-      forwardScattering: 0.55,
-      hazeOpticalDepth: 0.7,
-      sunElevation: 2,
+    look('neptune', 'limb', 'Rim', {
+      exposure: 1,
+      forwardScattering: 0.9,
+      hazeOpticalDepth: 0.85,
+      sunAzimuth: 125,
+      sunElevation: -15,
     }),
   ],
   sky: [
     look('sky', 'dawn', 'Dawn'),
-    look('sky', 'hazy-dusk', 'Hazy dusk', {
+    look('sky', 'hazy-dusk', 'Dusk', {
       cloudStreaks: 0.1,
       duskFlush: 0,
       exposure: 0.9,
@@ -559,7 +627,7 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       sunElevation: 1.8,
       sunScale: 0.36,
     }),
-    look('sky', 'telephoto', 'Telephoto sunset', {
+    look('sky', 'telephoto', 'Sunset', {
       cloudStreaks: 0.13,
       duskFlush: 0,
       exposure: 1.1,
@@ -579,7 +647,7 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       sunElevation: 2,
       sunScale: 0.36,
     }),
-    look('sky', 'noon-glare', 'Noon glare', {
+    look('sky', 'noon-glare', 'Noon', {
       cloudStreaks: 0,
       duskFlush: 0,
       exposure: 8,
@@ -593,7 +661,7 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
       sunElevation: 45,
       sunScale: 0.3,
     }),
-    look('sky', 'lens-flare', 'Lens flare', {
+    look('sky', 'lens-flare', 'Flare', {
       cloudStreaks: 0,
       duskFlush: 0,
       exposure: 4.5,
@@ -632,72 +700,121 @@ export const planetPresets: Record<PlanetId, readonly PlanetPreset[]> = {
     }),
   ],
   pluto: [
-    look('pluto', 'studio', 'Studio'),
-    look('pluto', 'haze', 'Hazy', {
-      hazeDensity: 0.58,
-      hazeThickness: 0.16,
-    }),
-    look('pluto', 'ice', 'Icy', {
-      iceResponse: 0.92,
-      tholinStrength: 0.42,
+    look('pluto', 'studio', 'Heart'),
+    look('pluto', 'haze', 'Halo', {
+      hazeDensity: 0.8,
+      hazeForwardScattering: 1,
+      hazeThickness: 0.14,
+      phaseFill: 0.015,
+      sunAzimuth: 145,
+      sunElevation: 5,
     }),
   ],
   saturn: [
-    look('saturn', 'studio', 'Studio'),
-    look('saturn', 'open-rings', 'Open rings', {
-      tilt: 34,
-      sunElevation: 12,
+    look('saturn', 'studio', 'Rings'),
+    look('saturn', 'open-rings', 'Polar', {
+      axialRoll: 25,
+      bandContrast: 0.45,
+      polarHexagon: 1,
+      tilt: 45,
+      sunAzimuth: 20,
+      sunElevation: 45,
     }),
     look('saturn', 'edge-on', 'Edge-on', {
+      axialRoll: 0,
+      exposure: 1.1,
       tilt: 3,
-      unlitRingBrightness: 0.16,
+      sunAzimuth: 60,
+      sunElevation: -15,
+      unlitRingBrightness: 0.25,
     }),
   ],
   sun: [
-    look('sun', 'studio', 'Studio'),
-    look('sun', 'active', 'Active', {
-      activeRegionGain: 0.72,
-      contrast: 1.28,
-      saturation: 1.18,
+    look('sun', 'studio', 'Ember'),
+    look('sun', 'active', 'Flare', {
+      activeRegionGain: 1,
+      contrast: 1.3,
+      exposure: 1.1,
+      filamentDepth: 0.85,
+      flowAmount: 18,
+      flowSpeed: 1.4,
+      limbEmission: 2,
+      saturation: 1.15,
     }),
-    look('sun', 'soft', 'Soft', {
-      filamentDepth: 0.18,
-      flowAmount: 0.9,
-      saturation: 0.82,
+    look('sun', 'soft', 'Mono', {
+      contrast: 0.65,
+      exposure: 1.4,
+      filamentDepth: 0.05,
+      flowAmount: 0.4,
+      limbEmission: 0.3,
+      saturation: 0.1,
     }),
   ],
   titan: [
-    look('titan', 'studio', 'Studio'),
-    look('titan', 'thick-haze', 'Thick haze', {
-      detachedHaze: 0.92,
-      hazeDensity: 1.45,
-      hazeThickness: 1.35,
+    look('titan', 'studio', 'Amber'),
+    look('titan', 'thick-haze', 'Halo', {
+      detachedHaze: 1,
+      exposure: 1.2,
+      forwardScattering: 2,
+      hazeDensity: 1.6,
+      hazeThickness: 1.8,
+      sunAzimuth: 145,
+      sunElevation: -12,
     }),
-    look('titan', 'bands', 'Bands', {
-      bandContrast: 0.52,
-      hazeDensity: 0.55,
+    look('titan', 'bands', 'Veil', {
+      bandContrast: 1,
+      detachedHaze: 0.1,
+      hazeDensity: 0.25,
+      polarHood: 0.9,
+      sunAzimuth: 10,
+      sunElevation: 30,
+      tilt: -35,
     }),
   ],
   uranus: [
-    look('uranus', 'studio', 'Studio'),
-    look('uranus', 'pole-on', 'Pole-on', {
-      poleElevation: 82,
-      polarHood: 0.48,
+    look('uranus', 'studio', 'Cyan'),
+    look('uranus', 'pole-on', 'Polar', {
+      aerosolDepth: 0.2,
+      bandContrast: 0.65,
+      poleAzimuth: 0,
+      poleElevation: 85,
+      polarHood: 0.9,
+      ringVisibility: 8,
+      sunAzimuth: 0,
+      sunElevation: 15,
     }),
-    look('uranus', 'hood', 'Hood', {
-      hoodSoftness: 18,
-      polarHood: 0.72,
+    look('uranus', 'hood', 'Half', {
+      atmosphereThickness: 0.07,
+      forwardScattering: 0.8,
+      hazeDensity: 0.7,
+      phaseFill: 0.01,
+      poleAzimuth: 65,
+      poleElevation: 0,
+      ringVisibility: 6,
+      sunAzimuth: 130,
+      sunElevation: 0,
     }),
   ],
   venus: [
-    look('venus', 'studio', 'Studio'),
+    look('venus', 'studio', 'Pearl'),
     look('venus', 'sulfur', 'Sulfur', {
-      cloudContrast: 0.52,
-      sulfurTint: 0.95,
+      cloudContrast: 0.9,
+      cloudDetail: 0.8,
+      flowStrength: 1,
+      opticalDepth: 0.4,
+      sulfurTint: 1,
+      sunAzimuth: 10,
+      sunElevation: 20,
+      tilt: 25,
+      upperHaze: 0.1,
     }),
-    look('venus', 'glory', 'Glory', {
-      gloryStrength: 0.46,
-      sunElevation: 4,
+    look('venus', 'glory', 'Halo', {
+      forwardScattering: 1,
+      gloryStrength: 0,
+      opticalDepth: 1,
+      sunAzimuth: 140,
+      sunElevation: -5,
+      upperHaze: 0.9,
     }),
   ],
 }
