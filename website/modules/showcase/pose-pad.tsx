@@ -62,6 +62,17 @@ export function splitPosePad(definitions: readonly ParameterDefinition[]): {
   return { pad: pad ? { tilt: pad.y, yaw: pad.x } : null, rest }
 }
 
+/** Sun azimuth/elevation share one pad wherever a planet exposes both. */
+export function splitLightPad(definitions: readonly ParameterDefinition[]) {
+  const { pad, rest } = splitXyPad(definitions, 'sunAzimuth', 'sunElevation')
+  if (!pad) return { pad, rest }
+  // The group heading already says "Light"; the readouts only have room for the axis.
+  return {
+    pad: { x: { ...pad.x, label: 'Azimuth' }, y: { ...pad.y, label: 'Elevation' } },
+    rest,
+  }
+}
+
 export const PosePad = memo(function PosePad({
   planetId,
   tilt,

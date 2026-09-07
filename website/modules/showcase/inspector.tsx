@@ -12,7 +12,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 
 
 import { hapticPress, hapticTick } from './haptics'
 import { tokens } from './tokens.stylex'
-import { PosePad, splitPosePad } from './pose-pad'
+import { PosePad, splitLightPad, splitPosePad, XyPad } from './pose-pad'
 import { getPrecision, numberFlowFormat, numberFlowTimings } from './setting-format'
 import { useMobileShowcase } from './use-mobile-showcase'
 import type { PlanetId } from './showcase-data'
@@ -134,6 +134,7 @@ function ParameterGroup({
   planetId: PlanetId
 }) {
   const pose = splitPosePad(definitions)
+  const light = splitLightPad(pose.rest)
 
   return (
     <section {...stylex.props(styles.parameterGroup)}>
@@ -145,7 +146,8 @@ function ParameterGroup({
       </div>
       <div {...stylex.props(styles.controlGroup)}>
         {pose.pad ? <PosePad planetId={planetId} tilt={pose.pad.tilt} yaw={pose.pad.yaw} /> : null}
-        {pose.rest.map((definition) => (
+        {light.pad ? <XyPad planetId={planetId} x={light.pad.x} y={light.pad.y} /> : null}
+        {light.rest.map((definition) => (
           <ParameterControl key={definition.name} definition={definition} planetId={planetId} />
         ))}
       </div>
