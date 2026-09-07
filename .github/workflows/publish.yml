@@ -46,7 +46,7 @@ jobs:
       # Uses npm trusted publishing (OIDC); no NPM_TOKEN secret is required once
       # the package is linked to this repository and workflow on npmjs.com.
       - name: Publish to npm
-        run: npm publish "$RUNNER_TEMP"/solaris-pack/thecuvii-solaris-*.tgz --access public
+        run: npm publish "$RUNNER_TEMP"/solaris-pack/cuvii-solaris-*.tgz --access public
 
       - name: Create GitHub release notes
         run: |

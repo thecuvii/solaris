@@ -1,7 +1,7 @@
 'use client'
 
 import type { CSSProperties } from 'react'
-import { Moon } from '@thecuvii/solaris/moon'
+import { Moon } from '@cuvii/solaris/moon'
 
 import { CanvasFade } from '../planet-page/canvas-fade'
 import { expandedComposition, skyViewport } from '../planet-page/preview-frame'

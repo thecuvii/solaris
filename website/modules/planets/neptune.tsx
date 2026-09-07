@@ -1,6 +1,6 @@
 'use client'
 
-import { Neptune } from '@thecuvii/solaris/neptune'
+import { Neptune } from '@cuvii/solaris/neptune'
 
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 

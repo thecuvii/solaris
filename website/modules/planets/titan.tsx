@@ -1,6 +1,6 @@
 'use client'
 
-import { Titan } from '@thecuvii/solaris/titan'
+import { Titan } from '@cuvii/solaris/titan'
 
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 

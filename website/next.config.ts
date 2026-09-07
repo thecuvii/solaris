@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   },
   output: 'export',
   trailingSlash: true,
-  transpilePackages: ['@thecuvii/solaris'],
+  transpilePackages: ['@cuvii/solaris'],
 }
 
 export default nextConfig

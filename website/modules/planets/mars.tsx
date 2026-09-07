@@ -1,6 +1,6 @@
 'use client'
 
-import { Mars } from '@thecuvii/solaris/mars'
+import { Mars } from '@cuvii/solaris/mars'
 
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 import { textures } from '../showcase/showcase-data'

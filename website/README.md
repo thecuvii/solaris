@@ -1,6 +1,6 @@
 # Solaris website
 
-Next.js 16 App Router showcase for `@thecuvii/solaris`.
+Next.js 16 App Router showcase for `@cuvii/solaris`.
 
 ```sh
 pnpm --filter website dev

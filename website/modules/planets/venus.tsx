@@ -1,6 +1,6 @@
 'use client'
 
-import { Venus } from '@thecuvii/solaris/venus'
+import { Venus } from '@cuvii/solaris/venus'
 
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 import { textures } from '../showcase/showcase-data'

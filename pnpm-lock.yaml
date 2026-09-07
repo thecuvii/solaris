@@ -176,7 +176,7 @@ importers:
       '@stylexjs/stylex':
         specifier: 0.19.0
         version: 0.19.0
-      '@thecuvii/solaris':
+      '@cuvii/solaris':
         specifier: workspace:*
         version: link:..
       cuelume:

@@ -36,8 +36,8 @@ function formatSettingValue(definition: ParameterDefinition, value: boolean | nu
   return Number(value).toFixed(getPrecision(definition.step))
 }
 
-function redactedPackageSpecifier(entry: string): string {
-  return '█'.repeat(18 + entry.length)
+function packageSpecifier(entry: string): string {
+  return `@cuvii/solaris/${entry}`
 }
 
 function buildExampleCode(planet: Planet, settings: PlanetSettings): string {
@@ -60,7 +60,7 @@ ${Object.entries(planetTextures)
       return `  ${definition.name}={${formatSettingValue(definition, settings[definition.name])}}`
     }),
   ].filter(Boolean)
-  return `import { ${componentName} } from '${redactedPackageSpecifier(planet.packageName)}'
+  return `import { ${componentName} } from '${packageSpecifier(planet.packageName)}'
 
 ${textureDeclaration}${modelDeclaration}<${componentName}
 ${propLines.join('\n')}
@@ -168,19 +168,6 @@ export function CodeBlock({ planet }: { planet: Planet }) {
                     token.offset < end && token.offset + token.content.length > start,
                 )
                 if (!animatedValue) {
-                  if (token.content.includes('█')) {
-                    return (
-                      <span key={token.offset} style={{ color: token.color }}>
-                        {"'"}
-                        <span
-                          aria-hidden="true"
-                          {...stylex.props(styles.codeRedaction)}
-                          style={{ width: `${token.content.replaceAll("'", '').length}ch` }}
-                        />
-                        {"'"}
-                      </span>
-                    )
-                  }
                   return (
                     <span key={token.offset} style={{ color: token.color }}>
                       {token.content}
@@ -334,15 +321,6 @@ const styles = stylex.create({
     verticalAlign: 'baseline',
     '--number-flow-mask-height': '0.12em',
     '--number-flow-mask-width': '0.3em',
-  },
-  codeRedaction: {
-    backgroundColor: 'oklch(38% 0.008 80)',
-    borderRadius: 1.5,
-    display: 'inline-block',
-    height: '0.88em',
-    marginInline: '0.04em',
-    userSelect: 'none',
-    verticalAlign: '-0.08em',
   },
   codeSection: {
     backgroundColor: 'rgba(255, 255, 255, 0.028)',

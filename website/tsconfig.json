@@ -15,8 +15,8 @@
     "noUnusedParameters": true,
     "paths": {
       "#/*": ["./*"],
-      "@thecuvii/solaris": ["../src/index.ts"],
-      "@thecuvii/solaris/*": ["../src/*/index.ts"]
+      "@cuvii/solaris": ["../src/index.ts"],
+      "@cuvii/solaris/*": ["../src/*/index.ts"]
     },
     "plugins": [{ "name": "next" }],
     "resolveJsonModule": true,

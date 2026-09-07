@@ -1,6 +1,6 @@
 'use client'
 
-import { Sky } from '@thecuvii/solaris/sky'
+import { Sky } from '@cuvii/solaris/sky'
 
 import { CanvasFade } from '../planet-page/canvas-fade'
 import { expandedComposition, skyViewport } from '../planet-page/preview-frame'

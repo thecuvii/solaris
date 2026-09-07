@@ -1,6 +1,6 @@
 'use client'
 
-import { Earth } from '@thecuvii/solaris/earth'
+import { Earth } from '@cuvii/solaris/earth'
 
 import { CanvasFade } from '../planet-page/canvas-fade'
 import { expandedComposition, skyViewport } from '../planet-page/preview-frame'

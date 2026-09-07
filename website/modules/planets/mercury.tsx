@@ -1,6 +1,6 @@
 'use client'
 
-import { Mercury } from '@thecuvii/solaris/mercury'
+import { Mercury } from '@cuvii/solaris/mercury'
 
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 import { textures } from '../showcase/showcase-data'

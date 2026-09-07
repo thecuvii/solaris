@@ -1,6 +1,6 @@
 'use client'
 
-import { Saturn } from '@thecuvii/solaris/saturn'
+import { Saturn } from '@cuvii/solaris/saturn'
 
 import { usePlanetPreviewProps } from '../planet-page/use-planet-preview-props'
 import { textures } from '../showcase/showcase-data'

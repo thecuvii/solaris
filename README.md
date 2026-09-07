@@ -12,7 +12,7 @@ React components for rendering the solar system with physically styled shader ef
 ## Install
 
 ```sh
-pnpm add @thecuvii/solaris
+pnpm add @cuvii/solaris
 ```
 
 Solaris requires React and React DOM 19.2 or newer.
@@ -25,7 +25,7 @@ from its own entry point for the smallest bundle:
 ```tsx
 'use client'
 
-import { Moon } from '@thecuvii/solaris/moon'
+import { Moon } from '@cuvii/solaris/moon'
 
 export function MoonPreview() {
   return (
@@ -50,22 +50,22 @@ on a CORS-enabled remote origin and pass their URLs to the component.
 
 ### Components
 
-| Component      | Import                      | Required `textures`                                        | Capabilities                                             |
-| -------------- | --------------------------- | ---------------------------------------------------------- | -------------------------------------------------------- |
-| `Earth`        | `@thecuvii/solaris/earth`   | `cloud`, `day`, `material`, `night`, `normal`, `roughness` | Canvas, pose, lighting, lifecycle                        |
-| `Jupiter`      | `@thecuvii/solaris/jupiter` | `albedo`                                                   | Canvas, pose, lighting, lifecycle                        |
-| `Mars`         | `@thecuvii/solaris/mars`    | `albedo`, `normalHeight`                                   | Canvas, pose, lighting, lifecycle                        |
-| `Mercury`      | `@thecuvii/solaris/mercury` | `albedo`, `normalHeight`                                   | Canvas, pose, lighting, lifecycle                        |
-| `Moon`         | `@thecuvii/solaris/moon`    | `albedo`, `normalHeight`                                   | Canvas, pose, lighting, lifecycle                        |
-| `LunarEclipse` | `@thecuvii/solaris/moon`    | `albedo`, `normalHeight`                                   | Canvas, `yaw`/`tilt`, eclipse direction, lifecycle       |
-| `Neptune`      | `@thecuvii/solaris/neptune` | None (procedural)                                          | Canvas, pose, lighting, lifecycle                        |
-| `Pluto`        | `@thecuvii/solaris/pluto`   | `albedo`, `normalHeight`                                   | Canvas, pose, lighting, lifecycle                        |
-| `Saturn`       | `@thecuvii/solaris/saturn`  | `atmosphere`, `rings`                                      | Canvas, pose, lighting, lifecycle                        |
-| `Sky`          | `@thecuvii/solaris/sky`     | None (procedural)                                          | Canvas                                                   |
-| `Sun`          | `@thecuvii/solaris/sun`     | `observation`                                              | Canvas, `yaw`/`spin`, lifecycle                          |
-| `Titan`        | `@thecuvii/solaris/titan`   | None (procedural)                                          | Canvas, pose, lighting, lifecycle                        |
-| `Uranus`       | `@thecuvii/solaris/uranus`  | None (procedural)                                          | Canvas, `yaw`/`spin`, pole controls, lighting, lifecycle |
-| `Venus`        | `@thecuvii/solaris/venus`   | `cloudStructure`                                           | Canvas, pose, lighting, lifecycle                        |
+| Component      | Import                   | Required `textures`                                        | Capabilities                                             |
+| -------------- | ------------------------ | ---------------------------------------------------------- | -------------------------------------------------------- |
+| `Earth`        | `@cuvii/solaris/earth`   | `cloud`, `day`, `material`, `night`, `normal`, `roughness` | Canvas, pose, lighting, lifecycle                        |
+| `Jupiter`      | `@cuvii/solaris/jupiter` | `albedo`                                                   | Canvas, pose, lighting, lifecycle                        |
+| `Mars`         | `@cuvii/solaris/mars`    | `albedo`, `normalHeight`                                   | Canvas, pose, lighting, lifecycle                        |
+| `Mercury`      | `@cuvii/solaris/mercury` | `albedo`, `normalHeight`                                   | Canvas, pose, lighting, lifecycle                        |
+| `Moon`         | `@cuvii/solaris/moon`    | `albedo`, `normalHeight`                                   | Canvas, pose, lighting, lifecycle                        |
+| `LunarEclipse` | `@cuvii/solaris/moon`    | `albedo`, `normalHeight`                                   | Canvas, `yaw`/`tilt`, eclipse direction, lifecycle       |
+| `Neptune`      | `@cuvii/solaris/neptune` | None (procedural)                                          | Canvas, pose, lighting, lifecycle                        |
+| `Pluto`        | `@cuvii/solaris/pluto`   | `albedo`, `normalHeight`                                   | Canvas, pose, lighting, lifecycle                        |
+| `Saturn`       | `@cuvii/solaris/saturn`  | `atmosphere`, `rings`                                      | Canvas, pose, lighting, lifecycle                        |
+| `Sky`          | `@cuvii/solaris/sky`     | None (procedural)                                          | Canvas                                                   |
+| `Sun`          | `@cuvii/solaris/sun`     | `observation`                                              | Canvas, `yaw`/`spin`, lifecycle                          |
+| `Titan`        | `@cuvii/solaris/titan`   | None (procedural)                                          | Canvas, pose, lighting, lifecycle                        |
+| `Uranus`       | `@cuvii/solaris/uranus`  | None (procedural)                                          | Canvas, `yaw`/`spin`, pole controls, lighting, lifecycle |
+| `Venus`        | `@cuvii/solaris/venus`   | `cloudStructure`                                           | Canvas, pose, lighting, lifecycle                        |
 
 The package root also exports every component, but the per-component entry points
 make the bundle boundary explicit. Each entry point exports its component,
@@ -147,7 +147,7 @@ must allow anonymous cross-origin image requests.
 Import `preloadTextureImages` from the package root to warm the shared image cache:
 
 ```ts
-import { preloadTextureImages } from '@thecuvii/solaris'
+import { preloadTextureImages } from '@cuvii/solaris'
 
 await preloadTextureImages(['/textures/moon-albedo.webp', '/textures/moon-normal-height.webp'])
 ```
@@ -163,7 +163,7 @@ import {
   defaultEarthModel,
   type AtmosphericOrbModel,
   type EarthProps,
-} from '@thecuvii/solaris/earth'
+} from '@cuvii/solaris/earth'
 
 const model: AtmosphericOrbModel = {
   ...defaultEarthModel,
