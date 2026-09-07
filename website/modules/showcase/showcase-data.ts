@@ -48,6 +48,14 @@ export const githubSourceUrl = (sourceFile: string) =>
 
 export const planets: readonly Planet[] = [
   {
+    id: 'sky',
+    name: 'Sky',
+    packageName: 'sky',
+    sourceFile: 'src/sky/sky.effect.tsx',
+    summary:
+      'The Sun as photographed from the ground: haze-softened disc, refraction flattening, cloud striations, lens glare, and lens flare.',
+  },
+  {
     id: 'earth',
     name: 'Earth',
     packageName: 'earth',
@@ -68,14 +76,6 @@ export const planets: readonly Planet[] = [
     packageName: 'moon',
     sourceFile: 'src/moon/lunar-eclipse.effect.tsx',
     summary: 'A lunar eclipse with refracted atmospheric light, soft penumbra, and relief shadows.',
-  },
-  {
-    id: 'sky',
-    name: 'Sky',
-    packageName: 'sky',
-    sourceFile: 'src/sky/sky.effect.tsx',
-    summary:
-      'The Sun as photographed from the ground: haze-softened disc, refraction flattening, cloud striations, lens glare, and lens flare.',
   },
   {
     id: 'mercury',

@@ -1,7 +1,7 @@
 import { isPlanetId } from '../showcase/showcase-data'
 import type { PlanetId } from '../showcase/showcase-data'
 
-export const defaultPlanetId = 'earth' satisfies PlanetId
+export const defaultPlanetId = 'sky' satisfies PlanetId
 
 export function planetPath(planetId: PlanetId): string {
   return `/${planetId}`
