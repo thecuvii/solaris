@@ -12,16 +12,20 @@ import { textures } from '../showcase/showcase-data'
 export function lunarEclipseChromeStyle(eclipse: {
   haloIntensity: number
   haloWidth: number
-  offsetX: number
-  offsetY: number
+  sunAzimuth: number
+  sunElevation: number
 }): CSSProperties {
   return buildTextLighting({
     haloEnergy: Math.min(
       Math.max((eclipse.haloIntensity / 3) * Math.sqrt(eclipse.haloWidth), 0),
       1,
     ),
-    offsetX: eclipse.offsetX,
-    offsetY: eclipse.offsetY,
+    // Same antisolar projection as the shader's shadow centre.
+    offsetX:
+      -Math.sin((eclipse.sunAzimuth * Math.PI) / 180) *
+      Math.cos((eclipse.sunElevation * Math.PI) / 180) *
+      3,
+    offsetY: -Math.sin((eclipse.sunElevation * Math.PI) / 180) * 3,
     rimHue: 220,
   })
 }

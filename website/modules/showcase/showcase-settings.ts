@@ -36,8 +36,8 @@ export const isDefaultPlanetAtom = atomFamily((planetId: PlanetId) =>
 export const eclipseHaloAtom = atom((get) => ({
   haloIntensity: Number(get(settingAtom({ name: 'haloIntensity', planetId: 'lunar-eclipse' }))),
   haloWidth: Number(get(settingAtom({ name: 'haloWidth', planetId: 'lunar-eclipse' }))),
-  offsetX: Number(get(settingAtom({ name: 'offsetX', planetId: 'lunar-eclipse' }))),
-  offsetY: Number(get(settingAtom({ name: 'offsetY', planetId: 'lunar-eclipse' }))),
+  sunAzimuth: Number(get(settingAtom({ name: 'sunAzimuth', planetId: 'lunar-eclipse' }))),
+  sunElevation: Number(get(settingAtom({ name: 'sunElevation', planetId: 'lunar-eclipse' }))),
 }))
 
 const frozenEclipseHaloAtom = atom<ReturnType<typeof eclipseHaloAtom.read> | null>(null)

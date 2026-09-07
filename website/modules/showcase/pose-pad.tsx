@@ -62,10 +62,6 @@ export function splitPosePad(definitions: readonly ParameterDefinition[]): {
   return { pad: pad ? { tilt: pad.y, yaw: pad.x } : null, rest }
 }
 
-export function splitOffsetPad(definitions: readonly ParameterDefinition[]) {
-  return splitXyPad(definitions, 'offsetX', 'offsetY')
-}
-
 export const PosePad = memo(function PosePad({
   planetId,
   tilt,

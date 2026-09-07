@@ -32,4 +32,7 @@ All notable changes to `@thecuvii/solaris` are documented here. The format follo
   `forwardScatteringStrength` (Titan) → `forwardScattering`; `selfShadowStrength`
   (Mars) and `reliefStrength` (Pluto) → `reliefShadowStrength`; `hazeIntensity`
   (Pluto) and `hazeOpacity` (Uranus) → `hazeDensity`.
+- `LunarEclipse` `offsetX`/`offsetY` replaced by `sunAzimuth`/`sunElevation`
+  (apparent Sun direction relative to the Earth–Moon line; the shadow centre
+  falls opposite). `0`/`0` is a central eclipse.
 - `Pluto` no longer clamps `spin`.

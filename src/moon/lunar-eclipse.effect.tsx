@@ -30,10 +30,6 @@ export type LunarEclipseEffectProps = OrbCanvasProps &
     haloWidth?: number
     /** Tangent-space normal map strength. Range 0–3. @default 1.13 */
     normalStrength?: number
-    /** Horizontal offset of the shadow centre in lunar radii. Positive moves it right. @default 0.67 */
-    offsetX?: number
-    /** Vertical offset of the shadow centre in lunar radii. Positive moves it up. @default -1.8 */
-    offsetY?: number
     /** Width of the penumbral gradient in lunar radii. Range 0.1–3. @default 1.15 */
     penumbraWidth?: number
     /** Sunlight refracted through Earth's atmosphere into the umbra. Range 0–4. @default 1.62 */
@@ -41,6 +37,18 @@ export type LunarEclipseEffectProps = OrbCanvasProps &
     /** Terrain self-shadowing from the height channel. Range 0–1. @default 0.42 */
     reliefShadowStrength?: number
     source: LunarEclipseSource
+    /**
+     * Apparent Sun direction around the vertical axis in degrees, relative to
+     * the Earth–Moon line. Earth's shadow falls opposite: positive values push
+     * the shadow centre left. 0 with `sunElevation` 0 is a central eclipse.
+     * @default -16
+     */
+    sunAzimuth?: number
+    /**
+     * Apparent Sun height in degrees relative to the Earth–Moon line. Positive
+     * values push the shadow centre down. @default 37
+     */
+    sunElevation?: number
     /** Radius of the umbra in lunar radii. Range 0.5–4. @default 2.2 */
     umbraRadius?: number
   }
@@ -85,11 +93,11 @@ type LunarEclipseFrameSettings = {
   haloWidth: number
   lean: boolean
   normalStrength: number
-  offsetX: number
-  offsetY: number
   penumbraWidth: number
   refractedLightIntensity: number
   reliefShadowStrength: number
+  sunAzimuth: number
+  sunElevation: number
   tilt: number
   umbraRadius: number
   yaw: number
@@ -97,6 +105,18 @@ type LunarEclipseFrameSettings = {
 
 const DEFAULT_HEIGHT_SCALE = 22 / 1737.4
 const MOON_RADIUS = 0.74
+/** Shadow-centre displacement in lunar radii when the Sun sits 90° off-axis. */
+const SHADOW_REACH = 3
+
+/** Earth's shadow is antisolar: project the Sun direction and flip it. */
+function shadowOffset(sunAzimuth: number, sunElevation: number): [number, number] {
+  const azimuth = degreesToRadians(sunAzimuth)
+  const elevation = degreesToRadians(sunElevation)
+  return [
+    -Math.sin(azimuth) * Math.cos(elevation) * SHADOW_REACH,
+    -Math.sin(elevation) * SHADOW_REACH,
+  ]
+}
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
@@ -450,7 +470,8 @@ const spec: OrbRendererSpec<LunarEclipseResources, LunarEclipseFrameSettings, Lu
     gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
     gl.uniform1f(uniforms.uRefractedLightIntensity, settings.refractedLightIntensity)
     gl.uniform1f(uniforms.uReliefShadowStrength, settings.reliefShadowStrength)
-    gl.uniform2f(uniforms.uShadowOffset, settings.offsetX, settings.offsetY)
+    const [shadowX, shadowY] = shadowOffset(settings.sunAzimuth, settings.sunElevation)
+    gl.uniform2f(uniforms.uShadowOffset, shadowX, shadowY)
     gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
     gl.uniform1f(uniforms.uTilt, degreesToRadians(settings.tilt))
     gl.uniform1f(uniforms.uUmbraRadius, settings.umbraRadius)
@@ -469,8 +490,6 @@ export function LunarEclipseEffect({
   haloWidth = 0.4,
   lean = false,
   normalStrength = 1.13,
-  offsetX = 0.67,
-  offsetY = -1.8,
   onError,
   paused,
   penumbraWidth = 1.15,
@@ -478,6 +497,8 @@ export function LunarEclipseEffect({
   reliefShadowStrength = 0.42,
   source,
   style,
+  sunAzimuth = -16,
+  sunElevation = 37,
   tilt = 0,
   umbraRadius = 2.2,
   viewport,
@@ -490,11 +511,11 @@ export function LunarEclipseEffect({
     haloWidth,
     lean,
     normalStrength,
-    offsetX,
-    offsetY,
     penumbraWidth,
     refractedLightIntensity,
     reliefShadowStrength,
+    sunAzimuth,
+    sunElevation,
     tilt,
     umbraRadius,
     yaw,
