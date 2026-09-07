@@ -34,6 +34,8 @@ jobs:
       - run: vp install --frozen-lockfile
       # Build first: src/dist.test.ts verifies the emitted bundles.
       - run: vp pack
+      # The browser project mounts every planet in headless Chromium.
+      - run: npx playwright install --with-deps chromium
       - run: vp test --run
       - run: npm pack --dry-run
 

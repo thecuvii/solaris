@@ -1,62 +1,81 @@
 'use client'
 
-// Requires: react
-
-import { type CSSProperties } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
 import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  sunDirection,
+  uploadImage,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
-export type SaturnOrbSource = {
-  ready?: () => Promise<void>
-  render: () => {
-    atmosphere: TexImageSource
-    longitudeOffsetDegrees?: number
-    ringRadiusRange: readonly [innerEquatorialRadii: number, outerEquatorialRadii: number]
-    rings: TexImageSource
-  } | null
+export type SaturnSurface = {
+  /** Equirectangular sRGB cloud albedo; alpha carries band detail for shading normals. */
+  atmosphere: TexImageSource
+  longitudeOffsetDegrees?: number
+  /** Inner and outer ring edge as multiples of the equatorial radius. */
+  ringRadiusRange: readonly [innerEquatorialRadii: number, outerEquatorialRadii: number]
+  /** 1D radial ring strip: RGB colour, alpha encodes optical depth. */
+  rings: TexImageSource
 }
 
-export type SaturnOrbEffectProps = {
-  axialRoll?: number
-  bandContrast?: number
-  bandDrift?: number
-  className?: string
-  cloudPhotometricMix?: number
-  detailIntensity?: number
-  exposure?: number
-  flattening?: number
-  forwardScatter?: number
-  lean?: boolean
-  limbHaze?: number
-  polarHexagon?: number
-  ringOpacity?: number
-  ringShadowStrength?: number
-  source: SaturnOrbSource
-  tilt?: number
-  spin?: number
-  style?: CSSProperties
-  sunAzimuth?: number
-  sunElevation?: number
-  yaw?: number
-  unlitRingBrightness?: number
-}
+export type SaturnOrbSource = OrbSource<SaturnSurface>
+
+export type SaturnOrbEffectProps = OrbCanvasProps &
+  OrbPoseProps &
+  OrbLightingProps & {
+    /** Roll of the polar axis in the image plane in degrees. Positive leans the north pole right. @default -8 */
+    axialRoll?: number
+    /** Contrast of the zonal band structure. Range 0–1. @default 0.12 */
+    bandContrast?: number
+    /** Zonal cloud advection speed in degrees per second. @default 1 */
+    bandDrift?: number
+    /** Blend from Lambert (0) towards a limb-darkened cloud photometry (1). @default 0.42 */
+    cloudPhotometricMix?: number
+    /** Procedural cloud filament contrast; also sharpens shading normals. Range 0–0.3. @default 0.06 */
+    detailIntensity?: number
+    /** Linear scene gain before tone mapping. @default 0.96 */
+    exposure?: number
+    /** Polar flattening in percent of the equatorial radius. Range 0–20. @default 9.8 */
+    flattening?: number
+    /** Ring forward-scattering lobe when backlit. Range 0–1. @default 0.35 */
+    forwardScattering?: number
+    /** Warm haze along the sunlit limb and atmosphere optical depth. Range 0–1. @default 0.1 */
+    limbHaze?: number
+    /** Visibility of the north polar hexagon. Range 0–1. @default 0.14 */
+    polarHexagon?: number
+    /** Ring optical depth multiplier. Range 0–2. @default 1 */
+    ringOpacity?: number
+    /** Ring shadow cast on the planet. Range 0–1. @default 0.82 */
+    ringShadowStrength?: number
+    source: SaturnOrbSource
+    /** Brightness of the unlit ring face and planet-shadowed ring. Range 0–0.3. @default 0.08 */
+    unlitRingBrightness?: number
+  }
 
 const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
   'uAtmosphereTexture',
   'uAxialRoll',
   'uBandContrast',
   'uBandDrift',
   'uCloudPhotometricMix',
+  'uCompositionSize',
   'uDetailIntensity',
   'uExposure',
   'uFlattening',
-  'uForwardScatter',
+  'uForwardScattering',
   'uLimbHaze',
   'uLongitudeOffset',
   'uPointer',
   'uPolarHexagon',
-  'uResolution',
   'uRingOpacity',
   'uRingRadiusRange',
   'uRingShadowStrength',
@@ -71,15 +90,13 @@ const UNIFORM_NAMES = [
 
 type SaturnResources = {
   atmosphereTexture: WebGLTexture
+  longitudeOffset: number
   program: WebGLProgram
-  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
+  /** Equatorial-radius multiples, derived from the uploaded surface. */
+  ringRadiusRange: readonly [number, number]
   ringTexture: WebGLTexture
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
-}
-
-type AnisotropyExtension = {
-  MAX_TEXTURE_MAX_ANISOTROPY_EXT: number
-  TEXTURE_MAX_ANISOTROPY_EXT: number
 }
 
 type SaturnFrameSettings = {
@@ -90,7 +107,7 @@ type SaturnFrameSettings = {
   detailIntensity: number
   exposure: number
   flattening: number
-  forwardScatter: number
+  forwardScattering: number
   lean: boolean
   limbHaze: number
   polarHexagon: number
@@ -105,39 +122,27 @@ type SaturnFrameSettings = {
 }
 
 const SATURN_RADIUS = 0.42
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-out vec2 vUv;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  vUv = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
+/** Main ring system (C ring inner edge to A ring outer edge) until a surface reports its own. */
+const DEFAULT_RING_RADIUS_RANGE = [66900 / 60268, 140500 / 60268] as const
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 precision highp sampler2D;
 
-in vec2 vUv;
-
 uniform sampler2D uAtmosphereTexture;
 uniform float uAxialRoll;
 uniform float uBandContrast;
 uniform float uCloudPhotometricMix;
+uniform vec2 uCompositionSize;
 uniform float uDetailIntensity;
 uniform float uBandDrift;
 uniform float uExposure;
-uniform float uForwardScatter;
+uniform float uForwardScattering;
 uniform float uLimbHaze;
 uniform float uLongitudeOffset;
 uniform float uFlattening;
 uniform float uPolarHexagon;
 uniform vec2 uPointer;
-uniform vec2 uResolution;
 uniform float uRingOpacity;
 uniform vec2 uRingRadiusRange;
 uniform float uRingShadowStrength;
@@ -149,6 +154,7 @@ uniform float uYaw;
 uniform float uTime;
 uniform float uUnlitRingBrightness;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float PI = 3.141592653589793;
@@ -570,7 +576,7 @@ RingTransport shadeRing(
   float backAngle = max(dot(lightDirection, viewDirection), 0.0);
   float forwardAngle = max(dot(-lightDirection, viewDirection), 0.0);
   float backLobe = 0.88 + 0.32 * pow(backAngle, 5.0);
-  float forwardLobe = 1.0 + uForwardScatter * 4.5 * pow(forwardAngle, 12.0);
+  float forwardLobe = 1.0 + uForwardScattering * 4.5 * pow(forwardAngle, 12.0);
   float planetVisibility = planetShadowOnRing(
     point,
     pointDerivativeX,
@@ -682,10 +688,11 @@ void main() {
     return;
   }
 
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
-  float compositionScale = mix(1.0, 0.54, smoothstep(1.0, 2.2, aspect));
-  position *= compositionScale;
+  vec2 position = compositionPosition();
+  // Shrink on wide composition boxes so the rings fit horizontally.
+  float aspect = uCompositionSize.x / max(uCompositionSize.y, 1.0);
+  float wideAspectShrink = mix(1.0, 0.54, smoothstep(1.0, 2.2, aspect));
+  position *= wideAspectShrink;
   float tilt = uRingTilt + uPointer.y * 0.045;
   float roll = uAxialRoll + uPointer.x * 0.018;
   vec3 rayOrigin = viewToBody(vec3(position, 3.0), tilt, roll);
@@ -812,278 +819,90 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Saturn shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Saturn shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Unable to create Saturn shader program')
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  gl.deleteShader(vertexShader)
-  gl.deleteShader(fragmentShader)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unknown Saturn shader link error'
-    gl.deleteProgram(program)
-    throw new Error(message)
-  }
-  return program
-}
-
-function createTexture(
-  gl: WebGL2RenderingContext,
-  pixel: readonly [number, number, number, number],
-  wrapS: number,
-): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Saturn texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array(pixel),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapS)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  return texture
-}
-
-function createResources(gl: WebGL2RenderingContext): SaturnResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Saturn vertex array')
-  const program = createProgram(gl)
-  const resources = {
-    atmosphereTexture: createTexture(gl, [255, 255, 255, 255], gl.REPEAT),
-    program,
-    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
-    ringTexture: createTexture(gl, [0, 0, 0, 0], gl.CLAMP_TO_EDGE),
-    vertexArray,
-  }
-  gl.bindVertexArray(vertexArray)
-  return resources
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: SaturnResources): void {
-  gl.deleteTexture(resources.atmosphereTexture)
-  gl.deleteTexture(resources.ringTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
-function uploadTexture(
-  gl: WebGL2RenderingContext,
-  texture: WebGLTexture,
-  image: TexImageSource,
-  internalFormat: number,
-): void {
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, gl.RGBA, gl.UNSIGNED_BYTE, image)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  const anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') as AnisotropyExtension | null
-  if (anisotropy) {
-    const maximum = gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number
-    gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(maximum, 8))
-  }
-}
-
-function createSaturnRenderer(
-  canvas: HTMLCanvasElement,
-  source: SaturnOrbSource,
-): CanvasRenderer<SaturnFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
-
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let longitudeOffset = 0
-  let resources = createResources(gl)
-  let ringRadiusRange = [66900 / 60268, 140500 / 60268] as [number, number]
-  let startTime = performance.now()
-  let lastTime = startTime
-  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-  function uploadSource(): void {
-    if (disposed || contextLost) return
-    const saturn = source.render()
-    if (!saturn) {
-      hasSource = false
-      return
+const spec: OrbRendererSpec<SaturnResources, SaturnFrameSettings, SaturnSurface> = {
+  label: 'Saturn',
+  // Thin tilted rings need supersampling even on 1× displays.
+  minDevicePixelRatio: 2,
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Saturn')
+    return {
+      atmosphereTexture: createTexture(gl, 'Saturn atmosphere', {
+        internalFormat: gl.SRGB8_ALPHA8,
+        placeholder: [255, 255, 255, 255],
+      }),
+      longitudeOffset: 0,
+      program,
+      ringRadiusRange: DEFAULT_RING_RADIUS_RANGE,
+      ringTexture: createTexture(gl, 'Saturn rings', {
+        placeholder: [0, 0, 0, 0],
+        wrapS: gl.CLAMP_TO_EDGE,
+      }),
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Saturn'),
     }
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.atmosphereTexture)
+    gl.deleteTexture(resources.ringTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
+    withUnpackState(gl, { flipY: true, premultiplyAlpha: false }, () => {
+      uploadImage(gl, resources.atmosphereTexture, surface.atmosphere, {
+        internalFormat: gl.SRGB8_ALPHA8,
+      })
+      uploadImage(gl, resources.ringTexture, surface.rings)
+    })
+    resources.longitudeOffset = degreesToRadians(surface.longitudeOffsetDegrees ?? 0)
+    resources.ringRadiusRange = [surface.ringRadiusRange[0], surface.ringRadiusRange[1]]
+  },
+  // Time only enters the shader through `uYaw` (spin) and `uTime * uBandDrift`.
+  isAnimated: (settings) => settings.spin !== 0 || settings.bandDrift !== 0,
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
 
-    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-    uploadTexture(gl, resources.atmosphereTexture, saturn.atmosphere, gl.SRGB8_ALPHA8)
-    uploadTexture(gl, resources.ringTexture, saturn.rings, gl.RGBA8)
-    gl.bindTexture(gl.TEXTURE_2D, null)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-    hasSource = true
-    longitudeOffset = ((saturn.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-    ringRadiusRange = [saturn.ringRadiusRange[0], saturn.ringRadiusRange[1]]
-  }
-
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    // Thin tilted rings need supersampling even on 1× displays.
-    const dpr = 2
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-  }
-
-  function updatePointer(delta: number, enabled: boolean): void {
-    if (!enabled) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-    const stiffness = 42
-    const damping = 11
-    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-    const decay = Math.exp(-damping * delta)
-    pointer.velocityX *= decay
-    pointer.velocityY *= decay
-    pointer.currentX += pointer.velocityX * delta
-    pointer.currentY += pointer.velocityY * delta
-  }
-
-  function render(timestamp: number, current: SaturnFrameSettings): void {
-    if (contextLost) return
-    resize()
-    const elapsed = (timestamp - startTime) / 1000
-    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-    lastTime = timestamp
-    updatePointer(delta, current.lean)
-    const azimuth = (current.sunAzimuth * Math.PI) / 180
-    const elevation = (current.sunElevation * Math.PI) / 180
-    const elevationCosine = Math.cos(elevation)
-    const sunDirection = [
-      Math.sin(azimuth) * elevationCosine,
-      Math.sin(elevation),
-      Math.cos(azimuth) * elevationCosine,
-    ] as const
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.useProgram(resources.program)
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.atmosphereTexture)
-    gl.uniform1i(resources.uniforms.uAtmosphereTexture, 0)
+    gl.uniform1i(uniforms.uAtmosphereTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.ringTexture)
-    gl.uniform1i(resources.uniforms.uRingTexture, 1)
-    gl.uniform1f(resources.uniforms.uAxialRoll, (current.axialRoll * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.uBandContrast, current.bandContrast)
-    gl.uniform1f(resources.uniforms.uCloudPhotometricMix, current.cloudPhotometricMix)
-    gl.uniform1f(resources.uniforms.uDetailIntensity, current.detailIntensity)
-    gl.uniform1f(resources.uniforms.uBandDrift, (current.bandDrift * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.uExposure, current.exposure)
-    gl.uniform1f(resources.uniforms.uForwardScatter, current.forwardScatter)
-    gl.uniform1f(resources.uniforms.uLimbHaze, current.limbHaze)
-    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
-    gl.uniform1f(resources.uniforms.uFlattening, current.flattening / 100)
-    gl.uniform1f(resources.uniforms.uPolarHexagon, current.polarHexagon)
-    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
-    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
-    gl.uniform1f(resources.uniforms.uRingOpacity, current.ringOpacity)
-    gl.uniform2f(resources.uniforms.uRingRadiusRange, ...ringRadiusRange)
-    gl.uniform1f(resources.uniforms.uRingShadowStrength, current.ringShadowStrength)
-    gl.uniform1f(resources.uniforms.uRingTilt, (current.tilt * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
-    gl.uniform3f(resources.uniforms.uSunDirectionView, ...sunDirection)
-    gl.uniform1f(resources.uniforms.uYaw, ((current.yaw + elapsed * current.spin) * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.uTime, elapsed)
-    gl.uniform1f(resources.uniforms.uUnlitRingBrightness, current.unlitRingBrightness)
+    gl.uniform1i(uniforms.uRingTexture, 1)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform2f(uniforms.uCompositionSize, composition.width, composition.height)
+    gl.uniform1f(uniforms.uAxialRoll, degreesToRadians(settings.axialRoll))
+    gl.uniform1f(uniforms.uBandContrast, settings.bandContrast)
+    gl.uniform1f(uniforms.uCloudPhotometricMix, settings.cloudPhotometricMix)
+    gl.uniform1f(uniforms.uDetailIntensity, settings.detailIntensity)
+    gl.uniform1f(uniforms.uBandDrift, degreesToRadians(settings.bandDrift))
+    gl.uniform1f(uniforms.uExposure, settings.exposure)
+    gl.uniform1f(uniforms.uForwardScattering, settings.forwardScattering)
+    gl.uniform1f(uniforms.uLimbHaze, settings.limbHaze)
+    gl.uniform1f(uniforms.uLongitudeOffset, resources.longitudeOffset)
+    gl.uniform1f(uniforms.uFlattening, settings.flattening / 100)
+    gl.uniform1f(uniforms.uPolarHexagon, settings.polarHexagon)
+    gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
+    gl.uniform1f(uniforms.uRingOpacity, settings.ringOpacity)
+    gl.uniform2f(uniforms.uRingRadiusRange, ...resources.ringRadiusRange)
+    gl.uniform1f(uniforms.uRingShadowStrength, settings.ringShadowStrength)
+    gl.uniform1f(uniforms.uRingTilt, degreesToRadians(settings.tilt))
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(
+      uniforms.uSunDirectionView,
+      ...sunDirection(settings.sunAzimuth, settings.sunElevation),
+    )
+    gl.uniform1f(uniforms.uYaw, degreesToRadians(settings.yaw + elapsed * settings.spin))
+    gl.uniform1f(uniforms.uTime, elapsed)
+    gl.uniform1f(uniforms.uUnlitRingBrightness, settings.unlitRingBrightness)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas.getBoundingClientRect()
-    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-  }
-  function handlePointerLeave(): void {
-    pointer.targetX = 0
-    pointer.targetY = 0
-  }
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-  }
-  function handleContextRestored(): void {
-    contextLost = false
-    resources = createResources(gl)
-    hasSource = false
-    longitudeOffset = 0
-    ringRadiusRange = [66900 / 60268, 140500 / 60268]
-    uploadSource()
-    startTime = performance.now()
-    lastTime = startTime
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  uploadSource()
-  void source.ready?.().then(uploadSource, () => undefined)
-  resize()
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    },
-  }
+  },
 }
 
 export function SaturnOrbEffect({
@@ -1092,25 +911,29 @@ export function SaturnOrbEffect({
   bandDrift = 1,
   className,
   cloudPhotometricMix = 0.42,
+  composition,
   detailIntensity = 0.06,
   exposure = 0.96,
   flattening = 9.8,
-  forwardScatter = 0.35,
+  forwardScattering = 0.35,
   lean = true,
   limbHaze = 0.1,
+  onError,
+  paused,
   polarHexagon = 0.14,
   ringOpacity = 1,
   ringShadowStrength = 0.82,
-  tilt = 26,
   source,
   spin = 1,
   style,
   sunAzimuth = -38,
   sunElevation = -8,
-  yaw = 0,
+  tilt = 26,
   unlitRingBrightness = 0.08,
+  viewport,
+  yaw = 0,
 }: SaturnOrbEffectProps) {
-  const frameSettings: SaturnFrameSettings = {
+  const settings: SaturnFrameSettings = {
     axialRoll,
     bandContrast,
     bandDrift,
@@ -1118,7 +941,7 @@ export function SaturnOrbEffect({
     detailIntensity,
     exposure,
     flattening,
-    forwardScatter,
+    forwardScattering,
     lean,
     limbHaze,
     polarHexagon,
@@ -1131,14 +954,19 @@ export function SaturnOrbEffect({
     yaw,
     unlitRingBrightness,
   }
-  const canvasRef = useCanvasRenderer(frameSettings, source, createSaturnRenderer)
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

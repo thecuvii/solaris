@@ -1,10 +1,9 @@
 import type { PlanetId } from '../showcase/showcase-data'
-import { earthExampleDeclaration } from './earth-example'
 
-export const planetExampleDeclarations: Partial<Record<PlanetId, string>> = {
-  earth: earthExampleDeclaration,
-}
+/**
+ * Extra top-level declarations and props to splice into a planet's example
+ * snippet. Empty today: every planet renders with package defaults alone.
+ */
+export const planetExampleDeclarations: Partial<Record<PlanetId, string>> = {}
 
-export const planetExampleProps: Partial<Record<PlanetId, string>> = {
-  earth: '  model={earthModel}',
-}
+export const planetExampleProps: Partial<Record<PlanetId, string>> = {}

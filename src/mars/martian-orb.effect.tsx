@@ -1,43 +1,57 @@
 'use client'
 
-// Requires: react
-
-import { type CSSProperties } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
 import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  sunDirection,
+  uploadImage,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
-export type MartianOrbSource = {
-  ready?: () => Promise<void>
-  render: () => {
-    albedo: TexImageSource
-    heightRangeMeters: readonly [minimum: number, maximum: number]
-    longitudeOffsetDegrees?: number
-    normalHeight: TexImageSource
-  } | null
+export type MartianSurface = {
+  /** Equirectangular sRGB albedo. */
+  albedo: TexImageSource
+  /** Elevation range encoded in the height channels, in metres relative to the datum. */
+  heightRangeMeters: readonly [minimum: number, maximum: number]
+  longitudeOffsetDegrees?: number
+  /** RG: octahedral tangent normal. BA: 16-bit height, high byte in B. */
+  normalHeight: TexImageSource
 }
 
-export type MartianOrbEffectProps = {
-  blueAureole?: number
-  tilt?: number
-  className?: string
-  density?: number
-  dustAerosol?: number
-  dustDetail?: number
-  exposure?: number
-  lean?: boolean
-  normalStrength?: number
-  photometricMix?: number
-  selfShadowStrength?: number
-  source: MartianOrbSource
-  spin?: number
-  style?: CSSProperties
-  sunAzimuth?: number
-  sunElevation?: number
-  yaw?: number
-}
+export type MartianOrbSource = OrbSource<MartianSurface>
+
+export type MartianOrbEffectProps = OrbCanvasProps &
+  OrbPoseProps &
+  OrbLightingProps & {
+    /** Blue forward-scatter aureole along the limb and terminator. Range 0–1. @default 0.12 */
+    blueAureole?: number
+    /** Atmosphere optical depth. Range 0–1. @default 0.22 */
+    density?: number
+    /** Suspended dust load; reddens and softens the sky. Range 0–1. @default 0.36 */
+    dustAerosol?: number
+    /** Procedural dust-grain albedo variation. Range 0–1. @default 0.1 */
+    dustDetail?: number
+    /** Linear scene gain before tone mapping. @default 1.06 */
+    exposure?: number
+    /** Tangent-space normal map strength. Range 0–3. @default 1.6 */
+    normalStrength?: number
+    /** Blend from Lambert (0) towards a granular Oren–Nayar/Lommel–Seeliger model (1). @default 0.45 */
+    photometricMix?: number
+    /** Terrain self-shadowing from the height map. Range 0–2. @default 1 */
+    reliefShadowStrength?: number
+    source: MartianOrbSource
+  }
 
 const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
   'uAlbedoTexture',
   'uAxialTilt',
   'uBlueAureole',
@@ -52,8 +66,7 @@ const UNIFORM_NAMES = [
   'uNormalTexture',
   'uPhotometricMix',
   'uPointer',
-  'uResolution',
-  'uSelfShadowStrength',
+  'uReliefShadowStrength',
   'uSourceReady',
   'uSunDirection',
   'uYaw',
@@ -61,7 +74,10 @@ const UNIFORM_NAMES = [
 
 type MartianResources = {
   albedoTexture: WebGLTexture
+  /** Radians, derived from the uploaded surface. */
+  heightScale: number
   heightTexture: WebGLTexture
+  longitudeOffset: number
   normalTexture: WebGLTexture
   program: WebGLProgram
   uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
@@ -69,7 +85,6 @@ type MartianResources = {
 }
 
 type MartianFrameSettings = {
-  tilt: number
   blueAureole: number
   density: number
   dustAerosol: number
@@ -78,38 +93,22 @@ type MartianFrameSettings = {
   lean: boolean
   normalStrength: number
   photometricMix: number
-  selfShadowStrength: number
+  reliefShadowStrength: number
   spin: number
   sunAzimuth: number
   sunElevation: number
+  tilt: number
   yaw: number
 }
 
-type AnisotropyExtension = {
-  MAX_TEXTURE_MAX_ANISOTROPY_EXT: number
-  TEXTURE_MAX_ANISOTROPY_EXT: number
-}
-
 const MARS_MEAN_RADIUS_METERS = 3_389_500
+/** MOLA elevation range used until a surface reports its own. */
+const DEFAULT_HEIGHT_RANGE_METERS = [-8177, 21171] as const
 const MARS_RADIUS = 0.8
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-out vec2 vUv;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  vUv = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-
-in vec2 vUv;
 
 uniform sampler2D uAlbedoTexture;
 uniform float uDensity;
@@ -125,12 +124,12 @@ uniform sampler2D uNormalTexture;
 uniform float uNormalStrength;
 uniform float uPhotometricMix;
 uniform vec2 uPointer;
-uniform vec2 uResolution;
-uniform float uSelfShadowStrength;
+uniform float uReliefShadowStrength;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
 uniform float uYaw;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float ATMOSPHERE_THICKNESS = 0.055;
@@ -256,7 +255,7 @@ float terrainVisibility(
   if (
     incidentCosine <= 0.0 ||
     tangentLength < 0.0001 ||
-    uSelfShadowStrength <= 0.0
+    uReliefShadowStrength <= 0.0
   ) {
     return 1.0;
   }
@@ -283,7 +282,7 @@ float terrainVisibility(
     maximumTerrainSlope + softness,
     raySlope
   );
-  return mix(1.0, visibility, clamp(uSelfShadowStrength, 0.0, 1.0));
+  return mix(1.0, visibility, clamp(uReliefShadowStrength, 0.0, 1.0));
 }
 
 float granularPhotometry(
@@ -412,8 +411,7 @@ void main() {
     return;
   }
 
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
+  vec2 position = compositionPosition();
   float polarRadius = MARS_RADIUS * (1.0 - MARS_FLATTENING);
   vec2 ellipsoidPosition = vec2(position.x / MARS_RADIUS, position.y / polarRadius);
   float ellipsoidDistance = length(ellipsoidPosition);
@@ -515,309 +513,116 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Martian shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Martian shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
+function heightScaleFor(range: readonly [number, number]): number {
+  return (range[1] - range[0]) / MARS_MEAN_RADIUS_METERS
 }
 
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Unable to create Martian shader program')
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  gl.deleteShader(vertexShader)
-  gl.deleteShader(fragmentShader)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unknown Martian shader link error'
-    gl.deleteProgram(program)
-    throw new Error(message)
-  }
-  return program
-}
-
-function createTexture(
-  gl: WebGL2RenderingContext,
-  pixel: readonly [number, number, number, number],
-  minFilter: number,
-  magFilter: number,
-): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Martian texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array(pixel),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  if (minFilter === gl.LINEAR_MIPMAP_LINEAR) gl.generateMipmap(gl.TEXTURE_2D)
-  return texture
-}
-
-function createResources(gl: WebGL2RenderingContext): MartianResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Martian vertex array')
-  const program = createProgram(gl)
-  const resources = {
-    albedoTexture: createTexture(gl, [255, 255, 255, 255], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
-    heightTexture: createTexture(gl, [128, 128, 128, 128], gl.NEAREST, gl.NEAREST),
-    normalTexture: createTexture(gl, [128, 128, 128, 128], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
-    program,
-    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
-    vertexArray,
-  }
-  gl.bindVertexArray(vertexArray)
-  return resources
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: MartianResources): void {
-  gl.deleteTexture(resources.albedoTexture)
-  gl.deleteTexture(resources.heightTexture)
-  gl.deleteTexture(resources.normalTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
-function uploadTexture(
-  gl: WebGL2RenderingContext,
-  texture: WebGLTexture,
-  image: TexImageSource,
-  internalFormat: number,
-  generateMipmaps: boolean,
-): void {
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, gl.RGBA, gl.UNSIGNED_BYTE, image)
-  if (generateMipmaps) gl.generateMipmap(gl.TEXTURE_2D)
-  const anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') as AnisotropyExtension | null
-  if (generateMipmaps && anisotropy) {
-    const maximum = gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number
-    gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(maximum, 8))
-  }
-}
-
-function createMartianRenderer(
-  canvas: HTMLCanvasElement,
-  source: MartianOrbSource,
-): CanvasRenderer<MartianFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
-
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let heightScale = (21171 - -8177) / MARS_MEAN_RADIUS_METERS
-  let longitudeOffset = 0
-  let resources = createResources(gl)
-  let startTime = performance.now()
-  let lastTime = startTime
-  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-  function uploadSource(): void {
-    if (disposed || contextLost) return
-    const surface = source.render()
-    if (!surface) {
-      hasSource = false
-      return
+const spec: OrbRendererSpec<MartianResources, MartianFrameSettings, MartianSurface> = {
+  label: 'Mars',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Mars')
+    return {
+      albedoTexture: createTexture(gl, 'Mars albedo', {
+        internalFormat: gl.SRGB8_ALPHA8,
+        placeholder: [255, 255, 255, 255],
+      }),
+      heightScale: heightScaleFor(DEFAULT_HEIGHT_RANGE_METERS),
+      heightTexture: createTexture(gl, 'Mars height', {
+        magFilter: gl.NEAREST,
+        minFilter: gl.NEAREST,
+        placeholder: [128, 128, 128, 128],
+      }),
+      longitudeOffset: 0,
+      normalTexture: createTexture(gl, 'Mars normal', { placeholder: [128, 128, 128, 128] }),
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Mars'),
     }
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.albedoTexture)
+    gl.deleteTexture(resources.heightTexture)
+    gl.deleteTexture(resources.normalTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
+    withUnpackState(gl, { flipY: true, premultiplyAlpha: false }, () => {
+      uploadImage(gl, resources.albedoTexture, surface.albedo, {
+        internalFormat: gl.SRGB8_ALPHA8,
+      })
+      uploadImage(gl, resources.normalTexture, surface.normalHeight)
+      uploadImage(gl, resources.heightTexture, surface.normalHeight, { mipmaps: false })
+    })
+    resources.heightScale = heightScaleFor(surface.heightRangeMeters)
+    resources.longitudeOffset = degreesToRadians(surface.longitudeOffsetDegrees ?? 0)
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
 
-    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-    uploadTexture(gl, resources.albedoTexture, surface.albedo, gl.SRGB8_ALPHA8, true)
-    uploadTexture(gl, resources.normalTexture, surface.normalHeight, gl.RGBA8, true)
-    uploadTexture(gl, resources.heightTexture, surface.normalHeight, gl.RGBA8, false)
-    gl.bindTexture(gl.TEXTURE_2D, null)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-    hasSource = true
-    heightScale =
-      (surface.heightRangeMeters[1] - surface.heightRangeMeters[0]) / MARS_MEAN_RADIUS_METERS
-    longitudeOffset = ((surface.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-  }
-
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-  }
-
-  function updatePointer(delta: number, enabled: boolean): void {
-    if (!enabled) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-    const stiffness = 42
-    const damping = 11
-    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-    const decay = Math.exp(-damping * delta)
-    pointer.velocityX *= decay
-    pointer.velocityY *= decay
-    pointer.currentX += pointer.velocityX * delta
-    pointer.currentY += pointer.velocityY * delta
-  }
-
-  function render(timestamp: number, settings: MartianFrameSettings): void {
-    if (disposed || contextLost) return
-    resize()
-    const elapsed = (timestamp - startTime) / 1000
-    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-    lastTime = timestamp
-    updatePointer(delta, settings.lean)
-    const azimuth = (settings.sunAzimuth * Math.PI) / 180
-    const elevation = (settings.sunElevation * Math.PI) / 180
-    const elevationCosine = Math.cos(elevation)
-    const sunDirection = [
-      Math.sin(azimuth) * elevationCosine,
-      Math.sin(elevation),
-      Math.cos(azimuth) * elevationCosine,
-    ] as const
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.useProgram(resources.program)
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
+    gl.uniform1i(uniforms.uAlbedoTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(resources.uniforms.uNormalTexture, 1)
+    gl.uniform1i(uniforms.uNormalTexture, 1)
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.heightTexture)
-    gl.uniform1i(resources.uniforms.uHeightTexture, 2)
-    gl.uniform1f(resources.uniforms.uDensity, settings.density)
-    gl.uniform1f(resources.uniforms.uAxialTilt, (settings.tilt * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.uBlueAureole, settings.blueAureole)
-    gl.uniform1f(resources.uniforms.uDustAerosol, settings.dustAerosol)
-    gl.uniform1f(resources.uniforms.uDustDetail, settings.dustDetail)
-    gl.uniform1f(resources.uniforms.uExposure, settings.exposure)
-    gl.uniform1f(resources.uniforms.uHeightScale, heightScale)
-    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
-    gl.uniform1f(resources.uniforms.uNormalStrength, settings.normalStrength)
-    gl.uniform1f(resources.uniforms.uPhotometricMix, settings.photometricMix)
-    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
-    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
-    gl.uniform1f(resources.uniforms.uSelfShadowStrength, settings.selfShadowStrength)
-    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
-    gl.uniform3f(resources.uniforms.uSunDirection, ...sunDirection)
-    gl.uniform1f(
-      resources.uniforms.uYaw,
-      ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
+    gl.uniform1i(uniforms.uHeightTexture, 2)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uDensity, settings.density)
+    gl.uniform1f(uniforms.uAxialTilt, degreesToRadians(settings.tilt))
+    gl.uniform1f(uniforms.uBlueAureole, settings.blueAureole)
+    gl.uniform1f(uniforms.uDustAerosol, settings.dustAerosol)
+    gl.uniform1f(uniforms.uDustDetail, settings.dustDetail)
+    gl.uniform1f(uniforms.uExposure, settings.exposure)
+    gl.uniform1f(uniforms.uHeightScale, resources.heightScale)
+    gl.uniform1f(uniforms.uLongitudeOffset, resources.longitudeOffset)
+    gl.uniform1f(uniforms.uNormalStrength, settings.normalStrength)
+    gl.uniform1f(uniforms.uPhotometricMix, settings.photometricMix)
+    gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
+    gl.uniform1f(uniforms.uReliefShadowStrength, settings.reliefShadowStrength)
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(
+      uniforms.uSunDirection,
+      ...sunDirection(settings.sunAzimuth, settings.sunElevation),
     )
+    gl.uniform1f(uniforms.uYaw, degreesToRadians(settings.yaw + elapsed * settings.spin))
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas.getBoundingClientRect()
-    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-  }
-
-  function handlePointerLeave(): void {
-    pointer.targetX = 0
-    pointer.targetY = 0
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-  }
-
-  function handleContextRestored(): void {
-    contextLost = false
-    resources = createResources(gl)
-    hasSource = false
-    heightScale = (21171 - -8177) / MARS_MEAN_RADIUS_METERS
-    longitudeOffset = 0
-    uploadSource()
-    startTime = performance.now()
-    lastTime = startTime
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  uploadSource()
-  void source.ready?.().then(uploadSource, () => undefined)
-  resize()
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    },
-  }
+  },
 }
 
 export function MartianOrbEffect({
-  tilt = 8,
   blueAureole = 0.12,
   className,
+  composition,
   density = 0.22,
   dustAerosol = 0.36,
   dustDetail = 0.1,
   exposure = 1.06,
   lean = true,
   normalStrength = 1.6,
+  onError,
+  paused,
   photometricMix = 0.45,
-  selfShadowStrength = 1,
+  reliefShadowStrength = 1,
   source,
   spin = 1.2,
   style,
   sunAzimuth = -48,
   sunElevation = 9,
+  tilt = 8,
+  viewport,
   yaw = 0,
 }: MartianOrbEffectProps) {
-  const frameSettings: MartianFrameSettings = {
-    tilt,
+  const settings: MartianFrameSettings = {
     blueAureole,
     density,
     dustAerosol,
@@ -826,20 +631,26 @@ export function MartianOrbEffect({
     lean,
     normalStrength,
     photometricMix,
-    selfShadowStrength,
+    reliefShadowStrength,
     spin,
     sunAzimuth,
     sunElevation,
+    tilt,
     yaw,
   }
-  const canvasRef = useCanvasRenderer(frameSettings, source, createMartianRenderer)
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

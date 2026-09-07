@@ -1,11 +1,19 @@
 'use client'
 
-// Requires: react
-
-import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
 import { createUniformResolver, type UniformResolver } from '../internal/uniforms'
+import {
+  createProgram,
+  createRenderTarget,
+  createTexture,
+  deleteRenderTarget,
+  type RenderTarget,
+  resizeRenderTarget,
+  uploadImage,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
 export type AtmosphericOrbColor = readonly [red: number, green: number, blue: number]
 
@@ -21,50 +29,74 @@ export type AtmosphericOrbModel = {
   sunIntensity: number
 }
 
-export type AtmosphericOrbSource = {
-  ready?: () => Promise<void>
-  render: () => {
-    cloud?: TexImageSource
-    day: TexImageSource
-    longitudeOffsetDegrees?: number
-    material?: TexImageSource
-    night: TexImageSource
-    normal: TexImageSource
-    roughness: TexImageSource
-  } | null
+/** Scattering coefficients and palette; see {@link defaultEarthModel}. */
+export const defaultEarthModel: AtmosphericOrbModel = {
+  mieExtinction: [8, 8, 8],
+  mieScattering: [5.4, 5.1, 4.8],
+  ozoneAbsorption: [0.65, 1.88, 0.08],
+  rayleighScattering: [3.2, 7.6, 18.5],
+  space: [0, 0, 0.002],
+  surfaceDay: [0.035, 0.22, 0.3],
+  surfaceNight: [0.002, 0.006, 0.018],
+  sun: [1, 0.91, 0.72],
+  sunIntensity: 18,
 }
 
-export type AtmosphericOrbComposition = {
-  bottom?: CSSProperties['bottom']
-  height: CSSProperties['height']
-  width: CSSProperties['width']
+export type AtmosphericSurface = {
+  /**
+   * Equirectangular cloud coverage in the red channel. Enables the Earth
+   * pipeline: cloud shadows, city-light bloom and ocean waves.
+   */
+  cloud?: TexImageSource
+  /** Equirectangular sRGB daytime albedo. */
+  day: TexImageSource
+  longitudeOffsetDegrees?: number
+  /** Ocean mask in the red channel. Without it water is derived from roughness. */
+  material?: TexImageSource
+  /** Equirectangular sRGB night-side emission (city lights). */
+  night: TexImageSource
+  /** Tangent-space normal map. */
+  normal: TexImageSource
+  /** Surface roughness in the red channel. */
+  roughness: TexImageSource
 }
 
-export type AtmosphericOrbEffectProps = {
-  aerosol?: number
-  atmosphereThickness?: number
-  cityLights?: number
-  className?: string
-  cloudDensity?: number
-  cloudHeight?: number
-  cloudShadowIntensity?: number
-  composition?: AtmosphericOrbComposition
-  density?: number
-  lean?: boolean
-  model: AtmosphericOrbModel
-  multipleScattering?: number
-  oceanGlint?: number
-  oceanWaveStrength?: number
-  source?: AtmosphericOrbSource
-  spin?: number
-  style?: CSSProperties
-  sunAzimuth?: number
-  sunElevation?: number
-  sunOrbit?: number
-  tilt?: number
-  viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
-  yaw?: number
-}
+export type AtmosphericOrbSource = OrbSource<AtmosphericSurface>
+
+export type AtmosphericOrbEffectProps = OrbCanvasProps &
+  OrbPoseProps &
+  OrbLightingProps & {
+    /** Mie aerosol load; scales haze scattering and extinction. Range 0–3. @default 1 */
+    aerosol?: number
+    /** Atmosphere shell thickness in planet radii. Range 0.05–0.4. @default 0.16 */
+    atmosphereThickness?: number
+    /** Night-side city light brightness. Range 0–3. @default 1 */
+    cityLights?: number
+    /** Cloud coverage multiplier. Range 0–2. @default 1 */
+    cloudDensity?: number
+    /** Cloud shell altitude as a percentage of the planet radius. Range 0.2–4. @default 1.2 */
+    cloudHeight?: number
+    /** Surface darkening under cloud shadows. Range 0–1. @default 0.48 */
+    cloudShadowIntensity?: number
+    /** Overall atmosphere density multiplier. Range 0–3. @default 1 */
+    density?: number
+    /** Scattering coefficients and colour palette. @default defaultEarthModel */
+    model?: AtmosphericOrbModel
+    /** Multiple-scattering contribution. Range 0–2. @default 1 */
+    multipleScattering?: number
+    /** Sun glitter on water. Range 0–2. @default 0.72 */
+    oceanGlint?: number
+    /** Wave normal perturbation on water. Range 0–2. @default 0.8 */
+    oceanWaveStrength?: number
+    /** Surface textures. Without a source a procedural sphere is rendered. */
+    source?: AtmosphericOrbSource
+    /**
+     * Sun azimuth drift in degrees per second. 0 stops the orbit and aims the
+     * sun at the pointer instead.
+     * @default 4.6
+     */
+    sunOrbit?: number
+  }
 
 type AtmosphericFrameSettings = {
   aerosol: number
@@ -87,25 +119,7 @@ type AtmosphericFrameSettings = {
   yaw: number
 }
 
-type AtmosphericRendererInput = {
-  compositionRef: RefObject<HTMLDivElement | null>
-  hasComposition: boolean
-  source: AtmosphericOrbSource | undefined
-}
-
 const PLANET_RADIUS = 0.82
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-out vec2 vUv;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  vUv = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
 
 const TRANSMITTANCE_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
@@ -889,30 +903,6 @@ void main() {
 }
 `
 
-type RenderTarget = {
-  framebuffer: WebGLFramebuffer
-  height: number
-  internalFormat: number
-  texture: WebGLTexture
-  type: number
-  width: number
-}
-
-type Resources = {
-  atmosphere: RenderTarget
-  atmosphereProgram: WebGLProgram
-  compositeProgram: WebGLProgram
-  dayTexture: WebGLTexture
-  materialTexture: WebGLTexture
-  multipleScattering: RenderTarget
-  multipleScatteringProgram: WebGLProgram
-  nightTexture: WebGLTexture
-  normalTexture: WebGLTexture
-  roughnessTexture: WebGLTexture
-  transmittance: RenderTarget
-  transmittanceProgram: WebGLProgram
-}
-
 type EarthResources = {
   bloomA: RenderTarget
   bloomB: RenderTarget
@@ -923,132 +913,33 @@ type EarthResources = {
   emission: RenderTarget
 }
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create atmospheric orb shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown shader compilation error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
+type AtmosphericResources = {
+  atmosphere: RenderTarget
+  atmosphereProgram: WebGLProgram
+  compositeProgram: WebGLProgram
+  dayTexture: WebGLTexture
+  /** Cloud/bloom pipeline; created on the first upload of a surface with clouds. */
+  earth: EarthResources | null
+  hasCloudSource: boolean
+  hasMaterialSource: boolean
+  hasSurfaceSource: boolean
+  /** Radians, derived from the uploaded surface. */
+  longitudeOffset: number
+  materialTexture: WebGLTexture
+  multipleScattering: RenderTarget
+  multipleScatteringProgram: WebGLProgram
+  nightTexture: WebGLTexture
+  normalTexture: WebGLTexture
+  roughnessTexture: WebGLTexture
+  transmittance: RenderTarget
+  /** Serialised physical inputs the cached transmittance LUT was built from. */
+  transmittanceKey: string
+  transmittanceProgram: WebGLProgram
+  uniform: UniformResolver
 }
 
-function createProgram(gl: WebGL2RenderingContext, fragmentSource: string): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Unable to create atmospheric orb program')
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  gl.deleteShader(vertexShader)
-  gl.deleteShader(fragmentShader)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unable to link atmospheric orb program'
-    gl.deleteProgram(program)
-    throw new Error(message)
-  }
-  return program
-}
-
-function createRenderTarget(
-  gl: WebGL2RenderingContext,
-  width: number,
-  height: number,
-  internalFormat: number,
-  type: number,
-): RenderTarget {
-  const texture = gl.createTexture()
-  const framebuffer = gl.createFramebuffer()
-  if (!texture || !framebuffer) throw new Error('Unable to create atmospheric orb render target')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, gl.RGBA, type, null)
-  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
-  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-    throw new Error('Atmospheric orb framebuffer is incomplete')
-  }
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-  return { framebuffer, height, internalFormat, texture, type, width }
-}
-
-function resizeRenderTarget(
-  gl: WebGL2RenderingContext,
-  target: RenderTarget,
-  width: number,
-  height: number,
-): void {
-  if (target.width === width && target.height === height) return
-  target.width = width
-  target.height = height
-  gl.bindTexture(gl.TEXTURE_2D, target.texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    target.internalFormat,
-    width,
-    height,
-    0,
-    gl.RGBA,
-    target.type,
-    null,
-  )
-}
-
-function createSurfaceTexture(
-  gl: WebGL2RenderingContext,
-  pixel: readonly [number, number, number, number],
-  internalFormat: number,
-) {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create atmospheric orb surface texture')
-
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    internalFormat,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array(pixel),
-  )
-  gl.generateMipmap(gl.TEXTURE_2D)
-  gl.bindTexture(gl.TEXTURE_2D, null)
-  return texture
-}
-
-function createResources(gl: WebGL2RenderingContext): Resources {
-  const useHighPrecisionTargets = Boolean(gl.getExtension('EXT_color_buffer_float'))
-  const internalFormat = useHighPrecisionTargets ? gl.RGBA16F : gl.RGBA8
-  const type = useHighPrecisionTargets ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE
-  return {
-    atmosphere: createRenderTarget(gl, 1, 1, internalFormat, type),
-    atmosphereProgram: createProgram(gl, ATMOSPHERE_FRAGMENT_SHADER),
-    compositeProgram: createProgram(gl, COMPOSITE_FRAGMENT_SHADER),
-    dayTexture: createSurfaceTexture(gl, [255, 255, 255, 255], gl.SRGB8_ALPHA8),
-    materialTexture: createSurfaceTexture(gl, [0, 0, 0, 255], gl.RGBA8),
-    multipleScattering: createRenderTarget(gl, 32, 32, internalFormat, type),
-    multipleScatteringProgram: createProgram(gl, MULTIPLE_SCATTERING_FRAGMENT_SHADER),
-    nightTexture: createSurfaceTexture(gl, [0, 0, 0, 255], gl.SRGB8_ALPHA8),
-    normalTexture: createSurfaceTexture(gl, [128, 128, 255, 255], gl.RGBA8),
-    roughnessTexture: createSurfaceTexture(gl, [209, 209, 209, 255], gl.RGBA8),
-    transmittance: createRenderTarget(gl, 256, 64, internalFormat, type),
-    transmittanceProgram: createProgram(gl, TRANSMITTANCE_FRAGMENT_SHADER),
-  }
+function bloomSize(size: number): number {
+  return Math.max(Math.ceil(size / 4), 1)
 }
 
 function createEarthResources(
@@ -1057,71 +948,72 @@ function createEarthResources(
 ): EarthResources {
   const emission = createRenderTarget(
     gl,
+    'Earth emission',
     atmosphere.width,
     atmosphere.height,
     atmosphere.internalFormat,
     atmosphere.type,
   )
+  // Attach emission as a second colour output of the atmosphere pass.
   gl.bindFramebuffer(gl.FRAMEBUFFER, atmosphere.framebuffer)
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, emission.texture, 0)
   gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1])
-  if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
-    throw new Error('Atmospheric orb Earth framebuffer is incomplete')
-  }
+  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
   gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+  if (status !== gl.FRAMEBUFFER_COMPLETE && !gl.isContextLost()) {
+    throw new Error(`Earth framebuffer is incomplete (status ${status})`)
+  }
 
+  const bloomWidth = bloomSize(atmosphere.width)
+  const bloomHeight = bloomSize(atmosphere.height)
   return {
     bloomA: createRenderTarget(
       gl,
-      Math.max(Math.ceil(atmosphere.width / 4), 1),
-      Math.max(Math.ceil(atmosphere.height / 4), 1),
+      'Earth bloom A',
+      bloomWidth,
+      bloomHeight,
       atmosphere.internalFormat,
       atmosphere.type,
     ),
     bloomB: createRenderTarget(
       gl,
-      Math.max(Math.ceil(atmosphere.width / 4), 1),
-      Math.max(Math.ceil(atmosphere.height / 4), 1),
+      'Earth bloom B',
+      bloomWidth,
+      bloomHeight,
       atmosphere.internalFormat,
       atmosphere.type,
     ),
-    blurProgram: createProgram(gl, BLOOM_BLUR_FRAGMENT_SHADER),
-    cloudTexture: createSurfaceTexture(gl, [0, 0, 0, 255], gl.RGBA8),
-    compositeProgram: createProgram(gl, EARTH_COMPOSITE_FRAGMENT_SHADER),
-    downsampleProgram: createProgram(gl, BLOOM_DOWNSAMPLE_FRAGMENT_SHADER),
+    blurProgram: createProgram(gl, BLOOM_BLUR_FRAGMENT_SHADER, 'Earth bloom blur'),
+    cloudTexture: createTexture(gl, 'Earth cloud', { placeholder: [0, 0, 0, 255] }),
+    compositeProgram: createProgram(gl, EARTH_COMPOSITE_FRAGMENT_SHADER, 'Earth composite'),
+    downsampleProgram: createProgram(
+      gl,
+      BLOOM_DOWNSAMPLE_FRAGMENT_SHADER,
+      'Earth bloom downsample',
+    ),
     emission,
   }
 }
 
 function deleteEarthResources(gl: WebGL2RenderingContext, resources: EarthResources): void {
-  for (const target of [resources.bloomA, resources.bloomB, resources.emission]) {
-    gl.deleteFramebuffer(target.framebuffer)
-    gl.deleteTexture(target.texture)
-  }
+  deleteRenderTarget(gl, resources.bloomA)
+  deleteRenderTarget(gl, resources.bloomB)
+  deleteRenderTarget(gl, resources.emission)
   gl.deleteTexture(resources.cloudTexture)
   gl.deleteProgram(resources.blurProgram)
   gl.deleteProgram(resources.compositeProgram)
   gl.deleteProgram(resources.downsampleProgram)
 }
 
-function deleteResources(gl: WebGL2RenderingContext, resources: Resources): void {
-  for (const target of [
-    resources.atmosphere,
-    resources.multipleScattering,
-    resources.transmittance,
-  ]) {
-    gl.deleteFramebuffer(target.framebuffer)
-    gl.deleteTexture(target.texture)
-  }
-  gl.deleteTexture(resources.dayTexture)
-  gl.deleteTexture(resources.materialTexture)
-  gl.deleteTexture(resources.nightTexture)
-  gl.deleteTexture(resources.normalTexture)
-  gl.deleteTexture(resources.roughnessTexture)
-  gl.deleteProgram(resources.atmosphereProgram)
-  gl.deleteProgram(resources.compositeProgram)
-  gl.deleteProgram(resources.multipleScatteringProgram)
-  gl.deleteProgram(resources.transmittanceProgram)
+function resizeEarthResources(
+  gl: WebGL2RenderingContext,
+  earth: EarthResources,
+  width: number,
+  height: number,
+): void {
+  resizeRenderTarget(gl, earth.emission, width, height)
+  resizeRenderTarget(gl, earth.bloomA, bloomSize(width), bloomSize(height))
+  resizeRenderTarget(gl, earth.bloomB, bloomSize(width), bloomSize(height))
 }
 
 function setColor(
@@ -1134,249 +1026,208 @@ function setColor(
   gl.uniform3f(uniform(program, name), ...color)
 }
 
-function createAtmosphericRenderer(
-  canvas: HTMLCanvasElement,
-  { compositionRef, hasComposition, source }: AtmosphericRendererInput,
-  getSettings: () => AtmosphericFrameSettings,
-): CanvasRenderer<AtmosphericFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
-  const uniform = createUniformResolver(gl)
-  // 1×1 bitmap + CSS 100% is laid out before the first rAF. An uncleared
-  // alpha canvas composites as white on some engines; hide until we present.
-  canvas.style.opacity = '0'
+function setPhysicalUniforms(
+  gl: WebGL2RenderingContext,
+  uniform: UniformResolver,
+  program: WebGLProgram,
+  current: AtmosphericFrameSettings,
+): void {
+  const atmosphereRadius = PLANET_RADIUS + current.atmosphereThickness
+  gl.uniform1f(uniform(program, 'uAerosol'), current.aerosol)
+  gl.uniform1f(uniform(program, 'uDensity'), current.density)
+  gl.uniform1f(uniform(program, 'uAtmosphereRadius'), atmosphereRadius)
+  gl.uniform1f(uniform(program, 'uPlanetRadius'), PLANET_RADIUS)
+  setColor(gl, uniform, program, 'uMieExtinction', current.model.mieExtinction)
+  setColor(gl, uniform, program, 'uOzoneAbsorption', current.model.ozoneAbsorption)
+  setColor(gl, uniform, program, 'uRayleighScattering', current.model.rayleighScattering)
+}
 
-  let contextLost = false
-  let disposed = false
-  let earthResources: EarthResources | null = null
-  let hasCloudSource = false
-  let hasMaterialSource = false
-  let hasSurfaceSource = false
-  let longitudeOffset = 0
-  let resources = createResources(gl)
-  let startTime = performance.now()
-  let lastTime = startTime
-  let transmittanceKey = ''
-  let compositionCenterX = 0
-  let compositionCenterY = 0
-  let compositionScale = 1
-  let sizeDirty = true
-  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
+/** Rebuild the transmittance and multiple-scattering LUTs when their inputs change. */
+function renderTransmittance(
+  gl: WebGL2RenderingContext,
+  resources: AtmosphericResources,
+  current: AtmosphericFrameSettings,
+): void {
+  const { uniform } = resources
+  const nextKey = JSON.stringify([
+    current.aerosol,
+    current.atmosphereThickness,
+    current.density,
+    current.model.mieExtinction,
+    current.model.mieScattering,
+    current.model.ozoneAbsorption,
+    current.model.rayleighScattering,
+  ])
+  if (nextKey === resources.transmittanceKey) return
+  resources.transmittanceKey = nextKey
+  gl.bindFramebuffer(gl.FRAMEBUFFER, resources.transmittance.framebuffer)
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0])
+  gl.viewport(0, 0, resources.transmittance.width, resources.transmittance.height)
+  gl.useProgram(resources.transmittanceProgram)
+  setPhysicalUniforms(gl, uniform, resources.transmittanceProgram, current)
+  gl.drawArrays(gl.TRIANGLES, 0, 3)
 
-  function ensureEarthResources(): EarthResources {
-    earthResources ??= createEarthResources(gl, resources.atmosphere)
-    return earthResources
-  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, resources.multipleScattering.framebuffer)
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0])
+  gl.viewport(0, 0, resources.multipleScattering.width, resources.multipleScattering.height)
+  gl.useProgram(resources.multipleScatteringProgram)
+  setPhysicalUniforms(gl, uniform, resources.multipleScatteringProgram, current)
+  setColor(
+    gl,
+    uniform,
+    resources.multipleScatteringProgram,
+    'uMieScattering',
+    current.model.mieScattering,
+  )
+  gl.activeTexture(gl.TEXTURE0)
+  gl.bindTexture(gl.TEXTURE_2D, resources.transmittance.texture)
+  gl.uniform1i(uniform(resources.multipleScatteringProgram, 'uTransmittance'), 0)
+  gl.drawArrays(gl.TRIANGLES, 0, 3)
+}
 
-  function uploadSurfaceSource(): void {
-    if (disposed || contextLost) return
-    const surface = source?.render()
-    if (!surface) {
-      hasCloudSource = false
-      hasMaterialSource = false
-      hasSurfaceSource = false
-      longitudeOffset = 0
-      return
-    }
+function renderBloom(
+  gl: WebGL2RenderingContext,
+  uniform: UniformResolver,
+  earth: EarthResources,
+): void {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, earth.bloomA.framebuffer)
+  gl.drawBuffers([gl.COLOR_ATTACHMENT0])
+  gl.viewport(0, 0, earth.bloomA.width, earth.bloomA.height)
+  gl.useProgram(earth.downsampleProgram)
+  gl.activeTexture(gl.TEXTURE0)
+  gl.bindTexture(gl.TEXTURE_2D, earth.emission.texture)
+  gl.uniform1i(uniform(earth.downsampleProgram, 'uSource'), 0)
+  gl.uniform2f(
+    uniform(earth.downsampleProgram, 'uTexelSize'),
+    1 / earth.emission.width,
+    1 / earth.emission.height,
+  )
+  gl.drawArrays(gl.TRIANGLES, 0, 3)
 
-    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-    for (const [texture, image, internalFormat] of [
-      [resources.dayTexture, surface.day, gl.SRGB8_ALPHA8],
-      [resources.nightTexture, surface.night, gl.SRGB8_ALPHA8],
-      [resources.normalTexture, surface.normal, gl.RGBA8],
-      [resources.roughnessTexture, surface.roughness, gl.RGBA8],
-    ] as const) {
-      gl.bindTexture(gl.TEXTURE_2D, texture)
-      gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, gl.RGBA, gl.UNSIGNED_BYTE, image)
-      gl.generateMipmap(gl.TEXTURE_2D)
-    }
-    if (surface.material) {
-      gl.bindTexture(gl.TEXTURE_2D, resources.materialTexture)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, surface.material)
-      gl.generateMipmap(gl.TEXTURE_2D)
-      hasMaterialSource = true
-    } else {
-      hasMaterialSource = false
-    }
-    if (surface.cloud) {
-      const earth = ensureEarthResources()
-      gl.bindTexture(gl.TEXTURE_2D, earth.cloudTexture)
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, surface.cloud)
-      gl.generateMipmap(gl.TEXTURE_2D)
-      hasCloudSource = true
-    } else {
-      hasCloudSource = false
-    }
-    gl.bindTexture(gl.TEXTURE_2D, null)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-    hasSurfaceSource = true
-    longitudeOffset = (surface.longitudeOffsetDegrees ?? 0) * (Math.PI / 180)
-  }
-
-  function resize(): void {
-    const bounds = canvas!.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas!.width !== width || canvas!.height !== height) {
-      canvas!.width = width
-      canvas!.height = height
-    }
-    resizeRenderTarget(gl, resources.atmosphere, width, height)
-    if (earthResources) {
-      resizeRenderTarget(gl, earthResources.emission, width, height)
-      const bloomWidth = Math.max(Math.ceil(width / 4), 1)
-      const bloomHeight = Math.max(Math.ceil(height / 4), 1)
-      resizeRenderTarget(gl, earthResources.bloomA, bloomWidth, bloomHeight)
-      resizeRenderTarget(gl, earthResources.bloomB, bloomWidth, bloomHeight)
-    }
-
-    const compositionBounds = compositionRef.current?.getBoundingClientRect() ?? bounds
-    const scaleX = width / Math.max(bounds.width, 1)
-    const scaleY = height / Math.max(bounds.height, 1)
-    compositionCenterX =
-      (compositionBounds.left - bounds.left + compositionBounds.width / 2) * scaleX
-    compositionCenterY =
-      height - (compositionBounds.top - bounds.top + compositionBounds.height / 2) * scaleY
-    // Size stays locked to composition height so a taller canvas does not shrink the globe.
-    compositionScale = Math.max(compositionBounds.height * scaleY, 1)
-    sizeDirty = false
-  }
-
-  function setPhysicalUniforms(program: WebGLProgram, current: AtmosphericFrameSettings): void {
-    const atmosphereRadius = PLANET_RADIUS + current.atmosphereThickness
-    gl.uniform1f(uniform(program, 'uAerosol'), current.aerosol)
-    gl.uniform1f(uniform(program, 'uDensity'), current.density)
-    gl.uniform1f(uniform(program, 'uAtmosphereRadius'), atmosphereRadius)
-    gl.uniform1f(uniform(program, 'uPlanetRadius'), PLANET_RADIUS)
-    setColor(gl, uniform, program, 'uMieExtinction', current.model.mieExtinction)
-    setColor(gl, uniform, program, 'uOzoneAbsorption', current.model.ozoneAbsorption)
-    setColor(gl, uniform, program, 'uRayleighScattering', current.model.rayleighScattering)
-  }
-
-  function renderTransmittance(current: AtmosphericFrameSettings): void {
-    const nextKey = JSON.stringify([
-      current.aerosol,
-      current.atmosphereThickness,
-      current.density,
-      current.model.mieExtinction,
-      current.model.mieScattering,
-      current.model.ozoneAbsorption,
-      current.model.rayleighScattering,
-    ])
-    if (nextKey === transmittanceKey) return
-    transmittanceKey = nextKey
-    gl.bindFramebuffer(gl.FRAMEBUFFER, resources.transmittance.framebuffer)
+  function blur(
+    sourceTarget: RenderTarget,
+    target: RenderTarget,
+    directionX: number,
+    directionY: number,
+  ): void {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer)
     gl.drawBuffers([gl.COLOR_ATTACHMENT0])
-    gl.viewport(0, 0, resources.transmittance.width, resources.transmittance.height)
-    gl.useProgram(resources.transmittanceProgram)
-    setPhysicalUniforms(resources.transmittanceProgram, current)
-    gl.drawArrays(gl.TRIANGLES, 0, 3)
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, resources.multipleScattering.framebuffer)
-    gl.drawBuffers([gl.COLOR_ATTACHMENT0])
-    gl.viewport(0, 0, resources.multipleScattering.width, resources.multipleScattering.height)
-    gl.useProgram(resources.multipleScatteringProgram)
-    setPhysicalUniforms(resources.multipleScatteringProgram, current)
-    setColor(
-      gl,
-      uniform,
-      resources.multipleScatteringProgram,
-      'uMieScattering',
-      current.model.mieScattering,
-    )
+    gl.viewport(0, 0, target.width, target.height)
+    gl.useProgram(earth.blurProgram)
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, resources.transmittance.texture)
-    gl.uniform1i(uniform(resources.multipleScatteringProgram, 'uTransmittance'), 0)
-    gl.drawArrays(gl.TRIANGLES, 0, 3)
-  }
-
-  function renderBloom(earth: EarthResources): void {
-    gl.bindFramebuffer(gl.FRAMEBUFFER, earth.bloomA.framebuffer)
-    gl.drawBuffers([gl.COLOR_ATTACHMENT0])
-    gl.viewport(0, 0, earth.bloomA.width, earth.bloomA.height)
-    gl.useProgram(earth.downsampleProgram)
-    gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, earth.emission.texture)
-    gl.uniform1i(uniform(earth.downsampleProgram, 'uSource'), 0)
+    gl.bindTexture(gl.TEXTURE_2D, sourceTarget.texture)
+    gl.uniform1i(uniform(earth.blurProgram, 'uSource'), 0)
     gl.uniform2f(
-      uniform(earth.downsampleProgram, 'uTexelSize'),
-      1 / earth.emission.width,
-      1 / earth.emission.height,
+      uniform(earth.blurProgram, 'uTexelSize'),
+      1 / sourceTarget.width,
+      1 / sourceTarget.height,
     )
+    gl.uniform2f(uniform(earth.blurProgram, 'uDirection'), directionX, directionY)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
-
-    function blur(
-      sourceTarget: RenderTarget,
-      target: RenderTarget,
-      directionX: number,
-      directionY: number,
-    ): void {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer)
-      gl.drawBuffers([gl.COLOR_ATTACHMENT0])
-      gl.viewport(0, 0, target.width, target.height)
-      gl.useProgram(earth.blurProgram)
-      gl.activeTexture(gl.TEXTURE0)
-      gl.bindTexture(gl.TEXTURE_2D, sourceTarget.texture)
-      gl.uniform1i(uniform(earth.blurProgram, 'uSource'), 0)
-      gl.uniform2f(
-        uniform(earth.blurProgram, 'uTexelSize'),
-        1 / sourceTarget.width,
-        1 / sourceTarget.height,
-      )
-      gl.uniform2f(uniform(earth.blurProgram, 'uDirection'), directionX, directionY)
-      gl.drawArrays(gl.TRIANGLES, 0, 3)
-    }
-
-    blur(earth.bloomA, earth.bloomB, 1, 0)
-    blur(earth.bloomB, earth.bloomA, 0, 1)
-    blur(earth.bloomA, earth.bloomB, 1, 0)
-    blur(earth.bloomB, earth.bloomA, 0, 1)
   }
 
-  function updatePointer(delta: number, enabled: boolean): void {
-    if (!enabled) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-    const stiffness = 42
-    const damping = 11
-    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-    const decay = Math.exp(-damping * delta)
-    pointer.velocityX *= decay
-    pointer.velocityY *= decay
-    pointer.currentX += pointer.velocityX * delta
-    pointer.currentY += pointer.velocityY * delta
-  }
+  blur(earth.bloomA, earth.bloomB, 1, 0)
+  blur(earth.bloomB, earth.bloomA, 0, 1)
+  blur(earth.bloomA, earth.bloomB, 1, 0)
+  blur(earth.bloomB, earth.bloomA, 0, 1)
+}
 
-  function render(timestamp: number, current: AtmosphericFrameSettings): void {
-    if (disposed || contextLost) return
-    if (sizeDirty || canvas.width <= 1 || canvas.height <= 1) resize()
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
-    renderTransmittance(current)
-    const elapsed = (timestamp - startTime) / 1000
-    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-    lastTime = timestamp
-    updatePointer(delta, current.lean)
+const spec: OrbRendererSpec<AtmosphericResources, AtmosphericFrameSettings, AtmosphericSurface> = {
+  label: 'Earth',
+  createResources(gl) {
+    const useHighPrecisionTargets = Boolean(gl.getExtension('EXT_color_buffer_float'))
+    const internalFormat = useHighPrecisionTargets ? gl.RGBA16F : gl.RGBA8
+    const type = useHighPrecisionTargets ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE
+    return {
+      atmosphere: createRenderTarget(gl, 'Earth atmosphere', 1, 1, internalFormat, type),
+      atmosphereProgram: createProgram(gl, ATMOSPHERE_FRAGMENT_SHADER, 'Earth atmosphere'),
+      compositeProgram: createProgram(gl, COMPOSITE_FRAGMENT_SHADER, 'Earth composite'),
+      dayTexture: createTexture(gl, 'Earth day', {
+        internalFormat: gl.SRGB8_ALPHA8,
+        placeholder: [255, 255, 255, 255],
+      }),
+      earth: null,
+      hasCloudSource: false,
+      hasMaterialSource: false,
+      hasSurfaceSource: false,
+      longitudeOffset: 0,
+      materialTexture: createTexture(gl, 'Earth material', { placeholder: [0, 0, 0, 255] }),
+      multipleScattering: createRenderTarget(
+        gl,
+        'Earth multiple scattering',
+        32,
+        32,
+        internalFormat,
+        type,
+      ),
+      multipleScatteringProgram: createProgram(
+        gl,
+        MULTIPLE_SCATTERING_FRAGMENT_SHADER,
+        'Earth multiple scattering',
+      ),
+      nightTexture: createTexture(gl, 'Earth night', {
+        internalFormat: gl.SRGB8_ALPHA8,
+        placeholder: [0, 0, 0, 255],
+      }),
+      normalTexture: createTexture(gl, 'Earth normal', { placeholder: [128, 128, 255, 255] }),
+      roughnessTexture: createTexture(gl, 'Earth roughness', { placeholder: [209, 209, 209, 255] }),
+      transmittance: createRenderTarget(gl, 'Earth transmittance', 256, 64, internalFormat, type),
+      transmittanceKey: '',
+      transmittanceProgram: createProgram(gl, TRANSMITTANCE_FRAGMENT_SHADER, 'Earth transmittance'),
+      uniform: createUniformResolver(gl),
+    }
+  },
+  deleteResources(gl, resources) {
+    if (resources.earth) deleteEarthResources(gl, resources.earth)
+    deleteRenderTarget(gl, resources.atmosphere)
+    deleteRenderTarget(gl, resources.multipleScattering)
+    deleteRenderTarget(gl, resources.transmittance)
+    gl.deleteTexture(resources.dayTexture)
+    gl.deleteTexture(resources.materialTexture)
+    gl.deleteTexture(resources.nightTexture)
+    gl.deleteTexture(resources.normalTexture)
+    gl.deleteTexture(resources.roughnessTexture)
+    gl.deleteProgram(resources.atmosphereProgram)
+    gl.deleteProgram(resources.compositeProgram)
+    gl.deleteProgram(resources.multipleScatteringProgram)
+    gl.deleteProgram(resources.transmittanceProgram)
+  },
+  resize(gl, resources, size) {
+    resizeRenderTarget(gl, resources.atmosphere, size.width, size.height)
+    if (resources.earth) resizeEarthResources(gl, resources.earth, size.width, size.height)
+  },
+  upload(gl, resources, surface) {
+    // The cloud pipeline is only built once a surface actually ships clouds.
+    if (surface.cloud) resources.earth ??= createEarthResources(gl, resources.atmosphere)
+    const { earth } = resources
+    withUnpackState(gl, { flipY: true, premultiplyAlpha: false }, () => {
+      uploadImage(gl, resources.dayTexture, surface.day, { internalFormat: gl.SRGB8_ALPHA8 })
+      uploadImage(gl, resources.nightTexture, surface.night, { internalFormat: gl.SRGB8_ALPHA8 })
+      uploadImage(gl, resources.normalTexture, surface.normal)
+      uploadImage(gl, resources.roughnessTexture, surface.roughness)
+      if (surface.material) uploadImage(gl, resources.materialTexture, surface.material)
+      if (surface.cloud && earth) uploadImage(gl, earth.cloudTexture, surface.cloud)
+    })
+    resources.hasCloudSource = surface.cloud !== undefined
+    resources.hasMaterialSource = surface.material !== undefined
+    resources.hasSurfaceSource = true
+    resources.longitudeOffset = (surface.longitudeOffsetDegrees ?? 0) * (Math.PI / 180)
+  },
+  keepPointerOnLeave(settings) {
+    return settings.lean && settings.sunOrbit === 0
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed, pointerX, pointerY, settings: current } = frame
+    const { uniform } = resources
+
+    renderTransmittance(gl, resources, current)
 
     const baseAzimuth = current.sunAzimuth * (Math.PI / 180)
     const aimSun = current.sunOrbit === 0
     const orbitAngle = aimSun
-      ? baseAzimuth + pointer.currentX * Math.PI
-      : elapsed * ((current.sunOrbit * Math.PI) / 180) + baseAzimuth + pointer.currentX * 0.42
-    const elevationOffset = pointer.currentY * (aimSun ? 55 : 20)
+      ? baseAzimuth + pointerX * Math.PI
+      : elapsed * ((current.sunOrbit * Math.PI) / 180) + baseAzimuth + pointerX * 0.42
+    const elevationOffset = pointerY * (aimSun ? 55 : 20)
     const elevation = (current.sunElevation + elevationOffset) * (Math.PI / 180)
     const elevationCosine = Math.cos(elevation)
     const sunDirection: AtmosphericOrbColor = [
@@ -1384,101 +1235,88 @@ function createAtmosphericRenderer(
       Math.sin(elevation),
       Math.sin(orbitAngle) * elevationCosine,
     ]
-    const earth = hasCloudSource ? earthResources : null
+    const earth = resources.hasCloudSource ? resources.earth : null
+    const { atmosphereProgram } = resources
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, resources.atmosphere.framebuffer)
     gl.drawBuffers(earth ? [gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1] : [gl.COLOR_ATTACHMENT0])
     gl.viewport(0, 0, resources.atmosphere.width, resources.atmosphere.height)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
-    gl.useProgram(resources.atmosphereProgram)
-    setPhysicalUniforms(resources.atmosphereProgram, current)
+    gl.useProgram(atmosphereProgram)
+    setPhysicalUniforms(gl, uniform, atmosphereProgram, current)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.transmittance.texture)
-    gl.uniform1i(uniform(resources.atmosphereProgram, 'uTransmittance'), 0)
+    gl.uniform1i(uniform(atmosphereProgram, 'uTransmittance'), 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.dayTexture)
-    gl.uniform1i(uniform(resources.atmosphereProgram, 'uDayTexture'), 1)
+    gl.uniform1i(uniform(atmosphereProgram, 'uDayTexture'), 1)
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.nightTexture)
-    gl.uniform1i(uniform(resources.atmosphereProgram, 'uNightTexture'), 2)
+    gl.uniform1i(uniform(atmosphereProgram, 'uNightTexture'), 2)
     gl.activeTexture(gl.TEXTURE3)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(uniform(resources.atmosphereProgram, 'uNormalTexture'), 3)
+    gl.uniform1i(uniform(atmosphereProgram, 'uNormalTexture'), 3)
     gl.activeTexture(gl.TEXTURE4)
     gl.bindTexture(gl.TEXTURE_2D, resources.roughnessTexture)
-    gl.uniform1i(uniform(resources.atmosphereProgram, 'uRoughnessTexture'), 4)
+    gl.uniform1i(uniform(atmosphereProgram, 'uRoughnessTexture'), 4)
     if (earth) {
       gl.activeTexture(gl.TEXTURE5)
       gl.bindTexture(gl.TEXTURE_2D, earth.cloudTexture)
-      gl.uniform1i(uniform(resources.atmosphereProgram, 'uCloudTexture'), 5)
+      gl.uniform1i(uniform(atmosphereProgram, 'uCloudTexture'), 5)
     }
     gl.activeTexture(gl.TEXTURE6)
     gl.bindTexture(gl.TEXTURE_2D, resources.materialTexture)
-    gl.uniform1i(uniform(resources.atmosphereProgram, 'uMaterialTexture'), 6)
+    gl.uniform1i(uniform(atmosphereProgram, 'uMaterialTexture'), 6)
     gl.activeTexture(gl.TEXTURE7)
     gl.bindTexture(gl.TEXTURE_2D, resources.multipleScattering.texture)
-    gl.uniform1i(uniform(resources.atmosphereProgram, 'uMultipleScatteringTexture'), 7)
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uCloudDensity'), current.cloudDensity)
+    gl.uniform1i(uniform(atmosphereProgram, 'uMultipleScatteringTexture'), 7)
+    gl.uniform1f(uniform(atmosphereProgram, 'uCloudDensity'), current.cloudDensity)
     gl.uniform2f(
-      uniform(resources.atmosphereProgram, 'uCompositionCenter'),
-      compositionCenterX,
-      compositionCenterY,
+      uniform(atmosphereProgram, 'uCompositionCenter'),
+      composition.centerX,
+      composition.centerY,
     )
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uCompositionScale'), compositionScale)
+    // Size stays locked to composition height so a taller canvas does not shrink the globe.
+    gl.uniform1f(uniform(atmosphereProgram, 'uCompositionScale'), composition.height)
     gl.uniform2f(
-      uniform(resources.atmosphereProgram, 'uResolution'),
+      uniform(atmosphereProgram, 'uResolution'),
       resources.atmosphere.width,
       resources.atmosphere.height,
     )
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uCloudHeight'), current.cloudHeight / 100)
+    gl.uniform1f(uniform(atmosphereProgram, 'uCloudHeight'), current.cloudHeight / 100)
+    gl.uniform1f(uniform(atmosphereProgram, 'uCloudShadowIntensity'), current.cloudShadowIntensity)
+    gl.uniform1f(uniform(atmosphereProgram, 'uEarthPipeline'), earth ? 1 : 0)
     gl.uniform1f(
-      uniform(resources.atmosphereProgram, 'uCloudShadowIntensity'),
-      current.cloudShadowIntensity,
-    )
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uEarthPipeline'), earth ? 1 : 0)
-    gl.uniform1f(
-      uniform(resources.atmosphereProgram, 'uHasSurfaceSource'),
-      hasSurfaceSource ? 1 : 0,
+      uniform(atmosphereProgram, 'uHasSurfaceSource'),
+      resources.hasSurfaceSource ? 1 : 0,
     )
     gl.uniform1f(
-      uniform(resources.atmosphereProgram, 'uHasMaterialSource'),
-      hasMaterialSource ? 1 : 0,
+      uniform(atmosphereProgram, 'uHasMaterialSource'),
+      resources.hasMaterialSource ? 1 : 0,
     )
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uLongitudeOffset'), longitudeOffset)
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uTilt'), (current.tilt * Math.PI) / 180)
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uYaw'), (current.yaw * Math.PI) / 180)
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uSunIntensity'), current.model.sunIntensity)
-    gl.uniform1f(
-      uniform(resources.atmosphereProgram, 'uMultipleScattering'),
-      current.multipleScattering,
-    )
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uNightLightIntensity'), current.cityLights)
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uOceanGlint'), current.oceanGlint)
-    gl.uniform1f(
-      uniform(resources.atmosphereProgram, 'uOceanWaveStrength'),
-      current.oceanWaveStrength,
-    )
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uSpin'), (current.spin * Math.PI) / 180)
-    gl.uniform1f(uniform(resources.atmosphereProgram, 'uTime'), elapsed)
-    gl.uniform3f(uniform(resources.atmosphereProgram, 'uSunDirection'), ...sunDirection)
-    setColor(
-      gl,
-      uniform,
-      resources.atmosphereProgram,
-      'uMieScattering',
-      current.model.mieScattering,
-    )
-    setColor(gl, uniform, resources.atmosphereProgram, 'uSpaceColor', current.model.space)
-    setColor(gl, uniform, resources.atmosphereProgram, 'uSunColor', current.model.sun)
-    setColor(gl, uniform, resources.atmosphereProgram, 'uSurfaceDay', current.model.surfaceDay)
-    setColor(gl, uniform, resources.atmosphereProgram, 'uSurfaceNight', current.model.surfaceNight)
+    gl.uniform1f(uniform(atmosphereProgram, 'uLongitudeOffset'), resources.longitudeOffset)
+    gl.uniform1f(uniform(atmosphereProgram, 'uTilt'), (current.tilt * Math.PI) / 180)
+    gl.uniform1f(uniform(atmosphereProgram, 'uYaw'), (current.yaw * Math.PI) / 180)
+    gl.uniform1f(uniform(atmosphereProgram, 'uSunIntensity'), current.model.sunIntensity)
+    gl.uniform1f(uniform(atmosphereProgram, 'uMultipleScattering'), current.multipleScattering)
+    gl.uniform1f(uniform(atmosphereProgram, 'uNightLightIntensity'), current.cityLights)
+    gl.uniform1f(uniform(atmosphereProgram, 'uOceanGlint'), current.oceanGlint)
+    gl.uniform1f(uniform(atmosphereProgram, 'uOceanWaveStrength'), current.oceanWaveStrength)
+    gl.uniform1f(uniform(atmosphereProgram, 'uSpin'), (current.spin * Math.PI) / 180)
+    gl.uniform1f(uniform(atmosphereProgram, 'uTime'), elapsed)
+    gl.uniform3f(uniform(atmosphereProgram, 'uSunDirection'), ...sunDirection)
+    setColor(gl, uniform, atmosphereProgram, 'uMieScattering', current.model.mieScattering)
+    setColor(gl, uniform, atmosphereProgram, 'uSpaceColor', current.model.space)
+    setColor(gl, uniform, atmosphereProgram, 'uSunColor', current.model.sun)
+    setColor(gl, uniform, atmosphereProgram, 'uSurfaceDay', current.model.surfaceDay)
+    setColor(gl, uniform, atmosphereProgram, 'uSurfaceNight', current.model.surfaceNight)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
 
-    if (earth) renderBloom(earth)
+    if (earth) renderBloom(gl, uniform, earth)
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas!.width, canvas!.height)
+    gl.viewport(0, 0, frame.width, frame.height)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     const compositeProgram = earth ? earth.compositeProgram : resources.compositeProgram
@@ -1494,78 +1332,8 @@ function createAtmosphericRenderer(
       gl.uniform1i(uniform(compositeProgram, 'uAtmosphere'), 0)
     }
     gl.drawArrays(gl.TRIANGLES, 0, 3)
-
     gl.bindVertexArray(null)
-    if (canvas.style.opacity !== '1') canvas.style.opacity = '1'
-  }
-
-  function handlePointerMove(event: PointerEvent): void {
-    const bounds =
-      compositionRef.current?.getBoundingClientRect() ?? canvas!.getBoundingClientRect()
-    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-  }
-
-  function handlePointerLeave(): void {
-    if (!getSettings().lean || getSettings().sunOrbit !== 0) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-  }
-
-  function handleContextRestored(): void {
-    contextLost = false
-    resources = createResources(gl)
-    earthResources = null
-    hasCloudSource = false
-    hasMaterialSource = false
-    hasSurfaceSource = false
-    longitudeOffset = 0
-    uploadSurfaceSource()
-    startTime = performance.now()
-    lastTime = startTime
-    transmittanceKey = ''
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(() => {
-    sizeDirty = true
-  })
-  resizeObserver.observe(canvas)
-  if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
-  const pointerTarget: HTMLElement = compositionRef.current ?? canvas
-  pointerTarget.addEventListener('pointermove', handlePointerMove)
-  pointerTarget.addEventListener('pointerleave', handlePointerLeave)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  uploadSurfaceSource()
-  void source?.ready?.().then(uploadSurfaceSource, () => undefined)
-  resize()
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-  gl.viewport(0, 0, canvas.width, canvas.height)
-  gl.clearColor(0, 0, 0, 0)
-  gl.clear(gl.COLOR_BUFFER_BIT)
-
-  return {
-    dispose: () => {
-      disposed = true
-      resizeObserver.disconnect()
-      pointerTarget.removeEventListener('pointermove', handlePointerMove)
-      pointerTarget.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) {
-        if (earthResources) deleteEarthResources(gl, earthResources)
-        deleteResources(gl, resources)
-      }
-    },
-    render,
-  }
+  },
 }
 
 export function AtmosphericOrbEffect({
@@ -1579,10 +1347,12 @@ export function AtmosphericOrbEffect({
   composition,
   density = 1,
   lean = true,
-  model,
+  model = defaultEarthModel,
   multipleScattering = 1,
   oceanGlint = 0.72,
   oceanWaveStrength = 0.8,
+  onError,
+  paused,
   source,
   spin = 1.4,
   style,
@@ -1593,9 +1363,7 @@ export function AtmosphericOrbEffect({
   viewport,
   yaw = 0,
 }: AtmosphericOrbEffectProps) {
-  const compositionRef = useRef<HTMLDivElement>(null)
-  const hasComposition = composition !== undefined
-  const frameSettings: AtmosphericFrameSettings = {
+  const settings: AtmosphericFrameSettings = {
     aerosol,
     atmosphereThickness,
     cityLights,
@@ -1615,74 +1383,20 @@ export function AtmosphericOrbEffect({
     tilt,
     yaw,
   }
-  const rendererInput = useMemo<AtmosphericRendererInput>(
-    () => ({ compositionRef, hasComposition, source }),
-    [hasComposition, source],
-  )
-
-  const canvasRef = useCanvasRenderer(frameSettings, rendererInput, createAtmosphericRenderer)
-
-  if (composition) {
-    return (
-      <div
-        className={className}
-        style={{ height: '100%', position: 'relative', width: '100%', ...style }}
-      >
-        <div
-          aria-hidden="true"
-          ref={compositionRef}
-          style={{
-            left: '50%',
-            position: 'absolute',
-            touchAction: 'pan-y',
-            transform: 'translateX(-50%)',
-            ...composition,
-          }}
-        />
-        <div
-          style={{
-            bottom: 0,
-            left: 0,
-            pointerEvents: 'none',
-            position: 'absolute',
-            right: 0,
-            top: 0,
-            ...viewport,
-          }}
-        >
-          <canvas
-            aria-hidden="true"
-            height={1}
-            ref={canvasRef}
-            style={{
-              backgroundColor: '#07080d',
-              display: 'block',
-              height: '100%',
-              pointerEvents: 'none',
-              width: '100%',
-            }}
-            width={1}
-          />
-        </div>
-      </div>
-    )
-  }
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
+      backgroundColor="#07080d"
       className={className}
-      height={1}
-      ref={canvasRef}
-      style={{
-        backgroundColor: '#07080d',
-        display: 'block',
-        height: '100%',
-        touchAction: 'pan-y',
-        width: '100%',
-        ...style,
-      }}
-      width={1}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

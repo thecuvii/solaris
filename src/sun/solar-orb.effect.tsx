@@ -1,11 +1,19 @@
 'use client'
 
-// Requires: react
-
-import { type CSSProperties } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
 import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  clamp,
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbPoseProps } from '../orb'
 
 export type SolarDataPlane = {
   /** Straight RGBA8: sRGB coded-color observation in RGB and coverage in alpha. */
@@ -22,26 +30,31 @@ export type SolarOrbFrame = {
   observation: SolarDataPlane
 }
 
-export type SolarOrbSource = {
-  ready?: () => Promise<void>
-  render: () => SolarOrbFrame | null
-}
+export type SolarOrbSource = OrbSource<SolarOrbFrame>
 
-export type SolarOrbEffectProps = {
-  activeRegionGain?: number
-  className?: string
-  contrast?: number
-  exposure?: number
-  filamentDepth?: number
-  flowAmount?: number
-  flowSpeed?: number
-  limbEmission?: number
-  saturation?: number
-  source: SolarOrbSource
-  style?: CSSProperties
-}
+export type SolarOrbEffectProps = OrbCanvasProps &
+  Omit<OrbPoseProps, 'tilt'> & {
+    /** Boost on bright, locally contrasted active regions. Range 0–2. @default 0.28 */
+    activeRegionGain?: number
+    /** Luminance power curve around mid-grey. Range 0.5–1.8. @default 1.06 */
+    contrast?: number
+    /** Linear gain before display encoding. Range 0–2. @default 1 */
+    exposure?: number
+    /** Darkening of filaments and other locally dark structure. Range 0–1.5. @default 0.42 */
+    filamentDepth?: number
+    /** Amplitude of the animated plasma flow warp in source texels. 0 disables it. Range 0–6. @default 1.6 */
+    flowAmount?: number
+    /** Speed multiplier for the flow warp. 0 freezes it. Range 0–2. @default 1 */
+    flowSpeed?: number
+    /** Off-limb emission gain: below 1 fades the corona alpha, above 1 brightens it. Range 0–2. @default 1 */
+    limbEmission?: number
+    /** Chroma of the coded colour. 1 preserves the observation tint. Range 0–1.6. @default 1.04 */
+    saturation?: number
+    source: SolarOrbSource
+  }
 
 const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
   'uActiveRegionGain',
   'uContrast',
   'uDiskCenter',
@@ -52,7 +65,8 @@ const UNIFORM_NAMES = [
   'uFlowSpeed',
   'uLimbEmission',
   'uObservationTexture',
-  'uResolution',
+  'uPointer',
+  'uRoll',
   'uSaturation',
   'uSourceReady',
   'uTime',
@@ -61,6 +75,9 @@ const UNIFORM_NAMES = [
 type UniformName = (typeof UNIFORM_NAMES)[number]
 
 type SolarResources = {
+  /** Registration of the uploaded observation; defaults until a source arrives. */
+  diskCenter: readonly [number, number]
+  diskRadius: number
   observationTexture: WebGLTexture
   program: WebGLProgram
   uniforms: UniformLocations<UniformName>
@@ -74,20 +91,14 @@ type SolarOrbSettings = {
   filamentDepth: number
   flowAmount: number
   flowSpeed: number
+  lean: boolean
   limbEmission: number
   saturation: number
+  spin: number
+  yaw: number
 }
 
 const OBSERVATION_SIZE = 1024
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
@@ -103,11 +114,13 @@ uniform float uFlowAmount;
 uniform float uFlowSpeed;
 uniform float uLimbEmission;
 uniform sampler2D uObservationTexture;
-uniform vec2 uResolution;
+uniform vec2 uPointer;
+uniform float uRoll;
 uniform float uSaturation;
 uniform float uSourceReady;
 uniform float uTime;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float TAU = 6.283185307179586;
@@ -223,8 +236,15 @@ void main() {
     return;
   }
 
-  vec2 position = (2.0 * gl_FragCoord.xy - uResolution) /
-    min(uResolution.x, uResolution.y);
+  vec2 position = compositionPosition();
+  // In-plane roll (yaw + spin + pointer) and a subtle pointer parallax shift.
+  float rollSine = sin(uRoll);
+  float rollCosine = cos(uRoll);
+  position = vec2(
+    rollCosine * position.x - rollSine * position.y,
+    rollSine * position.x + rollCosine * position.y
+  );
+  position += uPointer * 0.02;
   vec2 sourceUv = uDiskCenter + vec2(position.x, -position.y) *
     (uDiskRadius / SCREEN_DISK_RADIUS);
   if (
@@ -312,96 +332,6 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Solar shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Solar shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  let fragmentShader: WebGLShader | null = null
-  let program: WebGLProgram | null = null
-  try {
-    fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-    program = gl.createProgram()
-    if (!program) throw new Error('Unable to create Solar shader program')
-    gl.attachShader(program, vertexShader)
-    gl.attachShader(program, fragmentShader)
-    gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(gl.getProgramInfoLog(program) ?? 'Unknown Solar shader link error')
-    }
-    return program
-  } catch (error) {
-    if (program) gl.deleteProgram(program)
-    throw error
-  } finally {
-    gl.deleteShader(vertexShader)
-    if (fragmentShader) gl.deleteShader(fragmentShader)
-  }
-}
-
-function createObservationTexture(gl: WebGL2RenderingContext): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Solar observation texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array([0, 0, 0, 0]),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_BASE_LEVEL, 0)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, 0)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  return texture
-}
-
-function createResources(gl: WebGL2RenderingContext): SolarResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Solar vertex array')
-  let observationTexture: WebGLTexture | null = null
-  let program: WebGLProgram | null = null
-  try {
-    observationTexture = createObservationTexture(gl)
-    program = createProgram(gl)
-    gl.bindVertexArray(vertexArray)
-    return {
-      observationTexture,
-      program,
-      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
-      vertexArray,
-    }
-  } catch (error) {
-    if (observationTexture) gl.deleteTexture(observationTexture)
-    if (program) gl.deleteProgram(program)
-    gl.deleteVertexArray(vertexArray)
-    throw error
-  }
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: SolarResources): void {
-  gl.deleteTexture(resources.observationTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
 function downsampleAlphaAware(
   source: Uint8Array,
   sourceWidth: number,
@@ -451,6 +381,10 @@ function downsampleAlphaAware(
   return { data, height, width }
 }
 
+/**
+ * Upload the observation with a hand-built, alpha-aware mip chain so the
+ * off-limb coverage edge does not bleed black into the corona at coarse LODs.
+ */
 function uploadObservation(
   gl: WebGL2RenderingContext,
   texture: WebGLTexture,
@@ -505,197 +439,123 @@ function validateRegistration(frame: SolarOrbFrame): void {
   }
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
-}
-
-function createSolarOrbRenderer(
-  canvas: HTMLCanvasElement,
-  source: SolarOrbSource,
-): CanvasRenderer<SolarOrbSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    depth: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-    stencil: false,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
-
-  let contextLost = false
-  let diskCenter: readonly [number, number] = [0.5, 0.5]
-  let diskRadius = 0.4
-  let disposed = false
-  let hasSource = false
-  let resources: SolarResources | null = createResources(gl)
-  let sourceGeneration = 0
-  let startTime = performance.now()
-
-  function uploadSource(generation: number): void {
-    if (disposed || contextLost || generation !== sourceGeneration || !resources) return
-    const frame = source.render()
-    if (!frame) {
-      hasSource = false
-      return
+const spec: OrbRendererSpec<SolarResources, SolarOrbSettings, SolarOrbFrame> = {
+  label: 'Sun',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Sun')
+    return {
+      diskCenter: [0.5, 0.5],
+      diskRadius: 0.4,
+      observationTexture: createTexture(gl, 'Sun observation', {
+        minFilter: gl.LINEAR,
+        placeholder: [0, 0, 0, 0],
+        wrapS: gl.CLAMP_TO_EDGE,
+      }),
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Sun'),
     }
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.observationTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, frame) {
     validateObservation(frame.observation)
     validateRegistration(frame)
-    const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
-    try {
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
+    // Rows are tightly packed RGBA8.
+    withUnpackState(gl, { alignment: 1, flipY: false, premultiplyAlpha: false }, () => {
       uploadObservation(gl, resources.observationTexture, frame.observation)
-      gl.bindTexture(gl.TEXTURE_2D, null)
-    } finally {
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
-    }
-    diskCenter = frame.diskCenter
-    diskRadius = frame.diskRadius
-    hasSource = true
-  }
+    })
+    resources.diskCenter = frame.diskCenter
+    resources.diskRadius = frame.diskRadius
+  },
+  isAnimated(settings) {
+    return (settings.flowAmount > 0 && settings.flowSpeed > 0) || settings.spin !== 0
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
 
-  function refreshSource(): void {
-    const generation = ++sourceGeneration
-    uploadSource(generation)
-    void source.ready?.().then(
-      () => uploadSource(generation),
-      () => undefined,
-    )
-  }
-
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-  }
-
-  function render(timestamp: number, current: SolarOrbSettings): void {
-    if (disposed || contextLost || !resources) return
-    const elapsed = (timestamp - startTime) / 1000
-    const activeResources = resources
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
-    gl.useProgram(activeResources.program)
-    gl.bindVertexArray(activeResources.vertexArray)
+    gl.useProgram(resources.program)
+    gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, activeResources.observationTexture)
-    const { uniforms } = activeResources
+    gl.bindTexture(gl.TEXTURE_2D, resources.observationTexture)
     gl.uniform1i(uniforms.uObservationTexture, 0)
 
-    const uniform1f = (name: UniformName, value: number) => {
-      gl.uniform1f(uniforms[name], value)
-    }
-    uniform1f('uActiveRegionGain', clamp(current.activeRegionGain, 0, 2))
-    uniform1f('uContrast', clamp(current.contrast, 0.5, 1.8))
-    gl.uniform2f(uniforms.uDiskCenter, diskCenter[0], diskCenter[1])
-    uniform1f('uDiskRadius', diskRadius)
-    uniform1f('uExposure', clamp(current.exposure, 0, 2))
-    uniform1f('uFilamentDepth', clamp(current.filamentDepth, 0, 1.5))
-    uniform1f('uFlowAmount', clamp(current.flowAmount, 0, 6))
-    uniform1f('uFlowSpeed', clamp(current.flowSpeed, 0, 2))
-    uniform1f('uLimbEmission', clamp(current.limbEmission, 0, 2))
-    uniform1f('uSaturation', clamp(current.saturation, 0, 1.6))
-    uniform1f('uSourceReady', hasSource ? 1 : 0)
-    uniform1f('uTime', elapsed)
-    gl.uniform2f(uniforms.uResolution, canvas.width, canvas.height)
+    gl.uniform1f(uniforms.uActiveRegionGain, clamp(settings.activeRegionGain, 0, 2))
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uContrast, clamp(settings.contrast, 0.5, 1.8))
+    gl.uniform2f(uniforms.uDiskCenter, resources.diskCenter[0], resources.diskCenter[1])
+    gl.uniform1f(uniforms.uDiskRadius, resources.diskRadius)
+    gl.uniform1f(uniforms.uExposure, clamp(settings.exposure, 0, 2))
+    gl.uniform1f(uniforms.uFilamentDepth, clamp(settings.filamentDepth, 0, 1.5))
+    gl.uniform1f(uniforms.uFlowAmount, clamp(settings.flowAmount, 0, 6))
+    gl.uniform1f(uniforms.uFlowSpeed, clamp(settings.flowSpeed, 0, 2))
+    gl.uniform1f(uniforms.uLimbEmission, clamp(settings.limbEmission, 0, 2))
+    gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
+    gl.uniform1f(
+      uniforms.uRoll,
+      degreesToRadians(settings.yaw + elapsed * settings.spin + pointerX * 3),
+    )
+    gl.uniform1f(uniforms.uSaturation, clamp(settings.saturation, 0, 1.6))
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform1f(uniforms.uTime, elapsed)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-    resources = null
-    hasSource = false
-    sourceGeneration += 1
-  }
-
-  function handleContextRestored(): void {
-    if (disposed) return
-    contextLost = false
-    resources = createResources(gl)
-    startTime = performance.now()
-    refreshSource()
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  window.addEventListener('resize', resize)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  try {
-    refreshSource()
-    resize()
-  } catch (error) {
-    disposed = true
-    sourceGeneration += 1
-    resizeObserver.disconnect()
-    window.removeEventListener('resize', resize)
-    canvas.removeEventListener('webglcontextlost', handleContextLost)
-    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-    if (resources) deleteResources(gl, resources)
-    resources = null
-    throw error
-  }
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      sourceGeneration += 1
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', resize)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost && resources) deleteResources(gl, resources)
-      resources = null
-    },
-  }
+  },
 }
 
 export function SolarOrbEffect({
   activeRegionGain = 0.28,
   className,
+  composition,
   contrast = 1.06,
   exposure = 1,
   filamentDepth = 0.42,
   flowAmount = 1.6,
   flowSpeed = 1,
+  lean = true,
   limbEmission = 1,
+  onError,
+  paused,
   saturation = 1.04,
   source,
+  spin = 0,
   style,
+  viewport,
+  yaw = 0,
 }: SolarOrbEffectProps) {
-  const frameSettings: SolarOrbSettings = {
+  const settings: SolarOrbSettings = {
     activeRegionGain,
     contrast,
     exposure,
     filamentDepth,
     flowAmount,
     flowSpeed,
+    lean,
     limbEmission,
     saturation,
+    spin,
+    yaw,
   }
-  const canvasRef = useCanvasRenderer(frameSettings, source, createSolarOrbRenderer)
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

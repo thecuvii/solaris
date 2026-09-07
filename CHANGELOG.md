@@ -14,3 +14,22 @@ All notable changes to `@thecuvii/solaris` are documented here. The format follo
   shaders they render.
 - `preloadTextureImages` for warming the texture cache ahead of mount.
 - `onStatusChange`, `onReady`, and `onError` lifecycle callbacks on every textured planet.
+  `onError` also receives renderer failures (shader compilation, framebuffer setup,
+  unusable source data) instead of them escaping into React.
+- `composition` and `viewport` on every planet to place the orb inside a larger canvas.
+- `paused` on every planet; rendering also pauses automatically while off screen and
+  respects `prefers-reduced-motion` (frozen clock, no lean, redraw only on change).
+- `defaultEarthModel` and the `AtmosphericOrbModel` type; `Earth`'s `model` is now
+  optional.
+- `lean`, `spin`, and `yaw` on `Sun`; `lean` on `Uranus`.
+- Shared `OrbCanvasProps`, `OrbPoseProps`, `OrbLightingProps`, `OrbComposition`, and
+  `OrbViewport` types exported from every subpath. Every prop carries JSDoc with its
+  unit, range, and default.
+
+### Changed
+
+- Prop names unified across planets: `forwardScatter` (Saturn) and
+  `forwardScatteringStrength` (Titan) → `forwardScattering`; `selfShadowStrength`
+  (Mars) and `reliefStrength` (Pluto) → `reliefShadowStrength`; `hazeIntensity`
+  (Pluto) and `hazeOpacity` (Uranus) → `hazeDensity`.
+- `Pluto` no longer clamps `spin`.

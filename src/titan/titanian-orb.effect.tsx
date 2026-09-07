@@ -1,11 +1,20 @@
 'use client'
 
-// Requires: react
-
-import { type CSSProperties } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
 import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  clamp,
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  sunDirection,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
 export type TitanianDataPlane = {
   data: Uint8Array
@@ -13,46 +22,46 @@ export type TitanianDataPlane = {
   width: number
 }
 
-export type TitanianOrbSourceFrame = {
+export type TitanianSurface = {
+  /** 1024×512 RGBA equirectangular plane: RG band structure, B detached haze, A polar hood mask. */
   atmosphere: TitanianDataPlane
 }
 
-export type TitanianOrbSource = {
-  ready?: () => Promise<void>
-  render: () => TitanianOrbSourceFrame | null
-}
+export type TitanianOrbSource = OrbSource<TitanianSurface>
 
-export type TitanianOrbEffectProps = {
-  bandContrast?: number
-  className?: string
-  detachedHaze?: number
-  exposure?: number
-  forwardScatteringStrength?: number
-  hazeDensity?: number
-  hazeThickness?: number
-  polarHood?: number
-  tilt?: number
-  source: TitanianOrbSource
-  spin?: number
-  style?: CSSProperties
-  sunAzimuth?: number
-  sunElevation?: number
-  yaw?: number
-}
+export type TitanianOrbEffectProps = OrbCanvasProps &
+  OrbPoseProps &
+  OrbLightingProps & {
+    /** Contrast of the latitudinal haze bands. Range 0–1.5. @default 0.28 */
+    bandContrast?: number
+    /** Density of the detached high-altitude haze layer. Range 0–1.8. @default 0.72 */
+    detachedHaze?: number
+    /** Linear scene gain before tone mapping. Range 0.45–1.8. @default 1 */
+    exposure?: number
+    /** Forward-scatter brightening of the haze towards the sun. Range 0–1.8. @default 1 */
+    forwardScattering?: number
+    /** Optical density of the main haze layer. Range 0–2.5. @default 1 */
+    hazeDensity?: number
+    /** Vertical extent of the main haze layer. Range 0–1.6. @default 1 */
+    hazeThickness?: number
+    /** Darkening and extra density of the polar hood. Range 0–1.5. @default 0.34 */
+    polarHood?: number
+    source: TitanianOrbSource
+  }
 
 const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
   'uAtmosphereTexture',
   'uBandContrast',
   'uDetachedEnabled',
   'uDetachedHaze',
   'uExposure',
-  'uForwardScatteringStrength',
+  'uForwardScattering',
   'uHazeDensity',
   'uHazeThickness',
   'uLatitude',
   'uMainEnabled',
   'uPolarHood',
-  'uResolution',
   'uSourceReady',
   'uSpin',
   'uSunDirection',
@@ -60,12 +69,10 @@ const UNIFORM_NAMES = [
   'uYaw',
 ] as const
 
-type UniformName = (typeof UNIFORM_NAMES)[number]
-
 type TitanianResources = {
   atmosphereTexture: WebGLTexture
   program: WebGLProgram
-  uniforms: UniformLocations<UniformName>
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -73,29 +80,24 @@ type TitanianFrameSettings = {
   bandContrast: number
   detachedHaze: number
   exposure: number
-  forwardScatteringStrength: number
+  forwardScattering: number
   hazeDensity: number
   hazeThickness: number
-  yaw: number
+  lean: boolean
   polarHood: number
-  tilt: number
   spin: number
   sunAzimuth: number
   sunElevation: number
+  tilt: number
+  yaw: number
 }
 
 const ATMOSPHERE_WIDTH = 1024
 const ATMOSPHERE_HEIGHT = 512
 const TITAN_RADIUS = 0.74
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
+/** Pointer lean nudges the pose by up to this many degrees. */
+const LEAN_YAW_DEGREES = 6
+const LEAN_TILT_DEGREES = 4
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
@@ -106,19 +108,19 @@ uniform float uBandContrast;
 uniform float uDetachedEnabled;
 uniform float uDetachedHaze;
 uniform float uExposure;
-uniform float uForwardScatteringStrength;
+uniform float uForwardScattering;
 uniform float uHazeDensity;
 uniform float uHazeThickness;
 uniform float uYaw;
 uniform float uMainEnabled;
 uniform float uPolarHood;
-uniform vec2 uResolution;
 uniform float uSpin;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
 uniform float uTime;
 uniform float uLatitude;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float BODY_RADIUS = ${TITAN_RADIUS.toFixed(2)};
@@ -216,7 +218,7 @@ float mainPhase() {
   float broadLobes = 0.72 * henyeyGreenstein(mu, 0.62) +
     0.28 * henyeyGreenstein(mu, 0.22);
   float directionalExcess = max(broadLobes - 0.62, 0.0);
-  return 0.28 + uForwardScatteringStrength * min(directionalExcess, 4.0) * 0.18;
+  return 0.28 + uForwardScattering * min(directionalExcess, 4.0) * 0.18;
 }
 
 float detachedPhase() {
@@ -226,14 +228,14 @@ float detachedPhase() {
     0.240176 * henyeyGreenstein(mu, 0.410994)
   );
   float directionalExcess = max(fittedPhase - 0.117, 0.0);
-  return 0.22 + uForwardScatteringStrength * min(directionalExcess, 8.0) * 0.55;
+  return 0.22 + uForwardScattering * min(directionalExcess, 8.0) * 0.55;
 }
 
 float bodySunVisibility(vec3 point) {
   float projection = dot(point, uSunDirection);
   float closestSquared = dot(point, point) - projection * projection;
   float discriminant = BODY_RADIUS * BODY_RADIUS - closestSquared;
-  float edge = max(6.4 * BODY_RADIUS / min(uResolution.x, uResolution.y), 0.000001);
+  float edge = max(6.4 * BODY_RADIUS / uCompositionScale, 0.000001);
   float shadow = smoothstep(-edge, edge, discriminant) * step(projection, -0.00001);
   return 1.0 - shadow;
 }
@@ -355,8 +357,7 @@ void main() {
     return;
   }
 
-  vec2 position = (2.0 * gl_FragCoord.xy - uResolution) /
-    min(uResolution.x, uResolution.y);
+  vec2 position = compositionPosition();
   vec3 rayOrigin = vec3(position, CAMERA_DISTANCE);
   vec3 rayDirection = vec3(0.0, 0.0, -1.0);
   float radialDistance = length(position);
@@ -454,95 +455,6 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Titanian shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Titanian shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  let fragmentShader: WebGLShader | null = null
-  let program: WebGLProgram | null = null
-  try {
-    fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-    program = gl.createProgram()
-    if (!program) throw new Error('Unable to create Titanian shader program')
-    gl.attachShader(program, vertexShader)
-    gl.attachShader(program, fragmentShader)
-    gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(gl.getProgramInfoLog(program) ?? 'Unknown Titanian shader link error')
-    }
-    return program
-  } catch (error) {
-    if (program) gl.deleteProgram(program)
-    throw error
-  } finally {
-    gl.deleteShader(vertexShader)
-    if (fragmentShader) gl.deleteShader(fragmentShader)
-  }
-}
-
-function createAtmosphereTexture(gl: WebGL2RenderingContext): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Titanian atmosphere texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array([128, 128, 128, 0]),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  return texture
-}
-
-function createResources(gl: WebGL2RenderingContext): TitanianResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Titanian vertex array')
-  let atmosphereTexture: WebGLTexture | null = null
-  let program: WebGLProgram | null = null
-  try {
-    atmosphereTexture = createAtmosphereTexture(gl)
-    program = createProgram(gl)
-    gl.bindVertexArray(vertexArray)
-    return {
-      atmosphereTexture,
-      program,
-      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
-      vertexArray,
-    }
-  } catch (error) {
-    if (atmosphereTexture) gl.deleteTexture(atmosphereTexture)
-    if (program) gl.deleteProgram(program)
-    gl.deleteVertexArray(vertexArray)
-    throw error
-  }
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: TitanianResources): void {
-  gl.deleteTexture(resources.atmosphereTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
 function validateAtmosphere(plane: TitanianDataPlane): void {
   if (
     !(plane.data instanceof Uint8Array) ||
@@ -556,6 +468,7 @@ function validateAtmosphere(plane: TitanianDataPlane): void {
   }
 }
 
+/** Upload the RGBA atmosphere plane. Caller owns unpack state. */
 function uploadAtmosphere(
   gl: WebGL2RenderingContext,
   texture: WebGLTexture,
@@ -576,224 +489,124 @@ function uploadAtmosphere(
   gl.generateMipmap(gl.TEXTURE_2D)
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
-}
-
-function createTitanianRenderer(
-  canvas: HTMLCanvasElement,
-  source: TitanianOrbSource,
-): CanvasRenderer<TitanianFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
-
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let resources: TitanianResources | null = createResources(gl)
-  let sourceGeneration = 0
-  let startTime = performance.now()
-
-  function uploadSource(generation: number): void {
-    if (disposed || contextLost || generation !== sourceGeneration || !resources) return
-    const frame = source.render()
-    if (!frame) {
-      hasSource = false
-      return
+const spec: OrbRendererSpec<TitanianResources, TitanianFrameSettings, TitanianSurface> = {
+  label: 'Titan',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Titan')
+    return {
+      atmosphereTexture: createTexture(gl, 'Titan atmosphere', { placeholder: [128, 128, 128, 0] }),
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Titan'),
     }
-    validateAtmosphere(frame.atmosphere)
-    const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
-    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-    const previousColorSpace = gl.getParameter(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL) as number
-    try {
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
-      uploadAtmosphere(gl, resources.atmosphereTexture, frame.atmosphere)
-      gl.bindTexture(gl.TEXTURE_2D, null)
-    } finally {
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, previousColorSpace)
-    }
-    hasSource = true
-  }
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.atmosphereTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
+    validateAtmosphere(surface.atmosphere)
+    // Single-channel rows are not 4-byte aligned for arbitrary widths.
+    withUnpackState(gl, { alignment: 1, flipY: false, premultiplyAlpha: false }, () => {
+      uploadAtmosphere(gl, resources.atmosphereTexture, surface.atmosphere)
+    })
+  },
+  isAnimated(settings) {
+    return settings.spin !== 0
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
+    const hazeDensity = clamp(settings.hazeDensity, 0, 2.5)
+    const hazeThickness = clamp(settings.hazeThickness, 0, 1.6)
+    const detachedHaze = clamp(settings.detachedHaze, 0, 1.8)
+    // The shader has no pointer uniform; lean nudges the pose instead.
+    const yaw = clamp(settings.yaw + pointerX * LEAN_YAW_DEGREES, -180, 180)
+    const tilt = clamp(settings.tilt + pointerY * LEAN_TILT_DEGREES, -55, 55)
 
-  function refreshSource(): void {
-    const generation = ++sourceGeneration
-    uploadSource(generation)
-    void source
-      .ready?.()
-      .then(
-        () => uploadSource(generation),
-        () => undefined,
-      )
-      .catch(() => {
-        if (!disposed && generation === sourceGeneration) hasSource = false
-      })
-  }
-
-  function resize(): void {
-    const bounds = canvas!.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas!.width !== width || canvas!.height !== height) {
-      canvas!.width = width
-      canvas!.height = height
-    }
-  }
-
-  function render(timestamp: number, current: TitanianFrameSettings): void {
-    if (disposed || contextLost || !resources) return
-    resize()
-    const elapsed = (timestamp - startTime) / 1000
-    const hazeDensityValue = clamp(current.hazeDensity, 0, 2.5)
-    const hazeThicknessValue = clamp(current.hazeThickness, 0, 1.6)
-    const detachedHazeValue = clamp(current.detachedHaze, 0, 1.8)
-    const azimuth = (clamp(current.sunAzimuth, -180, 180) * Math.PI) / 180
-    const elevation = (clamp(current.sunElevation, -80, 80) * Math.PI) / 180
-    const elevationCosine = Math.cos(elevation)
-    const sunDirection = [
-      Math.sin(azimuth) * elevationCosine,
-      Math.sin(elevation),
-      Math.cos(azimuth) * elevationCosine,
-    ] as const
-    const activeResources = resources
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas!.width, canvas!.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
-    gl.useProgram(activeResources.program)
-    gl.bindVertexArray(activeResources.vertexArray)
+    gl.useProgram(resources.program)
+    gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, activeResources.atmosphereTexture)
-    const { uniforms } = activeResources
+    gl.bindTexture(gl.TEXTURE_2D, resources.atmosphereTexture)
     gl.uniform1i(uniforms.uAtmosphereTexture, 0)
-
-    const uniform1f = (name: UniformName, value: number) => {
-      gl.uniform1f(uniforms[name], value)
-    }
-    uniform1f('uBandContrast', clamp(current.bandContrast, 0, 1.5))
-    uniform1f('uDetachedEnabled', detachedHazeValue > 0 ? 1 : 0)
-    uniform1f('uDetachedHaze', detachedHazeValue)
-    uniform1f('uExposure', clamp(current.exposure, 0.45, 1.8))
-    uniform1f('uForwardScatteringStrength', clamp(current.forwardScatteringStrength, 0, 1.8))
-    uniform1f('uHazeDensity', hazeDensityValue)
-    uniform1f('uHazeThickness', hazeThicknessValue)
-    uniform1f('uYaw', (clamp(current.yaw, -180, 180) * Math.PI) / 180)
-    uniform1f('uMainEnabled', hazeDensityValue > 0 && hazeThicknessValue > 0 ? 1 : 0)
-    uniform1f('uPolarHood', clamp(current.polarHood, 0, 1.5))
-    uniform1f('uSpin', (clamp(current.spin, 0, 4.6) * Math.PI) / 180)
-    uniform1f('uSourceReady', hasSource ? 1 : 0)
-    uniform1f('uTime', elapsed)
-    uniform1f('uLatitude', (clamp(current.tilt, -55, 55) * Math.PI) / 180)
-    gl.uniform2f(uniforms.uResolution, canvas!.width, canvas!.height)
-    gl.uniform3f(uniforms.uSunDirection, ...sunDirection)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uBandContrast, clamp(settings.bandContrast, 0, 1.5))
+    gl.uniform1f(uniforms.uDetachedEnabled, detachedHaze > 0 ? 1 : 0)
+    gl.uniform1f(uniforms.uDetachedHaze, detachedHaze)
+    gl.uniform1f(uniforms.uExposure, clamp(settings.exposure, 0.45, 1.8))
+    gl.uniform1f(uniforms.uForwardScattering, clamp(settings.forwardScattering, 0, 1.8))
+    gl.uniform1f(uniforms.uHazeDensity, hazeDensity)
+    gl.uniform1f(uniforms.uHazeThickness, hazeThickness)
+    gl.uniform1f(uniforms.uYaw, degreesToRadians(yaw))
+    gl.uniform1f(uniforms.uMainEnabled, hazeDensity > 0 && hazeThickness > 0 ? 1 : 0)
+    gl.uniform1f(uniforms.uPolarHood, clamp(settings.polarHood, 0, 1.5))
+    gl.uniform1f(uniforms.uSpin, degreesToRadians(clamp(settings.spin, 0, 4.6)))
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform1f(uniforms.uTime, elapsed)
+    gl.uniform1f(uniforms.uLatitude, degreesToRadians(tilt))
+    gl.uniform3f(
+      uniforms.uSunDirection,
+      ...sunDirection(clamp(settings.sunAzimuth, -180, 180), clamp(settings.sunElevation, -80, 80)),
+    )
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-    resources = null
-    hasSource = false
-    sourceGeneration += 1
-  }
-
-  function handleContextRestored(): void {
-    if (disposed) return
-    contextLost = false
-    resources = createResources(gl)
-    startTime = performance.now()
-    refreshSource()
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  try {
-    refreshSource()
-    resize()
-  } catch (error) {
-    disposed = true
-    sourceGeneration += 1
-    resizeObserver.disconnect()
-    canvas.removeEventListener('webglcontextlost', handleContextLost)
-    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-    if (resources) deleteResources(gl, resources)
-    resources = null
-    throw error
-  }
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      sourceGeneration += 1
-      resizeObserver.disconnect()
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost && resources) deleteResources(gl, resources)
-      resources = null
-    },
-  }
+  },
 }
 
 export function TitanianOrbEffect({
   bandContrast = 0.28,
   className,
+  composition,
   detachedHaze = 0.72,
   exposure = 1,
-  forwardScatteringStrength = 1,
+  forwardScattering = 1,
   hazeDensity = 1,
   hazeThickness = 1,
-  yaw = 0,
+  lean = true,
+  onError,
+  paused,
   polarHood = 0.34,
-  tilt = 8,
   source,
   spin = 0.7,
   style,
   sunAzimuth = -58,
   sunElevation = 18,
+  tilt = 8,
+  viewport,
+  yaw = 0,
 }: TitanianOrbEffectProps) {
-  const frameSettings: TitanianFrameSettings = {
+  const settings: TitanianFrameSettings = {
     bandContrast,
     detachedHaze,
     exposure,
-    forwardScatteringStrength,
+    forwardScattering,
     hazeDensity,
     hazeThickness,
-    yaw,
+    lean,
     polarHood,
-    tilt,
     spin,
     sunAzimuth,
     sunElevation,
+    tilt,
+    yaw,
   }
-  const canvasRef = useCanvasRenderer(frameSettings, source, createTitanianRenderer)
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

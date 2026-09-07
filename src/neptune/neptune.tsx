@@ -11,5 +11,5 @@ export type NeptuneProps = Omit<NeptunianOrbEffectProps, 'source'> & SourceLifec
 export function Neptune({ onError, onReady, onStatusChange, ...props }: NeptuneProps) {
   const source = useMemo(() => createNeptunianAtmosphereSource(), [])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
-  return <NeptunianOrbEffect {...props} source={source} />
+  return <NeptunianOrbEffect {...props} onError={onError} source={source} />
 }

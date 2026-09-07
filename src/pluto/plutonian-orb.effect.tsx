@@ -1,49 +1,62 @@
 'use client'
 
-// Requires: react
-
-import { type CSSProperties } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
 import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  clamp,
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  sunDirection,
+  uploadImage,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
-export type PlutonianOrbSource = {
-  ready?: () => Promise<void>
-  render: () => {
-    /** sRGB RGB; alpha byte round(reliefConfidence * 254) + 1. */
-    albedo: HTMLImageElement
-    /** Linear RGBA8: octahedral tangent normal RG and normalized height BA. */
-    normalHeight: HTMLImageElement
-    heightRangeMeters: readonly [minimum: number, maximum: number]
-  } | null
+export type PlutonianSurface = {
+  /** sRGB RGB; alpha byte round(reliefConfidence * 254) + 1. */
+  albedo: HTMLImageElement
+  heightRangeMeters: readonly [minimum: number, maximum: number]
+  /** Linear RGBA8: octahedral tangent normal RG and normalized height BA. */
+  normalHeight: HTMLImageElement
 }
 
-export type PlutonianOrbEffectProps = {
-  className?: string
-  exposure?: number
-  hazeForwardScattering?: number
-  hazeIntensity?: number
-  hazeThickness?: number
-  iceResponse?: number
-  lean?: boolean
-  phaseFill?: number
-  reliefStrength?: number
-  roughness?: number
-  source: PlutonianOrbSource
-  spin?: number
-  style?: CSSProperties
-  sunAzimuth?: number
-  sunElevation?: number
-  tholinStrength?: number
-  tilt?: number
-  yaw?: number
-}
+export type PlutonianOrbSource = OrbSource<PlutonianSurface>
+
+export type PlutonianOrbEffectProps = OrbCanvasProps &
+  OrbPoseProps &
+  OrbLightingProps & {
+    /** Linear scene gain before tone mapping. Range 0–2. @default 1 */
+    exposure?: number
+    /** Blue haze density; 0 disables the haze shell. Range 0–1.5. @default 0.28 */
+    hazeDensity?: number
+    /** Henyey–Greenstein asymmetry of the haze phase function. Range 0–0.92. @default 0.78 */
+    hazeForwardScattering?: number
+    /** Haze shell thickness as a fraction of the body radius. Range 0–0.18. @default 0.08 */
+    hazeThickness?: number
+    /** Specular response of bright volatile ices. Range 0–2. @default 0.6 */
+    iceResponse?: number
+    /** Ambient fill lifting the night side. Range 0–0.25. @default 0.035 */
+    phaseFill?: number
+    /** Normal-map and terrain self-shadowing strength where relief data is confident. Range 0–2. @default 0.85 */
+    reliefShadowStrength?: number
+    /** Microfacet roughness of the ice specular lobe. Range 0.35–1. @default 0.78 */
+    roughness?: number
+    source: PlutonianOrbSource
+    /** Reddening of dark tholin-rich terrain. Range 0–1.5. @default 1 */
+    tholinStrength?: number
+  }
 
 const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
   'uAlbedoTexture',
   'uExposure',
+  'uHazeDensity',
   'uHazeForwardScattering',
-  'uHazeIntensity',
   'uHazeThickness',
   'uHeightMinimumScale',
   'uHeightRangeScale',
@@ -52,8 +65,7 @@ const UNIFORM_NAMES = [
   'uNormalTexture',
   'uPhaseFill',
   'uPointer',
-  'uReliefStrength',
-  'uResolution',
+  'uReliefShadowStrength',
   'uRoughness',
   'uSourceReady',
   'uSunDirection',
@@ -64,6 +76,10 @@ const UNIFORM_NAMES = [
 
 type PlutonianResources = {
   albedoTexture: WebGLTexture
+  /** Datum-relative minimum radius offset, derived from the uploaded surface. */
+  heightMinimumScale: number
+  /** Datum-relative height span, derived from the uploaded surface. */
+  heightRangeScale: number
   heightTexture: WebGLTexture
   normalTexture: WebGLTexture
   program: WebGLProgram
@@ -73,13 +89,13 @@ type PlutonianResources = {
 
 type PlutonianFrameSettings = {
   exposure: number
+  hazeDensity: number
   hazeForwardScattering: number
-  hazeIntensity: number
   hazeThickness: number
   iceResponse: number
   lean: boolean
   phaseFill: number
-  reliefStrength: number
+  reliefShadowStrength: number
   roughness: number
   spin: number
   sunAzimuth: number
@@ -89,36 +105,19 @@ type PlutonianFrameSettings = {
   yaw: number
 }
 
-type AnisotropyExtension = {
-  MAX_TEXTURE_MAX_ANISOTROPY_EXT: number
-  TEXTURE_MAX_ANISOTROPY_EXT: number
-}
-
 const PLUTO_DATUM_RADIUS_METERS = 1_188_300
+/** New Horizons elevation range used until a surface reports its own. */
+const DEFAULT_HEIGHT_RANGE_METERS = [-4_101, 6_491] as const
 const PLUTO_RADIUS = 0.82
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-out vec2 vUv;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  vUv = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 precision highp sampler2D;
 
-in vec2 vUv;
-
 uniform sampler2D uAlbedoTexture;
 uniform float uExposure;
 uniform float uHazeForwardScattering;
-uniform float uHazeIntensity;
+uniform float uHazeDensity;
 uniform float uHazeThickness;
 uniform float uHeightMinimumScale;
 uniform float uHeightRangeScale;
@@ -127,8 +126,7 @@ uniform float uIceResponse;
 uniform sampler2D uNormalTexture;
 uniform float uPhaseFill;
 uniform vec2 uPointer;
-uniform float uReliefStrength;
-uniform vec2 uResolution;
+uniform float uReliefShadowStrength;
 uniform float uRoughness;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
@@ -136,6 +134,7 @@ uniform float uYaw;
 uniform float uTholinStrength;
 uniform float uViewTilt;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float BODY_RADIUS = ${PLUTO_RADIUS.toFixed(2)};
@@ -250,7 +249,7 @@ mat3 tangentFrame(vec3 radialDirection) {
 }
 
 float terrainVisibility(vec3 geometricNormal, vec3 mappedDirection, vec3 lightDirection) {
-  if (uReliefStrength <= 0.0) return 1.0;
+  if (uReliefShadowStrength <= 0.0) return 1.0;
   float centerConfidence = sampleReliefConfidence(mappedDirection);
   if (centerConfidence <= 0.0) return 1.0;
 
@@ -264,7 +263,7 @@ float terrainVisibility(vec3 geometricNormal, vec3 mappedDirection, vec3 lightDi
   float centerHeight = sampleHeight(mappedDirection);
   float centerRadius = 1.0 + (
     uHeightMinimumScale + centerHeight * uHeightRangeScale
-  ) * uReliefStrength;
+  ) * uReliefShadowStrength;
   float maximumTerrainSlope = -1000.0;
 
   for (int index = 0; index < 8; index++) {
@@ -278,7 +277,7 @@ float terrainVisibility(vec3 geometricNormal, vec3 mappedDirection, vec3 lightDi
     float sampleHeightValue = sampleHeight(mappedSample);
     float sampleRadius = 1.0 + (
       uHeightMinimumScale + sampleHeightValue * uHeightRangeScale
-    ) * uReliefStrength;
+    ) * uReliefShadowStrength;
     float terrainSlope = (
       sampleRadius * cos(angularDistance) - centerRadius
     ) / max(sampleRadius * sin(angularDistance), 0.00001);
@@ -298,7 +297,7 @@ float terrainVisibility(vec3 geometricNormal, vec3 mappedDirection, vec3 lightDi
   ) * float(textureSize(uHeightTexture, 0).x) / TAU;
   float poleStretch = 1.0 / max(length(mappedDirection.xz), 0.12);
   float footprintFade = 1.0 - smoothstep(3.0, 9.0, directionFootprint * poleStretch);
-  float shadowWeight = centerConfidence * footprintFade * clamp(uReliefStrength, 0.0, 1.0);
+  float shadowWeight = centerConfidence * footprintFade * clamp(uReliefShadowStrength, 0.0, 1.0);
   return mix(1.0, visibility, shadowWeight);
 }
 
@@ -328,7 +327,7 @@ void integrateHaze(
 ) {
   inScattering = vec3(0.0);
   viewTransmission = 1.0;
-  if (uHazeIntensity <= 0.0 || uHazeThickness <= 0.0) return;
+  if (uHazeDensity <= 0.0 || uHazeThickness <= 0.0) return;
 
   float shellZ = sqrt(max(shellRadius * shellRadius - dot(position, position), 0.0));
   float endZ = surfaceHit ? surfaceZ : -shellZ;
@@ -337,7 +336,7 @@ void integrateHaze(
   float scaleHeight = 0.042 * BODY_RADIUS;
   float support = uHazeThickness * BODY_RADIUS;
   float normalization = scaleHeight * max(1.0 - exp(-support / scaleHeight), 0.00001);
-  float tauVertical = 0.08 * uHazeIntensity;
+  float tauVertical = 0.08 * uHazeDensity;
   float phaseMeanOne = 4.0 * PI * henyeyGreenstein(
     dot(-uSunDirection, vec3(0.0, 0.0, 1.0)),
     uHazeForwardScattering
@@ -371,8 +370,7 @@ void main() {
     return;
   }
 
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
+  vec2 position = compositionPosition();
   float radialDistance = length(position);
   float hazeSupport = max(uHazeThickness, 0.0) * BODY_RADIUS;
   float shellRadius = BODY_RADIUS + hazeSupport;
@@ -383,7 +381,7 @@ void main() {
     radialDistance
   );
   float atmosphereCoverage = 0.0;
-  if (uHazeIntensity > 0.0 && uHazeThickness > 0.0) {
+  if (uHazeDensity > 0.0 && uHazeThickness > 0.0) {
     atmosphereCoverage = 1.0 - smoothstep(
       shellRadius - edgeWidth,
       shellRadius + edgeWidth,
@@ -418,12 +416,12 @@ void main() {
     );
 
     vec3 tangentNormal = vec3(0.0, 0.0, 1.0);
-    if (reliefConfidence > 0.0 && uReliefStrength > 0.0) {
+    if (reliefConfidence > 0.0 && uReliefShadowStrength > 0.0) {
       tangentNormal = decodeOctahedralNormal(
         sampleEquirectangular(uNormalTexture, mappedDirection).rg
       );
       tangentNormal = normalize(vec3(
-        tangentNormal.xy * uReliefStrength * reliefConfidence,
+        tangentNormal.xy * uReliefShadowStrength * reliefConfidence,
         max(tangentNormal.z, 0.02)
       ));
     }
@@ -501,98 +499,7 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Plutonian shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Plutonian shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Unable to create Plutonian shader program')
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  gl.deleteShader(vertexShader)
-  gl.deleteShader(fragmentShader)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unknown Plutonian shader link error'
-    gl.deleteProgram(program)
-    throw new Error(message)
-  }
-  return program
-}
-
-function createTexture(
-  gl: WebGL2RenderingContext,
-  pixel: readonly [number, number, number, number],
-  minFilter: number,
-  magFilter: number,
-): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Plutonian texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array(pixel),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  if (minFilter === gl.LINEAR_MIPMAP_LINEAR) gl.generateMipmap(gl.TEXTURE_2D)
-  return texture
-}
-
-function createResources(gl: WebGL2RenderingContext): PlutonianResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Plutonian vertex array')
-  const datumNormalized = Math.round(((0 - -4_101) / (6_491 - -4_101)) * 65_535)
-  const highByte = datumNormalized >> 8
-  const lowByte = datumNormalized & 255
-  const program = createProgram(gl)
-  const resources = {
-    albedoTexture: createTexture(gl, [150, 128, 118, 1], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
-    heightTexture: createTexture(gl, [128, 128, highByte, lowByte], gl.NEAREST, gl.NEAREST),
-    normalTexture: createTexture(
-      gl,
-      [128, 128, highByte, lowByte],
-      gl.LINEAR_MIPMAP_LINEAR,
-      gl.LINEAR,
-    ),
-    program,
-    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
-    vertexArray,
-  }
-  gl.bindVertexArray(vertexArray)
-  return resources
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: PlutonianResources): void {
-  gl.deleteTexture(resources.albedoTexture)
-  gl.deleteTexture(resources.heightTexture)
-  gl.deleteTexture(resources.normalTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
-function validateSurface(surface: NonNullable<ReturnType<PlutonianOrbSource['render']>>): void {
+function validateSurface(surface: PlutonianSurface): void {
   const { albedo, normalHeight } = surface
   if (
     !(albedo instanceof HTMLImageElement) ||
@@ -613,252 +520,131 @@ function validateSurface(surface: NonNullable<ReturnType<PlutonianOrbSource['ren
   }
 }
 
-function uploadTexture(
-  gl: WebGL2RenderingContext,
-  texture: WebGLTexture,
-  image: HTMLImageElement,
-  internalFormat: number,
-  generateMipmaps: boolean,
-): void {
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, gl.RGBA, gl.UNSIGNED_BYTE, image)
-  if (generateMipmaps) gl.generateMipmap(gl.TEXTURE_2D)
-  const anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') as AnisotropyExtension | null
-  if (generateMipmaps && anisotropy) {
-    const maximum = gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number
-    gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(maximum, 8))
-  }
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.min(Math.max(value, minimum), maximum)
-}
-
 function wrapDegrees(value: number): number {
   return ((((value + 180) % 360) + 360) % 360) - 180
 }
 
-function createPlutonianRenderer(
-  canvas: HTMLCanvasElement,
-  source: PlutonianOrbSource,
-): CanvasRenderer<PlutonianFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
+function heightMinimumScaleFor(range: readonly [number, number]): number {
+  return range[0] / PLUTO_DATUM_RADIUS_METERS
+}
 
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let heightMinimumScale = -4_101 / PLUTO_DATUM_RADIUS_METERS
-  let heightRangeScale = (6_491 - -4_101) / PLUTO_DATUM_RADIUS_METERS
-  let resourceGeneration = 0
-  let resources = createResources(gl)
-  let startTime = performance.now()
-  let lastTime = startTime
-  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
+function heightRangeScaleFor(range: readonly [number, number]): number {
+  return (range[1] - range[0]) / PLUTO_DATUM_RADIUS_METERS
+}
 
-  function uploadSource(): void {
-    if (disposed || contextLost) return
-    const surface = source.render()
-    if (!surface) {
-      hasSource = false
-      return
+/** Placeholder normal/height texel: flat normal at datum height within the default range. */
+function datumPlaceholder(): readonly [number, number, number, number] {
+  const [minimum, maximum] = DEFAULT_HEIGHT_RANGE_METERS
+  const datumNormalized = Math.round(((0 - minimum) / (maximum - minimum)) * 65_535)
+  return [128, 128, datumNormalized >> 8, datumNormalized & 255]
+}
+
+const spec: OrbRendererSpec<PlutonianResources, PlutonianFrameSettings, PlutonianSurface> = {
+  label: 'Pluto',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Pluto')
+    const placeholder = datumPlaceholder()
+    return {
+      albedoTexture: createTexture(gl, 'Pluto albedo', { placeholder: [150, 128, 118, 1] }),
+      heightMinimumScale: heightMinimumScaleFor(DEFAULT_HEIGHT_RANGE_METERS),
+      heightRangeScale: heightRangeScaleFor(DEFAULT_HEIGHT_RANGE_METERS),
+      heightTexture: createTexture(gl, 'Pluto height', {
+        magFilter: gl.NEAREST,
+        minFilter: gl.NEAREST,
+        placeholder,
+      }),
+      normalTexture: createTexture(gl, 'Pluto normal', { placeholder }),
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Pluto'),
     }
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.albedoTexture)
+    gl.deleteTexture(resources.heightTexture)
+    gl.deleteTexture(resources.normalTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
     validateSurface(surface)
-    const previousColorSpace = gl.getParameter(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL) as number
-    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-    try {
-      uploadTexture(gl, resources.albedoTexture, surface.albedo, gl.SRGB8_ALPHA8, true)
-      uploadTexture(gl, resources.normalTexture, surface.normalHeight, gl.RGBA8, true)
-      uploadTexture(gl, resources.heightTexture, surface.normalHeight, gl.RGBA8, false)
-    } finally {
-      gl.bindTexture(gl.TEXTURE_2D, null)
-      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, previousColorSpace)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-    }
-    hasSource = true
-    heightMinimumScale = surface.heightRangeMeters[0] / PLUTO_DATUM_RADIUS_METERS
-    heightRangeScale =
-      (surface.heightRangeMeters[1] - surface.heightRangeMeters[0]) / PLUTO_DATUM_RADIUS_METERS
-  }
-
-  function refreshSource(): void {
-    const generation = resourceGeneration
-    const ready = source.ready?.()
-    if (!ready) {
-      uploadSource()
-      return
-    }
-    void ready.then(
+    // Packed normal/height bytes must reach the GPU unmodified.
+    withUnpackState(
+      gl,
+      { colorSpaceConversion: false, flipY: true, premultiplyAlpha: false },
       () => {
-        if (generation === resourceGeneration) uploadSource()
-      },
-      () => {
-        if (generation === resourceGeneration) uploadSource()
+        uploadImage(gl, resources.albedoTexture, surface.albedo, {
+          internalFormat: gl.SRGB8_ALPHA8,
+        })
+        uploadImage(gl, resources.normalTexture, surface.normalHeight)
+        uploadImage(gl, resources.heightTexture, surface.normalHeight, { mipmaps: false })
       },
     )
-  }
+    resources.heightMinimumScale = heightMinimumScaleFor(surface.heightRangeMeters)
+    resources.heightRangeScale = heightRangeScaleFor(surface.heightRangeMeters)
+  },
+  isAnimated(settings) {
+    return settings.spin !== 0
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
 
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-  }
-
-  function updatePointer(delta: number, enabled: boolean): void {
-    if (!enabled) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-    const stiffness = 42
-    const damping = 11
-    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-    const decay = Math.exp(-damping * delta)
-    pointer.velocityX *= decay
-    pointer.velocityY *= decay
-    pointer.currentX += pointer.velocityX * delta
-    pointer.currentY += pointer.velocityY * delta
-  }
-
-  function render(timestamp: number, settings: PlutonianFrameSettings): void {
-    if (disposed || contextLost) return
-    resize()
-    const elapsed = (timestamp - startTime) / 1000
-    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-    lastTime = timestamp
-    updatePointer(delta, settings.lean)
-    const azimuth = (clamp(settings.sunAzimuth, -180, 180) * Math.PI) / 180
-    const elevation = (clamp(settings.sunElevation, -30, 90) * Math.PI) / 180
-    const elevationCosine = Math.cos(elevation)
-    const sunDirection = [
-      Math.sin(azimuth) * elevationCosine,
-      Math.sin(elevation),
-      Math.cos(azimuth) * elevationCosine,
-    ] as const
-    const rotation =
-      ((wrapDegrees(settings.yaw) + elapsed * clamp(settings.spin, 0, 2.9)) * Math.PI) / 180
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.useProgram(resources.program)
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
+    gl.uniform1i(uniforms.uAlbedoTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(resources.uniforms.uNormalTexture, 1)
+    gl.uniform1i(uniforms.uNormalTexture, 1)
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.heightTexture)
-    gl.uniform1i(resources.uniforms.uHeightTexture, 2)
-    gl.uniform1f(resources.uniforms.uExposure, clamp(settings.exposure, 0, 2))
-    gl.uniform1f(
-      resources.uniforms.uHazeForwardScattering,
-      clamp(settings.hazeForwardScattering, 0, 0.92),
+    gl.uniform1i(uniforms.uHeightTexture, 2)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uExposure, clamp(settings.exposure, 0, 2))
+    gl.uniform1f(uniforms.uHazeDensity, clamp(settings.hazeDensity, 0, 1.5))
+    gl.uniform1f(uniforms.uHazeForwardScattering, clamp(settings.hazeForwardScattering, 0, 0.92))
+    gl.uniform1f(uniforms.uHazeThickness, clamp(settings.hazeThickness, 0, 0.18))
+    gl.uniform1f(uniforms.uHeightMinimumScale, resources.heightMinimumScale)
+    gl.uniform1f(uniforms.uHeightRangeScale, resources.heightRangeScale)
+    gl.uniform1f(uniforms.uIceResponse, clamp(settings.iceResponse, 0, 2))
+    gl.uniform1f(uniforms.uPhaseFill, clamp(settings.phaseFill, 0, 0.25))
+    gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
+    gl.uniform1f(uniforms.uReliefShadowStrength, clamp(settings.reliefShadowStrength, 0, 2))
+    gl.uniform1f(uniforms.uRoughness, clamp(settings.roughness, 0.35, 1))
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(
+      uniforms.uSunDirection,
+      ...sunDirection(clamp(settings.sunAzimuth, -180, 180), clamp(settings.sunElevation, -30, 90)),
     )
-    gl.uniform1f(resources.uniforms.uHazeIntensity, clamp(settings.hazeIntensity, 0, 1.5))
-    gl.uniform1f(resources.uniforms.uHazeThickness, clamp(settings.hazeThickness, 0, 0.18))
-    gl.uniform1f(resources.uniforms.uHeightMinimumScale, heightMinimumScale)
-    gl.uniform1f(resources.uniforms.uHeightRangeScale, heightRangeScale)
-    gl.uniform1f(resources.uniforms.uIceResponse, clamp(settings.iceResponse, 0, 2))
-    gl.uniform1f(resources.uniforms.uPhaseFill, clamp(settings.phaseFill, 0, 0.25))
-    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
-    gl.uniform1f(resources.uniforms.uReliefStrength, clamp(settings.reliefStrength, 0, 2))
-    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
-    gl.uniform1f(resources.uniforms.uRoughness, clamp(settings.roughness, 0.35, 1))
-    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
-    gl.uniform3f(resources.uniforms.uSunDirection, ...sunDirection)
-    gl.uniform1f(resources.uniforms.uYaw, rotation)
-    gl.uniform1f(resources.uniforms.uTholinStrength, clamp(settings.tholinStrength, 0, 1.5))
-    gl.uniform1f(resources.uniforms.uViewTilt, (clamp(settings.tilt, -30, 30) * Math.PI) / 180)
+    gl.uniform1f(uniforms.uTholinStrength, clamp(settings.tholinStrength, 0, 1.5))
+    gl.uniform1f(uniforms.uViewTilt, degreesToRadians(clamp(settings.tilt, -30, 30)))
+    gl.uniform1f(
+      uniforms.uYaw,
+      degreesToRadians(wrapDegrees(settings.yaw) + elapsed * settings.spin),
+    )
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas.getBoundingClientRect()
-    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-  }
-
-  function handlePointerLeave(): void {
-    pointer.targetX = 0
-    pointer.targetY = 0
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-  }
-
-  function handleContextRestored(): void {
-    if (disposed) return
-    contextLost = false
-    resourceGeneration += 1
-    resources = createResources(gl)
-    hasSource = false
-    heightMinimumScale = -4_101 / PLUTO_DATUM_RADIUS_METERS
-    heightRangeScale = (6_491 - -4_101) / PLUTO_DATUM_RADIUS_METERS
-    refreshSource()
-    startTime = performance.now()
-    lastTime = startTime
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  refreshSource()
-  resize()
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      resourceGeneration += 1
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    },
-  }
+  },
 }
 
 export function PlutonianOrbEffect({
   className,
+  composition,
   exposure = 1,
+  hazeDensity = 0.28,
   hazeForwardScattering = 0.78,
-  hazeIntensity = 0.28,
   hazeThickness = 0.08,
   iceResponse = 0.6,
   lean = true,
+  onError,
+  paused,
   phaseFill = 0.035,
-  reliefStrength = 0.85,
+  reliefShadowStrength = 0.85,
   roughness = 0.78,
   source,
   spin = 0,
@@ -867,17 +653,18 @@ export function PlutonianOrbEffect({
   sunElevation = 16,
   tholinStrength = 1,
   tilt = 25,
+  viewport,
   yaw = 0,
 }: PlutonianOrbEffectProps) {
-  const frameSettings: PlutonianFrameSettings = {
+  const settings: PlutonianFrameSettings = {
     exposure,
+    hazeDensity,
     hazeForwardScattering,
-    hazeIntensity,
     hazeThickness,
     iceResponse,
     lean,
     phaseFill,
-    reliefStrength,
+    reliefShadowStrength,
     roughness,
     spin,
     sunAzimuth,
@@ -887,14 +674,18 @@ export function PlutonianOrbEffect({
     yaw,
   }
 
-  const canvasRef = useCanvasRenderer(frameSettings, source, createPlutonianRenderer)
-
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

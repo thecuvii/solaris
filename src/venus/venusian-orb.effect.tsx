@@ -1,13 +1,86 @@
 'use client'
 
-// Requires: react
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  sunDirection,
+  uploadImage,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
-import { type CSSProperties } from 'react'
+export type VenusianSurface = {
+  /** Equirectangular cloud-top structure; only the red channel is read. */
+  cloudStructure: TexImageSource
+  longitudeOffsetDegrees?: number
+}
 
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+export type VenusianOrbSource = OrbSource<VenusianSurface>
+
+export type VenusianOrbEffectProps = OrbCanvasProps &
+  OrbPoseProps &
+  OrbLightingProps & {
+    /** Contrast of the source cloud morphology. Range 0–1. @default 0.3 */
+    cloudContrast?: number
+    /** Procedural cellular and streaky cloud detail. Range 0–1. @default 0.22 */
+    cloudDetail?: number
+    /** Linear scene gain before tone mapping. @default 1.08 */
+    exposure?: number
+    /** Rate of the super-rotating cloud flow, in cycles per second. @default 0.045 */
+    flowSpeed?: number
+    /** Amplitude of the cloud advection; 0 freezes the clouds. Range 0–1. @default 0.7 */
+    flowStrength?: number
+    /** Forward-scattering brightening of the haze towards the sun. Range 0–1. @default 0.72 */
+    forwardScattering?: number
+    /** Glory and opposition surge near full phase. Range 0–1. @default 0.18 */
+    gloryStrength?: number
+    /** Optical depth of the upper haze shell. Range 0–1. @default 0.72 */
+    opticalDepth?: number
+    source: VenusianOrbSource
+    /** Blend from neutral cream (0) towards sulfur yellow-orange (1). @default 0.72 */
+    sulfurTint?: number
+    /** In-scattering strength of the upper haze shell. Range 0–1. @default 0.46 */
+    upperHaze?: number
+  }
+
+const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
+  'uAxialTilt',
+  'uCloudContrast',
+  'uCloudDetail',
+  'uCloudStructureTexture',
+  'uExposure',
+  'uFlowSpeed',
+  'uFlowStrength',
+  'uForwardScattering',
+  'uGloryStrength',
+  'uLongitudeOffset',
+  'uOpticalDepth',
+  'uPointer',
+  'uSourceReady',
+  'uSulfurTint',
+  'uSunDirection',
+  'uTime',
+  'uUpperHaze',
+  'uYaw',
+] as const
+
+type VenusianResources = {
+  cloudStructureTexture: WebGLTexture
+  longitudeOffset: number
+  program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
+  vertexArray: WebGLVertexArrayObject
+}
 
 type VenusianFrameSettings = {
-  tilt: number
   cloudContrast: number
   cloudDetail: number
   exposure: number
@@ -21,92 +94,17 @@ type VenusianFrameSettings = {
   sulfurTint: number
   sunAzimuth: number
   sunElevation: number
-  yaw: number
+  tilt: number
   upperHaze: number
-}
-
-export type VenusianOrbSource = {
-  ready?: () => Promise<void>
-  render: () => {
-    cloudStructure: TexImageSource
-    longitudeOffsetDegrees?: number
-  } | null
-}
-
-export type VenusianOrbEffectProps = {
-  tilt?: number
-  className?: string
-  cloudContrast?: number
-  cloudDetail?: number
-  exposure?: number
-  flowSpeed?: number
-  flowStrength?: number
-  forwardScattering?: number
-  gloryStrength?: number
-  lean?: boolean
-  opticalDepth?: number
-  spin?: number
-  source: VenusianOrbSource
-  style?: CSSProperties
-  sulfurTint?: number
-  sunAzimuth?: number
-  sunElevation?: number
-  yaw?: number
-  upperHaze?: number
-}
-
-type VenusianResources = {
-  cloudStructureTexture: WebGLTexture
-  program: WebGLProgram
-  uniforms: {
-    axialTilt: WebGLUniformLocation
-    cloudContrast: WebGLUniformLocation
-    cloudDetail: WebGLUniformLocation
-    cloudStructureTexture: WebGLUniformLocation
-    exposure: WebGLUniformLocation
-    flowSpeed: WebGLUniformLocation
-    flowStrength: WebGLUniformLocation
-    forwardScattering: WebGLUniformLocation
-    gloryStrength: WebGLUniformLocation
-    longitudeOffset: WebGLUniformLocation
-    opticalDepth: WebGLUniformLocation
-    pointer: WebGLUniformLocation
-    resolution: WebGLUniformLocation
-    sourceReady: WebGLUniformLocation
-    sulfurTint: WebGLUniformLocation
-    sunDirection: WebGLUniformLocation
-    yaw: WebGLUniformLocation
-    time: WebGLUniformLocation
-    upperHaze: WebGLUniformLocation
-  }
-  vertexArray: WebGLVertexArrayObject
-}
-
-type AnisotropyExtension = {
-  MAX_TEXTURE_MAX_ANISOTROPY_EXT: number
-  TEXTURE_MAX_ANISOTROPY_EXT: number
+  yaw: number
 }
 
 const VENUS_RADIUS = 0.78
 const HAZE_RADIUS = 0.825
 
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-out vec2 vUv;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  vUv = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
-
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-
-in vec2 vUv;
 
 uniform float uAxialTilt;
 uniform float uCloudContrast;
@@ -120,7 +118,6 @@ uniform float uGloryStrength;
 uniform float uLongitudeOffset;
 uniform float uOpticalDepth;
 uniform vec2 uPointer;
-uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform float uSulfurTint;
 uniform vec3 uSunDirection;
@@ -128,6 +125,7 @@ uniform float uYaw;
 uniform float uTime;
 uniform float uUpperHaze;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float VENUS_RADIUS = ${VENUS_RADIUS.toFixed(3)};
@@ -359,8 +357,7 @@ void main() {
     return;
   }
 
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
+  vec2 position = compositionPosition();
   float shellDistance = length(position) / HAZE_RADIUS;
   float shellEdge = max(fwidth(shellDistance), 0.0005);
   float shellCoverage = 1.0 - smoothstep(1.0 - shellEdge, 1.0 + shellEdge, shellDistance);
@@ -449,345 +446,99 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Venusian shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Venusian shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Unable to create Venusian shader program')
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  gl.deleteShader(vertexShader)
-  gl.deleteShader(fragmentShader)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unknown Venusian shader link error'
-    gl.deleteProgram(program)
-    throw new Error(message)
-  }
-  return program
-}
-
-function createTexture(gl: WebGL2RenderingContext): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Venusian cloud texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array([128, 128, 128, 255]),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  return texture
-}
-
-function getUniformLocation(
-  gl: WebGL2RenderingContext,
-  program: WebGLProgram,
-  name: string,
-): WebGLUniformLocation {
-  const location = gl.getUniformLocation(program, name)
-  if (!location) throw new Error(`Unable to locate Venusian uniform: ${name}`)
-  return location
-}
-
-function createResources(gl: WebGL2RenderingContext): VenusianResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Venusian vertex array')
-  const program = createProgram(gl)
-  const resources = {
-    cloudStructureTexture: createTexture(gl),
-    program,
-    uniforms: {
-      axialTilt: getUniformLocation(gl, program, 'uAxialTilt'),
-      cloudContrast: getUniformLocation(gl, program, 'uCloudContrast'),
-      cloudDetail: getUniformLocation(gl, program, 'uCloudDetail'),
-      cloudStructureTexture: getUniformLocation(gl, program, 'uCloudStructureTexture'),
-      exposure: getUniformLocation(gl, program, 'uExposure'),
-      flowSpeed: getUniformLocation(gl, program, 'uFlowSpeed'),
-      flowStrength: getUniformLocation(gl, program, 'uFlowStrength'),
-      forwardScattering: getUniformLocation(gl, program, 'uForwardScattering'),
-      gloryStrength: getUniformLocation(gl, program, 'uGloryStrength'),
-      longitudeOffset: getUniformLocation(gl, program, 'uLongitudeOffset'),
-      opticalDepth: getUniformLocation(gl, program, 'uOpticalDepth'),
-      pointer: getUniformLocation(gl, program, 'uPointer'),
-      resolution: getUniformLocation(gl, program, 'uResolution'),
-      sourceReady: getUniformLocation(gl, program, 'uSourceReady'),
-      sulfurTint: getUniformLocation(gl, program, 'uSulfurTint'),
-      sunDirection: getUniformLocation(gl, program, 'uSunDirection'),
-      yaw: getUniformLocation(gl, program, 'uYaw'),
-      time: getUniformLocation(gl, program, 'uTime'),
-      upperHaze: getUniformLocation(gl, program, 'uUpperHaze'),
-    },
-    vertexArray,
-  }
-  gl.bindVertexArray(vertexArray)
-  return resources
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: VenusianResources): void {
-  gl.deleteTexture(resources.cloudStructureTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
-function uploadTexture(
-  gl: WebGL2RenderingContext,
-  texture: WebGLTexture,
-  image: TexImageSource,
-): void {
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, image)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  const anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') as AnisotropyExtension | null
-  if (anisotropy) {
-    const maximum = gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number
-    gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(maximum, 8))
-  }
-}
-
-function createVenusianRenderer(
-  canvas: HTMLCanvasElement,
-  source: VenusianOrbSource,
-): CanvasRenderer<VenusianFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
-
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let longitudeOffset = 0
-  let sourceGeneration = 0
-  let resources = createResources(gl)
-  let startTime = performance.now()
-  let lastTime = startTime
-  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-  function uploadSource(): void {
-    if (disposed || contextLost) return
-    const venus = source.render()
-    if (!venus) {
-      hasSource = false
-      return
+const spec: OrbRendererSpec<VenusianResources, VenusianFrameSettings, VenusianSurface> = {
+  label: 'Venus',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Venus')
+    return {
+      cloudStructureTexture: createTexture(gl, 'Venus cloud structure'),
+      longitudeOffset: 0,
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Venus'),
     }
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.cloudStructureTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
+    withUnpackState(gl, { flipY: true, premultiplyAlpha: false }, () => {
+      uploadImage(gl, resources.cloudStructureTexture, surface.cloudStructure)
+    })
+    resources.longitudeOffset = degreesToRadians(surface.longitudeOffsetDegrees ?? 0)
+  },
+  isAnimated(settings) {
+    // Cloud advection and procedural detail both advance with uTime * uFlowSpeed.
+    const cloudsMove =
+      settings.flowSpeed !== 0 && (settings.flowStrength > 0 || settings.cloudDetail > 0)
+    return settings.spin !== 0 || cloudsMove
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
 
-    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-    uploadTexture(gl, resources.cloudStructureTexture, venus.cloudStructure)
-    gl.bindTexture(gl.TEXTURE_2D, null)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-    hasSource = true
-    longitudeOffset = ((venus.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-  }
-
-  function refreshSource(): void {
-    const generation = sourceGeneration
-    uploadSource()
-    void source.ready?.().then(
-      () => {
-        if (generation === sourceGeneration) uploadSource()
-      },
-      () => undefined,
-    )
-  }
-
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-  }
-
-  function updatePointer(delta: number, enabled: boolean): void {
-    if (!enabled) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-    const stiffness = 42
-    const damping = 11
-    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-    const decay = Math.exp(-damping * delta)
-    pointer.velocityX *= decay
-    pointer.velocityY *= decay
-    pointer.currentX += pointer.velocityX * delta
-    pointer.currentY += pointer.velocityY * delta
-  }
-
-  function render(timestamp: number, settings: VenusianFrameSettings): void {
-    if (contextLost) return
-    const elapsed = (timestamp - startTime) / 1000
-    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-    lastTime = timestamp
-    updatePointer(delta, settings.lean)
-    const azimuth = (settings.sunAzimuth * Math.PI) / 180
-    const elevation = (settings.sunElevation * Math.PI) / 180
-    const elevationCosine = Math.cos(elevation)
-    const sunDirection = [
-      Math.sin(azimuth) * elevationCosine,
-      Math.sin(elevation),
-      Math.cos(azimuth) * elevationCosine,
-    ] as const
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.useProgram(resources.program)
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.cloudStructureTexture)
-    const { uniforms } = resources
-    gl.uniform1i(uniforms.cloudStructureTexture, 0)
-    gl.uniform1f(uniforms.axialTilt, (settings.tilt * Math.PI) / 180)
-    gl.uniform1f(uniforms.cloudContrast, settings.cloudContrast)
-    gl.uniform1f(uniforms.cloudDetail, settings.cloudDetail)
-    gl.uniform1f(uniforms.exposure, settings.exposure)
-    gl.uniform1f(uniforms.flowSpeed, settings.flowSpeed)
-    gl.uniform1f(uniforms.flowStrength, settings.flowStrength)
-    gl.uniform1f(uniforms.forwardScattering, settings.forwardScattering)
-    gl.uniform1f(uniforms.gloryStrength, settings.gloryStrength)
-    gl.uniform1f(uniforms.longitudeOffset, longitudeOffset)
-    gl.uniform1f(uniforms.opticalDepth, settings.opticalDepth)
-    gl.uniform2f(uniforms.pointer, pointer.currentX, pointer.currentY)
-    gl.uniform2f(uniforms.resolution, canvas.width, canvas.height)
-    gl.uniform1f(uniforms.sourceReady, hasSource ? 1 : 0)
-    gl.uniform1f(uniforms.sulfurTint, settings.sulfurTint)
-    gl.uniform3f(uniforms.sunDirection, ...sunDirection)
-    gl.uniform1f(uniforms.yaw, ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180)
-    gl.uniform1f(uniforms.time, elapsed)
-    gl.uniform1f(uniforms.upperHaze, settings.upperHaze)
+    gl.uniform1i(uniforms.uCloudStructureTexture, 0)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uAxialTilt, degreesToRadians(settings.tilt))
+    gl.uniform1f(uniforms.uCloudContrast, settings.cloudContrast)
+    gl.uniform1f(uniforms.uCloudDetail, settings.cloudDetail)
+    gl.uniform1f(uniforms.uExposure, settings.exposure)
+    gl.uniform1f(uniforms.uFlowSpeed, settings.flowSpeed)
+    gl.uniform1f(uniforms.uFlowStrength, settings.flowStrength)
+    gl.uniform1f(uniforms.uForwardScattering, settings.forwardScattering)
+    gl.uniform1f(uniforms.uGloryStrength, settings.gloryStrength)
+    gl.uniform1f(uniforms.uLongitudeOffset, resources.longitudeOffset)
+    gl.uniform1f(uniforms.uOpticalDepth, settings.opticalDepth)
+    gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform1f(uniforms.uSulfurTint, settings.sulfurTint)
+    gl.uniform3f(
+      uniforms.uSunDirection,
+      ...sunDirection(settings.sunAzimuth, settings.sunElevation),
+    )
+    gl.uniform1f(uniforms.uYaw, degreesToRadians(settings.yaw + elapsed * settings.spin))
+    gl.uniform1f(uniforms.uTime, elapsed)
+    gl.uniform1f(uniforms.uUpperHaze, settings.upperHaze)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas.getBoundingClientRect()
-    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-  }
-
-  function handlePointerLeave(): void {
-    pointer.targetX = 0
-    pointer.targetY = 0
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-  }
-
-  function handleContextRestored(): void {
-    contextLost = false
-    sourceGeneration += 1
-    resources = createResources(gl)
-    hasSource = false
-    longitudeOffset = 0
-    uploadSource()
-    startTime = performance.now()
-    lastTime = startTime
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(() => resize())
-  resizeObserver.observe(canvas)
-  window.addEventListener('resize', resize)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  try {
-    refreshSource()
-    resize()
-  } catch (error) {
-    disposed = true
-    sourceGeneration += 1
-    resizeObserver.disconnect()
-    window.removeEventListener('resize', resize)
-    canvas.removeEventListener('pointermove', handlePointerMove)
-    canvas.removeEventListener('pointerleave', handlePointerLeave)
-    canvas.removeEventListener('webglcontextlost', handleContextLost)
-    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-    if (!contextLost) deleteResources(gl, resources)
-    throw error
-  }
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      sourceGeneration += 1
-      resizeObserver.disconnect()
-      window.removeEventListener('resize', resize)
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    },
-  }
+  },
 }
 
 export function VenusianOrbEffect({
-  tilt = -3,
   className,
   cloudContrast = 0.3,
   cloudDetail = 0.22,
+  composition,
   exposure = 1.08,
   flowSpeed = 0.045,
   flowStrength = 0.7,
   forwardScattering = 0.72,
   gloryStrength = 0.18,
   lean = true,
+  onError,
   opticalDepth = 0.72,
-  spin = -1.5,
+  paused,
   source,
+  spin = -1.5,
   style,
   sulfurTint = 0.72,
   sunAzimuth = -52,
   sunElevation = 9,
-  yaw = 0,
+  tilt = -3,
   upperHaze = 0.46,
+  viewport,
+  yaw = 0,
 }: VenusianOrbEffectProps) {
-  const frameSettings: VenusianFrameSettings = {
-    tilt,
+  const settings: VenusianFrameSettings = {
     cloudContrast,
     cloudDetail,
     exposure,
@@ -801,17 +552,23 @@ export function VenusianOrbEffect({
     sulfurTint,
     sunAzimuth,
     sunElevation,
-    yaw,
+    tilt,
     upperHaze,
+    yaw,
   }
-  const canvasRef = useCanvasRenderer(frameSettings, source, createVenusianRenderer)
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

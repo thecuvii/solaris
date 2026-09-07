@@ -11,5 +11,5 @@ export type UranusProps = Omit<UranianOrbEffectProps, 'source'> & SourceLifecycl
 export function Uranus({ onError, onReady, onStatusChange, ...props }: UranusProps) {
   const source = useMemo(() => createUranianAtmosphereSource(), [])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
-  return <UranianOrbEffect {...props} source={source} />
+  return <UranianOrbEffect {...props} onError={onError} source={source} />
 }

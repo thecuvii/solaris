@@ -1,10 +1,16 @@
 'use client'
 
-// Requires: react
-
-import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec } from '../internal/orb-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  clamp,
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createVertexArray,
+} from '../internal/webgl'
+import type { OrbCanvasProps } from '../orb'
 
 /*
  * The Sun as photographed from the Earth's surface: a haze-softened,
@@ -22,55 +28,43 @@ import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-r
  * horizon to noon.
  */
 
-export type SkyComposition = {
-  bottom?: CSSProperties['bottom']
-  height: CSSProperties['height']
-  width: CSSProperties['width']
-}
-
-export type SkyEffectProps = {
-  className?: string
-  /** Thin horizontal cloud/inversion striations across the low disc. */
+export type SkyEffectProps = Omit<OrbCanvasProps, 'lean'> & {
+  /** Thin horizontal cloud/inversion striations across the low disc. Range 0–1. @default 0 */
   cloudStreaks?: number
-  /** Disc layout box. The canvas can be larger so glow is not clipped. */
-  composition?: SkyComposition
-  /** Editorial yellow→orange→magenta disc grade. Stays on the disc. */
+  /** Editorial yellow→orange→magenta disc grade. Stays on the disc. Range 0–1. @default 0 */
   duskFlush?: number
-  /** Linear scene gain relative to the disc centre before tone mapping. */
+  /** Linear scene gain relative to the disc centre before tone mapping. Range 0–8. @default 1.8 */
   exposure?: number
-  /** Scattering-sky amount. 0 is a dark indigo plate; 1 is the physical field. */
+  /** Scattering-sky amount. 0 is a dark indigo plate; 1 is the physical field. @default 0 */
   field?: number
-  /** Lens flare strength: 1/r hotspot with soft noise rays and chromatic ghosts. */
+  /** Lens flare strength: 1/r hotspot with soft noise rays and chromatic ghosts. Range 0–2. @default 0.02 */
   flare?: number
-  /** Direction from the sun to the virtual optical centre, in degrees. Ghosts line up on it. */
+  /** Direction from the sun to the virtual optical centre, in degrees. Ghosts line up on it. @default 63 */
   flareAngle?: number
-  /** Ray density. 0 is a few broad soft rays; 1 is a dense burst of hairlines. */
+  /** Ray density. 0 is a few broad soft rays; 1 is a dense burst of hairlines. @default 0.56 */
   flareRays?: number
-  /** Aperture star: eight diaphragm diffraction spikes, rotated by flareAngle. */
+  /** Aperture star: eight diaphragm diffraction spikes, rotated by flareAngle. Range 0–1. @default 0.25 */
   flareStar?: number
-  /** Camera glare strength: near-limb bloom, wide wings, and veiling. */
+  /** Camera glare strength: near-limb bloom, wide wings, and veiling. Range 0–2. @default 0.14 */
   glare?: number
-  /** Aerosol load. Softens the limb, tightens the aureole, and greys the sky. */
+  /** Aerosol load. Softens the limb, tightens the aureole, and greys the sky. Range 0–1. @default 0.55 */
   haze?: number
-  /** Chappuis ozone absorption multiplier; controls the pink/purple twilight cast. */
+  /** Chappuis ozone absorption multiplier; controls the pink/purple twilight cast. Range 0–2. @default 0.69 */
   ozone?: number
-  /** Disc and glow chroma. 1 preserves the physical tint. */
-  saturation?: number
-  /** NOAA apparent-elevation refraction multiplier; flattens the low disc. */
+  /** NOAA apparent-elevation refraction multiplier; flattens the low disc. Range 0–1.5. @default 0.5 */
   refraction?: number
-  /** Refractive shimmer amplitude near the horizon. */
+  /** Disc and glow chroma. 1 preserves the physical tint. Range 0–2. @default 0.9 */
+  saturation?: number
+  /** Refractive shimmer amplitude near the horizon. Range 0–1. @default 0.29 */
   seeingAmount?: number
-  /** Refractive shimmer speed multiplier. */
+  /** Refractive shimmer speed multiplier. Range 0–3. @default 0.76 */
   seeingSpeed?: number
-  /** Slow drift speed of the cloud striations. */
+  /** Slow drift speed of the cloud striations. Range 0–3. @default 2.19 */
   streakDrift?: number
-  style?: CSSProperties
-  /** True solar-centre elevation in degrees. */
+  /** True solar-centre elevation in degrees. Range -1–70. @default 3 */
   sunElevation?: number
-  /** Disc radius as a fraction of the shorter composition half-side. */
+  /** Disc radius as a fraction of the shorter composition half-side. Range 0.02–0.6. @default 0.02 */
   sunScale?: number
-  /** Extra canvas bleed around the composition box. */
-  viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
 }
 
 type SkySettings = {
@@ -84,6 +78,7 @@ type SkySettings = {
   flareStar: number
   glare: number
   haze: number
+  lean: boolean
   ozone: number
   refraction: number
   saturation: number
@@ -94,66 +89,60 @@ type SkySettings = {
   sunScale: number
 }
 
-type SkyUniforms = {
-  apparentBottom: WebGLUniformLocation | null
-  apparentCentre: WebGLUniformLocation | null
-  apparentTop: WebGLUniformLocation | null
-  bloomInner: WebGLUniformLocation | null
-  bloomOuter: WebGLUniformLocation | null
-  bloomTint: WebGLUniformLocation | null
-  centreLuminance: WebGLUniformLocation | null
-  cloudStreaks: WebGLUniformLocation | null
-  compositionCenter: WebGLUniformLocation | null
-  compositionScale: WebGLUniformLocation | null
-  directSunFactor: WebGLUniformLocation | null
-  drift: WebGLUniformLocation | null
-  duskFlush: WebGLUniformLocation | null
-  exposure: WebGLUniformLocation | null
-  field: WebGLUniformLocation | null
-  flare: WebGLUniformLocation | null
-  flareAmount: WebGLUniformLocation | null
-  flarePos: WebGLUniformLocation | null
-  flareRad: WebGLUniformLocation | null
-  flareRays: WebGLUniformLocation | null
-  flareStar: WebGLUniformLocation | null
-  glare: WebGLUniformLocation | null
-  glowScale: WebGLUniformLocation | null
-  glowTint: WebGLUniformLocation | null
-  haze: WebGLUniformLocation | null
-  opticalDepth: WebGLUniformLocation | null
-  over: WebGLUniformLocation | null
-  resolution: WebGLUniformLocation | null
-  saturation: WebGLUniformLocation | null
-  seeingAmount: WebGLUniformLocation | null
-  seeingPhase: WebGLUniformLocation | null
-  skyLightFactor: WebGLUniformLocation | null
-  sunElevation: WebGLUniformLocation | null
-  sunScale: WebGLUniformLocation | null
-  sunTransmittance: WebGLUniformLocation | null
-  time: WebGLUniformLocation | null
-}
+const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
+  'uApparentBottom',
+  'uApparentCentre',
+  'uApparentTop',
+  'uBloomInner',
+  'uBloomOuter',
+  'uBloomTint',
+  'uCentreLuminance',
+  'uCloudStreaks',
+  'uDirectSunFactor',
+  'uDrift',
+  'uDuskFlush',
+  'uExposure',
+  'uField',
+  'uFlare',
+  'uFlareAmount',
+  'uFlarePos',
+  'uFlareRad',
+  'uFlareRays',
+  'uFlareStar',
+  'uGlare',
+  'uGlowScale',
+  'uGlowTint',
+  'uHaze',
+  'uOpticalDepth',
+  'uOver',
+  'uResolution',
+  'uSaturation',
+  'uSeeingAmount',
+  'uSeeingPhase',
+  'uSkyLightFactor',
+  'uSunElevation',
+  'uSunScale',
+  'uSunTransmittance',
+  'uTime',
+] as const
 
 type SkyResources = {
+  /** Per-frame constant cache; see {@link frameConstants}. */
+  constants: FrameConstants | null
+  constantsKey: string
   program: WebGLProgram
-  uniforms: SkyUniforms
+  /** Last raw settings object and its clamped mirror, so a stable object is not re-sanitised every frame. */
+  sanitized: SkySettings | null
+  sanitizedFor: SkySettings | null
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
 }
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
 uniform float uCloudStreaks;
-uniform vec2 uCompositionCenter;
-uniform float uCompositionScale;
 uniform float uDuskFlush;
 uniform float uExposure;
 uniform float uField;
@@ -191,6 +180,7 @@ uniform float uSeeingPhase;
 uniform float uSkyLightFactor;
 uniform vec3 uSunTransmittance;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float PI = 3.141592653589793;
@@ -421,7 +411,7 @@ float interleavedGradientNoise(vec2 pixel) {
 }
 
 void main() {
-  vec2 screen = (2.0 * (gl_FragCoord.xy - uCompositionCenter)) / uCompositionScale;
+  vec2 screen = compositionPosition();
   // Angular offset from the apparent disc centre, in degrees.
   vec2 angular = screen * (SUN_RADIUS / uSunScale);
 
@@ -589,84 +579,6 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Sky shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Sky shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  let fragmentShader: WebGLShader | null = null
-  let program: WebGLProgram | null = null
-  try {
-    fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-    program = gl.createProgram()
-    if (!program) throw new Error('Unable to create Sky shader program')
-    gl.attachShader(program, vertexShader)
-    gl.attachShader(program, fragmentShader)
-    gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(gl.getProgramInfoLog(program) ?? 'Unknown Sky shader link error')
-    }
-    return program
-  } catch (error) {
-    if (program) gl.deleteProgram(program)
-    throw error
-  } finally {
-    gl.deleteShader(vertexShader)
-    if (fragmentShader) gl.deleteShader(fragmentShader)
-  }
-}
-
-function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): SkyUniforms {
-  return {
-    apparentBottom: gl.getUniformLocation(program, 'uApparentBottom'),
-    apparentCentre: gl.getUniformLocation(program, 'uApparentCentre'),
-    apparentTop: gl.getUniformLocation(program, 'uApparentTop'),
-    bloomInner: gl.getUniformLocation(program, 'uBloomInner'),
-    bloomOuter: gl.getUniformLocation(program, 'uBloomOuter'),
-    bloomTint: gl.getUniformLocation(program, 'uBloomTint'),
-    centreLuminance: gl.getUniformLocation(program, 'uCentreLuminance'),
-    cloudStreaks: gl.getUniformLocation(program, 'uCloudStreaks'),
-    compositionCenter: gl.getUniformLocation(program, 'uCompositionCenter'),
-    compositionScale: gl.getUniformLocation(program, 'uCompositionScale'),
-    directSunFactor: gl.getUniformLocation(program, 'uDirectSunFactor'),
-    drift: gl.getUniformLocation(program, 'uDrift'),
-    duskFlush: gl.getUniformLocation(program, 'uDuskFlush'),
-    exposure: gl.getUniformLocation(program, 'uExposure'),
-    field: gl.getUniformLocation(program, 'uField'),
-    flare: gl.getUniformLocation(program, 'uFlare'),
-    flareAmount: gl.getUniformLocation(program, 'uFlareAmount'),
-    flarePos: gl.getUniformLocation(program, 'uFlarePos'),
-    flareRad: gl.getUniformLocation(program, 'uFlareRad'),
-    flareRays: gl.getUniformLocation(program, 'uFlareRays'),
-    flareStar: gl.getUniformLocation(program, 'uFlareStar'),
-    glare: gl.getUniformLocation(program, 'uGlare'),
-    glowScale: gl.getUniformLocation(program, 'uGlowScale'),
-    glowTint: gl.getUniformLocation(program, 'uGlowTint'),
-    haze: gl.getUniformLocation(program, 'uHaze'),
-    opticalDepth: gl.getUniformLocation(program, 'uOpticalDepth'),
-    over: gl.getUniformLocation(program, 'uOver'),
-    resolution: gl.getUniformLocation(program, 'uResolution'),
-    saturation: gl.getUniformLocation(program, 'uSaturation'),
-    seeingAmount: gl.getUniformLocation(program, 'uSeeingAmount'),
-    seeingPhase: gl.getUniformLocation(program, 'uSeeingPhase'),
-    skyLightFactor: gl.getUniformLocation(program, 'uSkyLightFactor'),
-    sunElevation: gl.getUniformLocation(program, 'uSunElevation'),
-    sunScale: gl.getUniformLocation(program, 'uSunScale'),
-    sunTransmittance: gl.getUniformLocation(program, 'uSunTransmittance'),
-    time: gl.getUniformLocation(program, 'uTime'),
-  }
-}
-
 /*
  * CPU mirrors of the shader's uniform-only math. These must stay in step with
  * the GLSL constants above; the shader reads the results as uniforms.
@@ -819,28 +731,6 @@ function frameConstants(
   }
 }
 
-function createResources(gl: WebGL2RenderingContext): SkyResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Sky vertex array')
-  try {
-    const program = createProgram(gl)
-    gl.bindVertexArray(vertexArray)
-    return { program, uniforms: getUniforms(gl, program), vertexArray }
-  } catch (error) {
-    gl.deleteVertexArray(vertexArray)
-    throw error
-  }
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: SkyResources): void {
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
-}
-
 function sanitizedSettings(settings: SkySettings): SkySettings {
   return {
     cloudStreaks: clamp(settings.cloudStreaks, 0, 1),
@@ -853,6 +743,7 @@ function sanitizedSettings(settings: SkySettings): SkySettings {
     flareStar: clamp(settings.flareStar, 0, 1),
     glare: clamp(settings.glare, 0, 2),
     haze: clamp(settings.haze, 0, 1),
+    lean: settings.lean,
     ozone: clamp(settings.ozone, 0, 2),
     refraction: clamp(settings.refraction, 0, 1.5),
     saturation: clamp(settings.saturation, 0, 2),
@@ -864,218 +755,109 @@ function sanitizedSettings(settings: SkySettings): SkySettings {
   }
 }
 
-function createSkyRenderer(
-  canvas: HTMLCanvasElement,
-  input: {
-    compositionRef: RefObject<HTMLDivElement | null>
-    hasComposition: boolean
-  },
-): CanvasRenderer<SkySettings> | null {
-  const { compositionRef, hasComposition } = input
-  const context = canvas.getContext('webgl2', {
-    alpha: false,
-    antialias: false,
-    depth: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: false,
-    stencil: false,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
+/** Clamp once per distinct settings object; the core hands back the same object while nothing changes. */
+function settingsForFrame(resources: SkyResources, frameSettings: SkySettings): SkySettings {
+  if (resources.sanitizedFor === frameSettings && resources.sanitized) return resources.sanitized
+  resources.sanitizedFor = frameSettings
+  resources.sanitized = sanitizedSettings(frameSettings)
+  return resources.sanitized
+}
 
-  let contextLost = false
-  let disposed = false
-  let resources: SkyResources | null = createResources(gl)
-  let startTime = performance.now()
-  let compositionCenterX = 0
-  let compositionCenterY = 0
-  let compositionScale = 1
-  let lastFrameSettings: SkySettings | null = null
-  let lastSanitized: SkySettings | null = null
-  let lastConstantsKey = ''
-  let constants: FrameConstants | null = null
-  // Set whenever something other than time changed; a static sky is drawn once.
-  let needsFrame = true
-  const visualViewport = window.visualViewport
+function constantsForFrame(
+  resources: SkyResources,
+  settings: SkySettings,
+  compositionScale: number,
+  canvasUnit: number,
+): FrameConstants {
+  // Cheap to recompute, but the key lets a resize or settings change reuse
+  // the previous result when nothing that feeds it actually moved.
+  const key = `${settings.sunElevation}|${settings.refraction}|${settings.haze}|${settings.ozone}|${settings.saturation}|${settings.flareAngle}|${settings.sunScale}|${settings.exposure}|${settings.flare}|${settings.duskFlush}|${compositionScale}|${canvasUnit}`
+  if (resources.constants && key === resources.constantsKey) return resources.constants
+  resources.constantsKey = key
+  resources.constants = frameConstants(settings, compositionScale, canvasUnit)
+  return resources.constants
+}
 
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    // The sky is low-frequency gradients; 1.5x is indistinguishable from 2x
-    // and costs 44% fewer fragments for the heaviest shader in the package.
-    const dpr = Math.min(window.devicePixelRatio, 1.5)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
+const spec: OrbRendererSpec<SkyResources, SkySettings, never> = {
+  label: 'Sky',
+  // The sky is low-frequency gradients; 1.5x is indistinguishable from 2x
+  // and costs 44% fewer fragments for the heaviest shader in the package.
+  maxDevicePixelRatio: 1.5,
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Sky')
+    return {
+      constants: null,
+      constantsKey: '',
+      program,
+      sanitized: null,
+      sanitizedFor: null,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Sky'),
     }
-
-    const compositionBounds = compositionRef.current?.getBoundingClientRect() ?? bounds
-    const scaleX = width / Math.max(bounds.width, 1)
-    const scaleY = height / Math.max(bounds.height, 1)
-    compositionCenterX =
-      (compositionBounds.left - bounds.left + compositionBounds.width / 2) * scaleX
-    compositionCenterY =
-      height - (compositionBounds.top - bounds.top + compositionBounds.height / 2) * scaleY
-    compositionScale = Math.max(
-      Math.min(compositionBounds.width * scaleX, compositionBounds.height * scaleY),
-      1,
-    )
-    needsFrame = true
-  }
-
-  function settingsForFrame(frameSettings: SkySettings): SkySettings {
-    if (lastFrameSettings === frameSettings && lastSanitized) return lastSanitized
-    lastFrameSettings = frameSettings
-    lastSanitized = sanitizedSettings(frameSettings)
-    needsFrame = true
-    return lastSanitized
-  }
-
-  function constantsForFrame(settings: SkySettings): FrameConstants {
-    // Cheap to recompute, but the key lets a resize or settings change reuse
-    // the previous result when nothing that feeds it actually moved.
-    const canvasUnit = Math.min(canvas.width, canvas.height)
-    const key = `${settings.sunElevation}|${settings.refraction}|${settings.haze}|${settings.ozone}|${settings.saturation}|${settings.flareAngle}|${settings.sunScale}|${settings.exposure}|${settings.flare}|${settings.duskFlush}|${compositionScale}|${canvasUnit}`
-    if (constants && key === lastConstantsKey) return constants
-    lastConstantsKey = key
-    constants = frameConstants(settings, compositionScale, canvasUnit)
-    return constants
-  }
-
+  },
+  deleteResources(gl, resources) {
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
   // Only seeing, streak drift and the flare grain read uTime. Without them the
   // image is static and does not need to be redrawn every frame.
-  function isAnimated(settings: SkySettings): boolean {
+  isAnimated(settings) {
     return (
       (settings.seeingAmount > 0 && settings.seeingSpeed > 0) ||
       (settings.cloudStreaks > 0 && settings.streakDrift > 0) ||
       (settings.flare > 0 && settings.field > 0)
     )
-  }
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed: time, height, width } = frame
+    const settings = settingsForFrame(resources, frame.settings)
+    const canvasUnit = Math.min(width, height)
+    const constants = constantsForFrame(resources, settings, composition.scale, canvasUnit)
+    const { uniforms } = resources
 
-  function render(timestamp: number, frameSettings: SkySettings): void {
-    if (disposed || contextLost || !resources) return
-    const settings = settingsForFrame(frameSettings)
-    if (!needsFrame && !isAnimated(settings)) return
-    needsFrame = false
-    const frame = constantsForFrame(settings)
-    const { program, uniforms, vertexArray } = resources
-    const time = (timestamp - startTime) / 1000
+    gl.useProgram(resources.program)
+    gl.bindVertexArray(resources.vertexArray)
 
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
-    gl.useProgram(program)
-    gl.bindVertexArray(vertexArray)
+    gl.uniform1f(uniforms.uCloudStreaks, settings.cloudStreaks)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uDuskFlush, settings.duskFlush)
+    gl.uniform1f(uniforms.uExposure, settings.exposure)
+    gl.uniform1f(uniforms.uField, settings.field)
+    gl.uniform1f(uniforms.uFlare, settings.flare)
+    gl.uniform1f(uniforms.uFlareRays, settings.flareRays)
+    gl.uniform1f(uniforms.uFlareStar, settings.flareStar)
+    gl.uniform1f(uniforms.uGlare, settings.glare)
+    gl.uniform1f(uniforms.uHaze, settings.haze)
+    gl.uniform2f(uniforms.uResolution, width, height)
+    gl.uniform1f(uniforms.uSaturation, settings.saturation)
+    gl.uniform1f(uniforms.uSeeingAmount, settings.seeingAmount)
+    gl.uniform1f(uniforms.uSunElevation, settings.sunElevation)
+    gl.uniform1f(uniforms.uSunScale, settings.sunScale)
+    gl.uniform1f(uniforms.uTime, time)
 
-    gl.uniform1f(uniforms.cloudStreaks, settings.cloudStreaks)
-    gl.uniform2f(uniforms.compositionCenter, compositionCenterX, compositionCenterY)
-    gl.uniform1f(uniforms.compositionScale, compositionScale)
-    gl.uniform1f(uniforms.duskFlush, settings.duskFlush)
-    gl.uniform1f(uniforms.exposure, settings.exposure)
-    gl.uniform1f(uniforms.field, settings.field)
-    gl.uniform1f(uniforms.flare, settings.flare)
-    gl.uniform1f(uniforms.flareRays, settings.flareRays)
-    gl.uniform1f(uniforms.flareStar, settings.flareStar)
-    gl.uniform1f(uniforms.glare, settings.glare)
-    gl.uniform1f(uniforms.haze, settings.haze)
-    gl.uniform2f(uniforms.resolution, canvas.width, canvas.height)
-    gl.uniform1f(uniforms.saturation, settings.saturation)
-    gl.uniform1f(uniforms.seeingAmount, settings.seeingAmount)
-    gl.uniform1f(uniforms.sunElevation, settings.sunElevation)
-    gl.uniform1f(uniforms.sunScale, settings.sunScale)
-    gl.uniform1f(uniforms.time, time)
-
-    gl.uniform1f(uniforms.apparentBottom, frame.apparentBottom)
-    gl.uniform1f(uniforms.apparentCentre, frame.apparentCentre)
-    gl.uniform1f(uniforms.apparentTop, frame.apparentTop)
-    gl.uniform1f(uniforms.bloomInner, frame.bloomInner)
-    gl.uniform1f(uniforms.bloomOuter, frame.bloomOuter)
-    gl.uniform3f(uniforms.bloomTint, frame.bloomTint[0], frame.bloomTint[1], frame.bloomTint[2])
-    gl.uniform1f(uniforms.centreLuminance, frame.centreLuminance)
-    gl.uniform1f(uniforms.directSunFactor, frame.directSunFactor)
-    gl.uniform1f(uniforms.drift, time * settings.streakDrift)
-    gl.uniform1f(uniforms.flareAmount, frame.flareAmount)
-    gl.uniform2f(uniforms.flarePos, frame.flarePos[0], frame.flarePos[1])
-    gl.uniform1f(uniforms.flareRad, frame.flareRad)
-    gl.uniform1f(uniforms.glowScale, frame.glowScale)
-    gl.uniform3f(uniforms.glowTint, frame.glowTint[0], frame.glowTint[1], frame.glowTint[2])
-    gl.uniform3f(
-      uniforms.opticalDepth,
-      frame.opticalDepth[0],
-      frame.opticalDepth[1],
-      frame.opticalDepth[2],
-    )
-    gl.uniform1f(uniforms.over, frame.over)
-    gl.uniform1f(uniforms.seeingPhase, time * settings.seeingSpeed)
-    gl.uniform1f(uniforms.skyLightFactor, frame.skyLightFactor)
-    gl.uniform3f(
-      uniforms.sunTransmittance,
-      frame.sunTransmittance[0],
-      frame.sunTransmittance[1],
-      frame.sunTransmittance[2],
-    )
+    gl.uniform1f(uniforms.uApparentBottom, constants.apparentBottom)
+    gl.uniform1f(uniforms.uApparentCentre, constants.apparentCentre)
+    gl.uniform1f(uniforms.uApparentTop, constants.apparentTop)
+    gl.uniform1f(uniforms.uBloomInner, constants.bloomInner)
+    gl.uniform1f(uniforms.uBloomOuter, constants.bloomOuter)
+    gl.uniform3f(uniforms.uBloomTint, ...constants.bloomTint)
+    gl.uniform1f(uniforms.uCentreLuminance, constants.centreLuminance)
+    gl.uniform1f(uniforms.uDirectSunFactor, constants.directSunFactor)
+    gl.uniform1f(uniforms.uDrift, time * settings.streakDrift)
+    gl.uniform1f(uniforms.uFlareAmount, constants.flareAmount)
+    gl.uniform2f(uniforms.uFlarePos, ...constants.flarePos)
+    gl.uniform1f(uniforms.uFlareRad, constants.flareRad)
+    gl.uniform1f(uniforms.uGlowScale, constants.glowScale)
+    gl.uniform3f(uniforms.uGlowTint, ...constants.glowTint)
+    gl.uniform1f(uniforms.uOver, constants.over)
+    gl.uniform3f(uniforms.uOpticalDepth, ...constants.opticalDepth)
+    gl.uniform1f(uniforms.uSeeingPhase, time * settings.seeingSpeed)
+    gl.uniform1f(uniforms.uSkyLightFactor, constants.skyLightFactor)
+    gl.uniform3f(uniforms.uSunTransmittance, ...constants.sunTransmittance)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-    resources = null
-  }
-
-  function handleContextRestored(): void {
-    if (disposed) return
-    contextLost = false
-    resources = createResources(gl)
-    startTime = performance.now()
-    resize()
-  }
-
-  function bindResizeListeners(): void {
-    resizeObserver.observe(canvas)
-    if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
-    window.addEventListener('resize', resize)
-    visualViewport?.addEventListener('resize', resize)
-    visualViewport?.addEventListener('scroll', resize)
-  }
-
-  function unbindResizeListeners(): void {
-    resizeObserver.disconnect()
-    window.removeEventListener('resize', resize)
-    visualViewport?.removeEventListener('resize', resize)
-    visualViewport?.removeEventListener('scroll', resize)
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  bindResizeListeners()
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  try {
-    resize()
-  } catch (error) {
-    disposed = true
-    unbindResizeListeners()
-    canvas.removeEventListener('webglcontextlost', handleContextLost)
-    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-    if (resources) deleteResources(gl, resources)
-    resources = null
-    throw error
-  }
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      unbindResizeListeners()
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost && resources) deleteResources(gl, resources)
-      resources = null
-    },
-  }
+  },
 }
 
 export function SkyEffect({
@@ -1091,7 +873,9 @@ export function SkyEffect({
   flareStar = 0.25,
   glare = 0.14,
   haze = 0.55,
+  onError,
   ozone = 0.69,
+  paused,
   refraction = 0.5,
   saturation = 0.9,
   seeingAmount = 0.29,
@@ -1102,9 +886,7 @@ export function SkyEffect({
   sunScale = 0.02,
   viewport,
 }: SkyEffectProps) {
-  const compositionRef = useRef<HTMLDivElement>(null)
-  const hasComposition = composition !== undefined
-  const frameSettings: SkySettings = {
+  const settings: SkySettings = {
     cloudStreaks,
     duskFlush,
     exposure,
@@ -1115,6 +897,8 @@ export function SkyEffect({
     flareStar,
     glare,
     haze,
+    // Pointer parallax is meaningless for a sky plate.
+    lean: false,
     ozone,
     refraction,
     saturation,
@@ -1124,53 +908,19 @@ export function SkyEffect({
     sunElevation,
     sunScale,
   }
-  const rendererInput = useMemo(() => ({ compositionRef, hasComposition }), [hasComposition])
-  const canvasRef = useCanvasRenderer(frameSettings, rendererInput, createSkyRenderer)
-
-  if (composition) {
-    return (
-      <div
-        className={className}
-        style={{ height: '100%', position: 'relative', width: '100%', ...style }}
-      >
-        <div
-          aria-hidden="true"
-          ref={compositionRef}
-          style={{
-            left: '50%',
-            pointerEvents: 'none',
-            position: 'absolute',
-            transform: 'translateX(-50%)',
-            ...composition,
-          }}
-        />
-        <div
-          style={{
-            bottom: 0,
-            left: 0,
-            pointerEvents: 'none',
-            position: 'absolute',
-            right: 0,
-            top: 0,
-            ...viewport,
-          }}
-        >
-          <canvas
-            aria-hidden="true"
-            ref={canvasRef}
-            style={{ display: 'block', height: '100%', pointerEvents: 'none', width: '100%' }}
-          />
-        </div>
-      </div>
-    )
-  }
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', width: '100%', ...style }}
+      composition={composition}
+      lean={false}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={undefined}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

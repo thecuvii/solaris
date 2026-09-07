@@ -20,5 +20,5 @@ export function Sun({ onError, onReady, onStatusChange, textures, ...props }: Su
   const { observation } = textures
   const source = useMemo(() => createSolarAia304Source(observation), [observation])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
-  return <SolarOrbEffect {...props} source={source} />
+  return <SolarOrbEffect {...props} onError={onError} source={source} />
 }

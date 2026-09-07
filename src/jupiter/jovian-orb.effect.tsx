@@ -1,44 +1,59 @@
 'use client'
 
-// Requires: react
-
-import { type CSSProperties } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
 import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  sunDirection,
+  uploadImage,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
-export type JovianOrbSource = {
-  ready?: () => Promise<void>
-  render: () => {
-    albedo: TexImageSource
-    grsCenter?: readonly [longitudeDegrees: number, latitudeDegrees: number]
-    grsRadii?: readonly [longitudeDegrees: number, latitudeDegrees: number]
-    longitudeOffsetDegrees?: number
-  } | null
+export type JovianSurface = {
+  /** Equirectangular sRGB cloud albedo. */
+  albedo: TexImageSource
+  /** Great Red Spot centre in degrees; omit to disable the vortex warp. */
+  grsCenter?: readonly [longitudeDegrees: number, latitudeDegrees: number]
+  /** Great Red Spot angular radii in degrees. Only used with `grsCenter`. */
+  grsRadii?: readonly [longitudeDegrees: number, latitudeDegrees: number]
+  longitudeOffsetDegrees?: number
 }
 
-export type JovianOrbEffectProps = {
-  bandDrift?: number
-  className?: string
-  cloudPhotometricMix?: number
-  detailIntensity?: number
-  detailScale?: number
-  exposure?: number
-  flattening?: number
-  jetStrength?: number
-  lean?: boolean
-  limbHaze?: number
-  source: JovianOrbSource
-  spin?: number
-  style?: CSSProperties
-  sunAzimuth?: number
-  sunElevation?: number
-  tilt?: number
-  yaw?: number
-  vortexStrength?: number
-}
+export type JovianOrbSource = OrbSource<JovianSurface>
+
+export type JovianOrbEffectProps = OrbCanvasProps &
+  OrbPoseProps &
+  OrbLightingProps & {
+    /** Zonal cloud advection speed in degrees per second; also drives the vortex. @default 3.2 */
+    bandDrift?: number
+    /** Blend from Lambert (0) towards Lommel–Seeliger cloud photometry (1). @default 0.35 */
+    cloudPhotometricMix?: number
+    /** Procedural cloud filament contrast. Range 0–0.5. @default 0.11 */
+    detailIntensity?: number
+    /** Latitudinal frequency multiplier of the procedural detail. Range 0.05–3. @default 1 */
+    detailScale?: number
+    /** Linear scene gain before tone mapping. @default 1.05 */
+    exposure?: number
+    /** Polar flattening in percent of the equatorial radius. Range 0–20. @default 6.5 */
+    flattening?: number
+    /** Latitude-dependent jet stream differential. Range 0–2. @default 0.65 */
+    jetStrength?: number
+    /** Warm haze along the sunlit limb. Range 0–1. @default 0.16 */
+    limbHaze?: number
+    source: JovianOrbSource
+    /** Rotation of the Great Red Spot cloud field. Range 0–1. @default 0.42 */
+    vortexStrength?: number
+  }
 
 const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
   'uAlbedoTexture',
   'uBandDrift',
   'uCloudPhotometricMix',
@@ -52,7 +67,6 @@ const UNIFORM_NAMES = [
   'uLimbHaze',
   'uLongitudeOffset',
   'uPointer',
-  'uResolution',
   'uSourceReady',
   'uSunDirection',
   'uTilt',
@@ -63,14 +77,14 @@ const UNIFORM_NAMES = [
 
 type JovianResources = {
   albedoTexture: WebGLTexture
+  /** Radians, derived from the uploaded surface. */
+  grsCenter: readonly [number, number]
+  /** Radians, derived from the uploaded surface. */
+  grsRadii: readonly [number, number]
+  longitudeOffset: number
   program: WebGLProgram
   uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
-}
-
-type AnisotropyExtension = {
-  MAX_TEXTURE_MAX_ANISOTROPY_EXT: number
-  TEXTURE_MAX_ANISOTROPY_EXT: number
 }
 
 type JovianFrameSettings = {
@@ -93,23 +107,9 @@ type JovianFrameSettings = {
 
 const JUPITER_RADIUS = 0.82
 
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-out vec2 vUv;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  vUv = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
-
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-
-in vec2 vUv;
 
 uniform sampler2D uAlbedoTexture;
 uniform float uCloudPhotometricMix;
@@ -124,7 +124,6 @@ uniform float uLimbHaze;
 uniform float uLongitudeOffset;
 uniform float uFlattening;
 uniform vec2 uPointer;
-uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
 uniform float uTilt;
@@ -132,6 +131,7 @@ uniform float uYaw;
 uniform float uTime;
 uniform float uVortexStrength;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float JUPITER_RADIUS = ${JUPITER_RADIUS.toFixed(2)};
@@ -291,8 +291,7 @@ void main() {
     return;
   }
 
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
+  vec2 position = compositionPosition();
   float polarRadius = JUPITER_RADIUS * (1.0 - clamp(uFlattening, 0.0, 0.2));
   vec2 ellipsoidPosition = vec2(position.x / JUPITER_RADIUS, position.y / polarRadius);
   float radialDistance = length(ellipsoidPosition);
@@ -356,283 +355,90 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Jovian shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Jovian shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Unable to create Jovian shader program')
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  gl.deleteShader(vertexShader)
-  gl.deleteShader(fragmentShader)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unknown Jovian shader link error'
-    gl.deleteProgram(program)
-    throw new Error(message)
-  }
-  return program
-}
-
-function createTexture(gl: WebGL2RenderingContext): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Jovian texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array([255, 255, 255, 255]),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  return texture
-}
-
-function createResources(gl: WebGL2RenderingContext): JovianResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Jovian vertex array')
-  const program = createProgram(gl)
-  const resources = {
-    albedoTexture: createTexture(gl),
-    program,
-    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
-    vertexArray,
-  }
-  gl.bindVertexArray(vertexArray)
-  return resources
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: JovianResources): void {
-  gl.deleteTexture(resources.albedoTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
-function uploadTexture(
-  gl: WebGL2RenderingContext,
-  texture: WebGLTexture,
-  image: TexImageSource,
-): void {
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, image)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  const anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') as AnisotropyExtension | null
-  if (anisotropy) {
-    const maximum = gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number
-    gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(maximum, 8))
-  }
-}
-
-function createJovianRenderer(
-  canvas: HTMLCanvasElement,
-  source: JovianOrbSource,
-): CanvasRenderer<JovianFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
-
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let longitudeOffset = 0
-  let grsCenter = [0, 0] as [number, number]
-  let grsRadii = [0, 0] as [number, number]
-  let resources = createResources(gl)
-  let startTime = performance.now()
-  let lastTime = startTime
-  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-  function uploadSource(): void {
-    if (disposed || contextLost) return
-    const clouds = source.render()
-    if (!clouds) {
-      hasSource = false
-      return
+const spec: OrbRendererSpec<JovianResources, JovianFrameSettings, JovianSurface> = {
+  label: 'Jupiter',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Jupiter')
+    return {
+      albedoTexture: createTexture(gl, 'Jupiter albedo', {
+        internalFormat: gl.SRGB8_ALPHA8,
+        placeholder: [255, 255, 255, 255],
+      }),
+      grsCenter: [0, 0],
+      grsRadii: [0, 0],
+      longitudeOffset: 0,
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Jupiter'),
     }
-
-    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-    uploadTexture(gl, resources.albedoTexture, clouds.albedo)
-    gl.bindTexture(gl.TEXTURE_2D, null)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-    hasSource = true
-    longitudeOffset = ((clouds.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-    grsCenter = clouds.grsCenter
-      ? [(clouds.grsCenter[0] * Math.PI) / 180, (clouds.grsCenter[1] * Math.PI) / 180]
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.albedoTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
+    withUnpackState(gl, { flipY: true, premultiplyAlpha: false }, () => {
+      uploadImage(gl, resources.albedoTexture, surface.albedo, {
+        internalFormat: gl.SRGB8_ALPHA8,
+      })
+    })
+    resources.longitudeOffset = degreesToRadians(surface.longitudeOffsetDegrees ?? 0)
+    resources.grsCenter = surface.grsCenter
+      ? [degreesToRadians(surface.grsCenter[0]), degreesToRadians(surface.grsCenter[1])]
       : [0, 0]
-    grsRadii =
-      clouds.grsCenter && clouds.grsRadii
-        ? [(clouds.grsRadii[0] * Math.PI) / 180, (clouds.grsRadii[1] * Math.PI) / 180]
+    // Radii only matter when a centre is given; zero radii disable the vortex warp.
+    resources.grsRadii =
+      surface.grsCenter && surface.grsRadii
+        ? [degreesToRadians(surface.grsRadii[0]), degreesToRadians(surface.grsRadii[1])]
         : [0, 0]
-  }
+  },
+  // Time only enters the shader through `uYaw` (spin) and `uTime * uBandDrift`.
+  isAnimated: (settings) => settings.spin !== 0 || settings.bandDrift !== 0,
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
 
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-  }
-
-  function updatePointer(delta: number, enabled: boolean): void {
-    if (!enabled) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-    const stiffness = 42
-    const damping = 11
-    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-    const decay = Math.exp(-damping * delta)
-    pointer.velocityX *= decay
-    pointer.velocityY *= decay
-    pointer.currentX += pointer.velocityX * delta
-    pointer.currentY += pointer.velocityY * delta
-  }
-
-  function render(timestamp: number, settings: JovianFrameSettings): void {
-    if (contextLost) return
-    resize()
-    const elapsed = (timestamp - startTime) / 1000
-    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-    lastTime = timestamp
-    updatePointer(delta, settings.lean)
-    const azimuth = (settings.sunAzimuth * Math.PI) / 180
-    const elevation = (settings.sunElevation * Math.PI) / 180
-    const elevationCosine = Math.cos(elevation)
-    const sunDirection = [
-      Math.sin(azimuth) * elevationCosine,
-      Math.sin(elevation),
-      Math.cos(azimuth) * elevationCosine,
-    ] as const
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.useProgram(resources.program)
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
-    gl.uniform1f(resources.uniforms.uCloudPhotometricMix, settings.cloudPhotometricMix)
-    gl.uniform1f(resources.uniforms.uDetailIntensity, settings.detailIntensity)
-    gl.uniform1f(resources.uniforms.uDetailScale, settings.detailScale)
-    gl.uniform1f(resources.uniforms.uBandDrift, (settings.bandDrift * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.uExposure, settings.exposure)
-    gl.uniform2f(resources.uniforms.uGrsCenter, ...grsCenter)
-    gl.uniform2f(resources.uniforms.uGrsRadii, ...grsRadii)
-    gl.uniform1f(resources.uniforms.uJetStrength, settings.jetStrength)
-    gl.uniform1f(resources.uniforms.uLimbHaze, settings.limbHaze)
-    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
-    gl.uniform1f(resources.uniforms.uFlattening, settings.flattening / 100)
-    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
-    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
-    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
-    gl.uniform3f(resources.uniforms.uSunDirection, ...sunDirection)
-    gl.uniform1f(resources.uniforms.uTilt, (settings.tilt * Math.PI) / 180)
-    gl.uniform1f(
-      resources.uniforms.uYaw,
-      ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
+    gl.uniform1i(uniforms.uAlbedoTexture, 0)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uCloudPhotometricMix, settings.cloudPhotometricMix)
+    gl.uniform1f(uniforms.uDetailIntensity, settings.detailIntensity)
+    gl.uniform1f(uniforms.uDetailScale, settings.detailScale)
+    gl.uniform1f(uniforms.uBandDrift, degreesToRadians(settings.bandDrift))
+    gl.uniform1f(uniforms.uExposure, settings.exposure)
+    gl.uniform2f(uniforms.uGrsCenter, ...resources.grsCenter)
+    gl.uniform2f(uniforms.uGrsRadii, ...resources.grsRadii)
+    gl.uniform1f(uniforms.uJetStrength, settings.jetStrength)
+    gl.uniform1f(uniforms.uLimbHaze, settings.limbHaze)
+    gl.uniform1f(uniforms.uLongitudeOffset, resources.longitudeOffset)
+    gl.uniform1f(uniforms.uFlattening, settings.flattening / 100)
+    gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(
+      uniforms.uSunDirection,
+      ...sunDirection(settings.sunAzimuth, settings.sunElevation),
     )
-    gl.uniform1f(resources.uniforms.uTime, elapsed)
-    gl.uniform1f(resources.uniforms.uVortexStrength, settings.vortexStrength)
+    gl.uniform1f(uniforms.uTilt, degreesToRadians(settings.tilt))
+    gl.uniform1f(uniforms.uYaw, degreesToRadians(settings.yaw + elapsed * settings.spin))
+    gl.uniform1f(uniforms.uTime, elapsed)
+    gl.uniform1f(uniforms.uVortexStrength, settings.vortexStrength)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas.getBoundingClientRect()
-    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-  }
-
-  function handlePointerLeave(): void {
-    pointer.targetX = 0
-    pointer.targetY = 0
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-  }
-
-  function handleContextRestored(): void {
-    contextLost = false
-    resources = createResources(gl)
-    hasSource = false
-    longitudeOffset = 0
-    grsCenter = [0, 0]
-    grsRadii = [0, 0]
-    uploadSource()
-    startTime = performance.now()
-    lastTime = startTime
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  uploadSource()
-  void source.ready?.().then(uploadSource, () => undefined)
-  resize()
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    },
-  }
+  },
 }
 
 export function JovianOrbEffect({
   bandDrift = 3.2,
   className,
   cloudPhotometricMix = 0.35,
+  composition,
   detailIntensity = 0.11,
   detailScale = 1,
   exposure = 1.05,
@@ -640,16 +446,19 @@ export function JovianOrbEffect({
   jetStrength = 0.65,
   lean = true,
   limbHaze = 0.16,
+  onError,
+  paused,
   source,
   spin = 1.4,
   style,
   sunAzimuth = -32,
   sunElevation = 12,
   tilt = 0,
+  viewport,
   yaw = 0,
   vortexStrength = 0.42,
 }: JovianOrbEffectProps) {
-  const frameSettings: JovianFrameSettings = {
+  const settings: JovianFrameSettings = {
     bandDrift,
     cloudPhotometricMix,
     detailIntensity,
@@ -666,14 +475,19 @@ export function JovianOrbEffect({
     yaw,
     vortexStrength,
   }
-  const canvasRef = useCanvasRenderer(frameSettings, source, createJovianRenderer)
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

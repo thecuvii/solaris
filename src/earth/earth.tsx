@@ -7,11 +7,17 @@ import { useSourceLifecycle } from '../internal/use-source-lifecycle'
 import type { SourceLifecycleProps } from '../source-lifecycle'
 
 export type EarthTextures = {
+  /** Equirectangular cloud coverage in the red channel. */
   cloud: string
+  /** Equirectangular sRGB daytime albedo. */
   day: string
+  /** Ocean mask in the red channel. */
   material: string
+  /** Equirectangular sRGB night-side emission (city lights). */
   night: string
+  /** Tangent-space normal map. */
   normal: string
+  /** Surface roughness in the red channel. */
   roughness: string
 }
 
@@ -48,5 +54,5 @@ export function Earth({
   )
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
 
-  return <AtmosphericOrbEffect {...props} source={source} />
+  return <AtmosphericOrbEffect {...props} onError={onError} source={source} />
 }

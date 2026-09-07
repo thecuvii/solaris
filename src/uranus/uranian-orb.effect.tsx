@@ -1,10 +1,19 @@
 'use client'
 
-// Requires: react
-
-import { type CSSProperties } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  clamp,
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
 export type UranianDataPlane = {
   data: Uint8Array
@@ -12,83 +21,99 @@ export type UranianDataPlane = {
   width: number
 }
 
-export type UranianOrbFrame = {
+export type UranianSurface = {
+  /** 1024×512 RGBA equirectangular plane: R aerosol, G clouds, B methane depletion, A hood mask. */
   atmosphere: UranianDataPlane
 }
 
-export type UranianOrbSource = {
-  ready?: () => Promise<void>
-  render: () => UranianOrbFrame | null
-}
+export type UranianOrbSource = OrbSource<UranianSurface>
 
-export type UranianOrbEffectProps = {
-  aerosolDepth?: number
-  atmosphereThickness?: number
-  bandContrast?: number
-  className?: string
-  cloudContrast?: number
-  discStretch?: number
-  exposure?: number
-  flattening?: number
-  forwardScattering?: number
-  hazeOpacity?: number
-  hoodLatitude?: number
-  hoodSoftness?: number
-  limbDarkening?: number
-  methaneAbsorption?: number
-  northHood?: boolean
-  phaseFill?: number
-  polarHood?: number
-  poleAzimuth?: number
-  poleElevation?: number
-  ringShadow?: number
-  ringVisibility?: number
-  spin?: number
-  stretchAngle?: number
-  source: UranianOrbSource
-  style?: CSSProperties
-  sunAzimuth?: number
-  sunElevation?: number
-  yaw?: number
-  windScale?: number
-}
+export type UranianOrbEffectProps = OrbCanvasProps &
+  Omit<OrbPoseProps, 'tilt'> &
+  OrbLightingProps & {
+    /** Aerosol haze load in the upper troposphere. Range 0–1.5. @default 0.72 */
+    aerosolDepth?: number
+    /** Thickness of the forward-scattering haze shell in planet radii. Range 0–0.08. @default 0.025 */
+    atmosphereThickness?: number
+    /** Contrast of the zonal bands. Range 0–0.5. @default 0.13 */
+    bandContrast?: number
+    /** Contrast of discrete bright clouds. Range 0–0.5. @default 0.08 */
+    cloudContrast?: number
+    /** Eccentricity of the outer ε ring. Range 0–0.02. @default 0.008 */
+    discStretch?: number
+    /** Linear scene gain before tone mapping. Range 0–2. @default 0.86 */
+    exposure?: number
+    /** Polar flattening in percent. Range 0–8. @default 2.3 */
+    flattening?: number
+    /** Forward-scatter haze brightening along the limb. Range 0–1. @default 0.15 */
+    forwardScattering?: number
+    /** Opacity of the forward-scattering haze shell. Range 0–1. @default 0.34 */
+    hazeDensity?: number
+    /** Latitude where the polar hood begins, in degrees. Range 25–75. @default 45 */
+    hoodLatitude?: number
+    /** Width of the polar hood boundary in degrees. Range 2–25. @default 10 */
+    hoodSoftness?: number
+    /** Minnaert limb-darkening exponent. Range 0.55–1.2. @default 0.72 */
+    limbDarkening?: number
+    /** Methane absorption strength; shifts the disc towards cyan. Range 0–1.5. @default 0.58 */
+    methaneAbsorption?: number
+    /** Place the polar hood over the north pole instead of the south. @default true */
+    northHood?: boolean
+    /** Ambient fill on the night side. Range 0–0.35. @default 0.08 */
+    phaseFill?: number
+    /** Brightness of the polar hood. Range 0–1. @default 0.26 */
+    polarHood?: number
+    /** Rotation of the pole around the view axis in degrees. @default -26 */
+    poleAzimuth?: number
+    /** Tip of the pole towards the viewer in degrees. @default 38 */
+    poleElevation?: number
+    /** Ring shadow on the disc and disc shadow on the rings. Range 0–1. @default 0.75 */
+    ringShadow?: number
+    /** Ring opacity gain above the physical value. Range 0–6. @default 4.5 */
+    ringVisibility?: number
+    source: UranianOrbSource
+    /** Periapsis angle of the ε ring eccentricity in degrees. @default 0 */
+    stretchAngle?: number
+    /** Differential zonal wind speed relative to `spin`. Range 0–1. @default 0.2 */
+    windScale?: number
+  }
 
-type UranianUniforms = {
-  aerosolDepth: WebGLUniformLocation | null
-  atmosphereTexture: WebGLUniformLocation | null
-  atmosphereThickness: WebGLUniformLocation | null
-  bandContrast: WebGLUniformLocation | null
-  cloudContrast: WebGLUniformLocation | null
-  discStretch: WebGLUniformLocation | null
-  exposure: WebGLUniformLocation | null
-  flattening: WebGLUniformLocation | null
-  forwardScattering: WebGLUniformLocation | null
-  hazeOpacity: WebGLUniformLocation | null
-  hoodLatitude: WebGLUniformLocation | null
-  hoodPole: WebGLUniformLocation | null
-  hoodSoftness: WebGLUniformLocation | null
-  limbDarkening: WebGLUniformLocation | null
-  methaneAbsorption: WebGLUniformLocation | null
-  phaseFill: WebGLUniformLocation | null
-  polarHood: WebGLUniformLocation | null
-  poleAzimuth: WebGLUniformLocation | null
-  poleElevation: WebGLUniformLocation | null
-  resolution: WebGLUniformLocation | null
-  ringShadow: WebGLUniformLocation | null
-  ringVisibility: WebGLUniformLocation | null
-  spin: WebGLUniformLocation | null
-  stretchAngle: WebGLUniformLocation | null
-  sourceReady: WebGLUniformLocation | null
-  sunDirectionView: WebGLUniformLocation | null
-  yaw: WebGLUniformLocation | null
-  time: WebGLUniformLocation | null
-  windScale: WebGLUniformLocation | null
-}
+const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
+  'uAerosolDepth',
+  'uAtmosphereTexture',
+  'uAtmosphereThickness',
+  'uBandContrast',
+  'uCloudContrast',
+  'uDiscStretch',
+  'uExposure',
+  'uFlattening',
+  'uForwardScattering',
+  'uHazeDensity',
+  'uHoodLatitude',
+  'uHoodPole',
+  'uHoodSoftness',
+  'uLimbDarkening',
+  'uMethaneAbsorption',
+  'uPhaseFill',
+  'uPolarHood',
+  'uPoleAzimuth',
+  'uPoleElevation',
+  'uRingShadow',
+  'uRingVisibility',
+  'uSourceReady',
+  'uSpin',
+  'uStretchAngle',
+  'uSunDirectionView',
+  'uTime',
+  'uWindScale',
+  'uYaw',
+] as const
 
 type UranianResources = {
   atmosphereTexture: WebGLTexture
   program: WebGLProgram
-  uniforms: UranianUniforms
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
   vertexArray: WebGLVertexArrayObject
 }
 
@@ -101,9 +126,10 @@ type UranianFrameSettings = {
   exposure: number
   flattening: number
   forwardScattering: number
-  hazeOpacity: number
+  hazeDensity: number
   hoodLatitude: number
   hoodSoftness: number
+  lean: boolean
   limbDarkening: number
   methaneAbsorption: number
   northHood: boolean
@@ -117,22 +143,16 @@ type UranianFrameSettings = {
   stretchAngle: number
   sunAzimuth: number
   sunElevation: number
-  yaw: number
   windScale: number
+  yaw: number
 }
 
 const URANUS_RADIUS = 0.38
 const ATMOSPHERE_WIDTH = 1024
 const ATMOSPHERE_HEIGHT = 512
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
+/** Pointer lean nudges the pole direction by up to this many degrees. */
+const LEAN_AZIMUTH_DEGREES = 6
+const LEAN_ELEVATION_DEGREES = 4
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
@@ -147,7 +167,7 @@ uniform float uDiscStretch;
 uniform float uStretchAngle;
 uniform float uExposure;
 uniform float uForwardScattering;
-uniform float uHazeOpacity;
+uniform float uHazeDensity;
 uniform float uHoodLatitude;
 uniform float uHoodPole;
 uniform float uHoodSoftness;
@@ -158,7 +178,6 @@ uniform float uPhaseFill;
 uniform float uPolarHood;
 uniform float uPoleAzimuth;
 uniform float uPoleElevation;
-uniform vec2 uResolution;
 uniform float uRingShadow;
 uniform float uRingVisibility;
 uniform float uSpin;
@@ -168,6 +187,7 @@ uniform float uYaw;
 uniform float uTime;
 uniform float uWindScale;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float CAMERA_DISTANCE = 3.0;
@@ -443,7 +463,7 @@ void main() {
     return;
   }
 
-  vec2 position = (2.0 * gl_FragCoord.xy - uResolution) / min(uResolution.x, uResolution.y);
+  vec2 position = compositionPosition();
   vec3 rayOrigin = viewToBody(vec3(position, CAMERA_DISTANCE));
   vec3 rayDirection = normalize(viewToBody(vec3(0.0, 0.0, -1.0)));
   vec3 lightDirection = normalize(viewToBody(uSunDirectionView));
@@ -502,7 +522,7 @@ void main() {
   float ringDistance = -rayOrigin.y / safeRayY;
   vec3 ringPoint = rayOrigin + rayDirection * ringDistance;
   float ringRadius = length(ringPoint.xz) / URANUS_RADIUS;
-  float halfPixel = 1.0 / min(uResolution.x, uResolution.y);
+  float halfPixel = 1.0 / uCompositionScale;
   vec3 halfPixelX = viewToBody(vec3(halfPixel, 0.0, 0.0));
   vec3 halfPixelY = viewToBody(vec3(0.0, halfPixel, 0.0));
   float ringHalfFootprint = max(
@@ -546,7 +566,7 @@ void main() {
 
   if (
     uAtmosphereThickness > 0.0 &&
-    uHazeOpacity > 0.0 &&
+    uHazeDensity > 0.0 &&
     uForwardScattering > 0.0
   ) {
     vec3 shellRadii = radii + vec3(uAtmosphereThickness);
@@ -556,7 +576,7 @@ void main() {
       max(uAtmosphereThickness * 6.0, 0.0001);
     float forwardLobe = pow(max(-dot(-rayDirection, lightDirection), 0.0), 8.0);
     float hazeAlpha = clamp(
-      shellOnly * shellPath * uHazeOpacity * uForwardScattering * forwardLobe,
+      shellOnly * shellPath * uHazeDensity * uForwardScattering * forwardLobe,
       0.0,
       0.72
     );
@@ -581,130 +601,17 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Uranian shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Uranian shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  let fragmentShader: WebGLShader | null = null
-  let program: WebGLProgram | null = null
-  try {
-    fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-    program = gl.createProgram()
-    if (!program) throw new Error('Unable to create Uranian shader program')
-    gl.attachShader(program, vertexShader)
-    gl.attachShader(program, fragmentShader)
-    gl.linkProgram(program)
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-      throw new Error(gl.getProgramInfoLog(program) ?? 'Unknown Uranian shader link error')
-    }
-    return program
-  } catch (error) {
-    if (program) gl.deleteProgram(program)
-    throw error
-  } finally {
-    gl.deleteShader(vertexShader)
-    if (fragmentShader) gl.deleteShader(fragmentShader)
+function validateAtmosphere(plane: UranianDataPlane): void {
+  if (
+    plane.width !== ATMOSPHERE_WIDTH ||
+    plane.height !== ATMOSPHERE_HEIGHT ||
+    plane.data.length !== plane.width * plane.height * 4
+  ) {
+    throw new Error('Invalid Uranian atmosphere data plane')
   }
 }
 
-function createAtmosphereTexture(gl: WebGL2RenderingContext): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Uranian atmosphere texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array([128, 0, 0, 0]),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  return texture
-}
-
-function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): UranianUniforms {
-  return {
-    aerosolDepth: gl.getUniformLocation(program, 'uAerosolDepth'),
-    atmosphereTexture: gl.getUniformLocation(program, 'uAtmosphereTexture'),
-    atmosphereThickness: gl.getUniformLocation(program, 'uAtmosphereThickness'),
-    bandContrast: gl.getUniformLocation(program, 'uBandContrast'),
-    cloudContrast: gl.getUniformLocation(program, 'uCloudContrast'),
-    discStretch: gl.getUniformLocation(program, 'uDiscStretch'),
-    exposure: gl.getUniformLocation(program, 'uExposure'),
-    flattening: gl.getUniformLocation(program, 'uFlattening'),
-    forwardScattering: gl.getUniformLocation(program, 'uForwardScattering'),
-    hazeOpacity: gl.getUniformLocation(program, 'uHazeOpacity'),
-    hoodLatitude: gl.getUniformLocation(program, 'uHoodLatitude'),
-    hoodPole: gl.getUniformLocation(program, 'uHoodPole'),
-    hoodSoftness: gl.getUniformLocation(program, 'uHoodSoftness'),
-    limbDarkening: gl.getUniformLocation(program, 'uLimbDarkening'),
-    methaneAbsorption: gl.getUniformLocation(program, 'uMethaneAbsorption'),
-    phaseFill: gl.getUniformLocation(program, 'uPhaseFill'),
-    polarHood: gl.getUniformLocation(program, 'uPolarHood'),
-    poleAzimuth: gl.getUniformLocation(program, 'uPoleAzimuth'),
-    poleElevation: gl.getUniformLocation(program, 'uPoleElevation'),
-    resolution: gl.getUniformLocation(program, 'uResolution'),
-    ringShadow: gl.getUniformLocation(program, 'uRingShadow'),
-    ringVisibility: gl.getUniformLocation(program, 'uRingVisibility'),
-    spin: gl.getUniformLocation(program, 'uSpin'),
-    stretchAngle: gl.getUniformLocation(program, 'uStretchAngle'),
-    sourceReady: gl.getUniformLocation(program, 'uSourceReady'),
-    sunDirectionView: gl.getUniformLocation(program, 'uSunDirectionView'),
-    yaw: gl.getUniformLocation(program, 'uYaw'),
-    time: gl.getUniformLocation(program, 'uTime'),
-    windScale: gl.getUniformLocation(program, 'uWindScale'),
-  }
-}
-
-function createResources(gl: WebGL2RenderingContext): UranianResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Uranian vertex array')
-  let atmosphereTexture: WebGLTexture | null = null
-  let program: WebGLProgram | null = null
-  try {
-    atmosphereTexture = createAtmosphereTexture(gl)
-    program = createProgram(gl)
-    const resources = {
-      atmosphereTexture,
-      program,
-      uniforms: getUniforms(gl, program),
-      vertexArray,
-    }
-    gl.bindVertexArray(vertexArray)
-    return resources
-  } catch (error) {
-    if (atmosphereTexture) gl.deleteTexture(atmosphereTexture)
-    if (program) gl.deleteProgram(program)
-    gl.deleteVertexArray(vertexArray)
-    throw error
-  }
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: UranianResources): void {
-  gl.deleteTexture(resources.atmosphereTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
+/** Upload the RGBA atmosphere plane. Caller owns unpack state. */
 function uploadAtmosphere(
   gl: WebGL2RenderingContext,
   texture: WebGLTexture,
@@ -725,198 +632,100 @@ function uploadAtmosphere(
   gl.generateMipmap(gl.TEXTURE_2D)
 }
 
-function validateAtmosphere(plane: UranianDataPlane): void {
-  if (
-    plane.width !== ATMOSPHERE_WIDTH ||
-    plane.height !== ATMOSPHERE_HEIGHT ||
-    plane.data.length !== plane.width * plane.height * 4
-  ) {
-    throw new Error('Invalid Uranian atmosphere data plane')
-  }
+/**
+ * View-space sun direction. Uranus keeps its own axis convention (Y forward,
+ * Z up) so the shader's `viewToBody` can reuse it unchanged.
+ */
+function viewSunDirection(
+  azimuthDegrees: number,
+  elevationDegrees: number,
+): readonly [number, number, number] {
+  const azimuth = degreesToRadians(azimuthDegrees)
+  const elevation = degreesToRadians(elevationDegrees)
+  const elevationCosine = Math.cos(elevation)
+  return [
+    Math.sin(azimuth) * elevationCosine,
+    Math.cos(azimuth) * elevationCosine,
+    Math.sin(elevation),
+  ]
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value))
-}
-
-function createUranianRenderer(
-  canvas: HTMLCanvasElement,
-  source: UranianOrbSource,
-): CanvasRenderer<UranianFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
-
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let resources: UranianResources | null = createResources(gl)
-  let sourceGeneration = 0
-  let startTime = performance.now()
-
-  function uploadSource(generation: number): void {
-    if (disposed || contextLost || generation !== sourceGeneration || !resources) return
-    const frame = source.render()
-    if (!frame) {
-      hasSource = false
-      return
+const spec: OrbRendererSpec<UranianResources, UranianFrameSettings, UranianSurface> = {
+  label: 'Uranus',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Uranus')
+    return {
+      atmosphereTexture: createTexture(gl, 'Uranus atmosphere', { placeholder: [128, 0, 0, 0] }),
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Uranus'),
     }
-    validateAtmosphere(frame.atmosphere)
-    const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
-    try {
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
-      uploadAtmosphere(gl, resources.atmosphereTexture, frame.atmosphere)
-      gl.bindTexture(gl.TEXTURE_2D, null)
-    } finally {
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
-    }
-    hasSource = true
-  }
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.atmosphereTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
+    validateAtmosphere(surface.atmosphere)
+    // Single-channel rows are not 4-byte aligned for arbitrary widths.
+    withUnpackState(gl, { alignment: 1, flipY: false, premultiplyAlpha: false }, () => {
+      uploadAtmosphere(gl, resources.atmosphereTexture, surface.atmosphere)
+    })
+  },
+  isAnimated(settings) {
+    return settings.spin !== 0
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
+    const spin = clamp(settings.spin, -2.9, 2.9)
+    // The shader has no pointer uniform; lean tips the pole instead.
+    const poleAzimuth = settings.poleAzimuth + pointerX * LEAN_AZIMUTH_DEGREES
+    const poleElevation = settings.poleElevation + pointerY * LEAN_ELEVATION_DEGREES
 
-  function refreshSource(): void {
-    const generation = ++sourceGeneration
-    uploadSource(generation)
-    void source.ready?.().then(
-      () => uploadSource(generation),
-      () => undefined,
-    )
-  }
-
-  function resize(): void {
-    const bounds = canvas!.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas!.width !== width || canvas!.height !== height) {
-      canvas!.width = width
-      canvas!.height = height
-    }
-  }
-
-  function render(timestamp: number, current: UranianFrameSettings): void {
-    if (disposed || contextLost || !resources) return
-    resize()
-    const elapsed = (timestamp - startTime) / 1000
-    const sunAzimuthRadians = (current.sunAzimuth * Math.PI) / 180
-    const sunElevationRadians = (current.sunElevation * Math.PI) / 180
-    const sunElevationCosine = Math.cos(sunElevationRadians)
-    const sunDirection = [
-      Math.sin(sunAzimuthRadians) * sunElevationCosine,
-      Math.cos(sunAzimuthRadians) * sunElevationCosine,
-      Math.sin(sunElevationRadians),
-    ] as const
-    const activeResources = resources
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas!.width, canvas!.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
-    gl.useProgram(activeResources.program)
-    gl.bindVertexArray(activeResources.vertexArray)
+    gl.useProgram(resources.program)
+    gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
-    gl.bindTexture(gl.TEXTURE_2D, activeResources.atmosphereTexture)
-    gl.uniform1i(activeResources.uniforms.atmosphereTexture, 0)
-    gl.uniform1f(activeResources.uniforms.aerosolDepth, clamp(current.aerosolDepth, 0, 1.5))
-    gl.uniform1f(
-      activeResources.uniforms.atmosphereThickness,
-      clamp(current.atmosphereThickness, 0, 0.08),
+    gl.bindTexture(gl.TEXTURE_2D, resources.atmosphereTexture)
+    gl.uniform1i(uniforms.uAtmosphereTexture, 0)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uAerosolDepth, clamp(settings.aerosolDepth, 0, 1.5))
+    gl.uniform1f(uniforms.uAtmosphereThickness, clamp(settings.atmosphereThickness, 0, 0.08))
+    gl.uniform1f(uniforms.uBandContrast, clamp(settings.bandContrast, 0, 0.5))
+    gl.uniform1f(uniforms.uCloudContrast, clamp(settings.cloudContrast, 0, 0.5))
+    gl.uniform1f(uniforms.uDiscStretch, clamp(settings.discStretch, 0, 0.02))
+    gl.uniform1f(uniforms.uStretchAngle, degreesToRadians(settings.stretchAngle))
+    gl.uniform1f(uniforms.uExposure, clamp(settings.exposure, 0, 2))
+    gl.uniform1f(uniforms.uForwardScattering, clamp(settings.forwardScattering, 0, 1))
+    gl.uniform1f(uniforms.uHazeDensity, clamp(settings.hazeDensity, 0, 1))
+    gl.uniform1f(uniforms.uHoodLatitude, degreesToRadians(clamp(settings.hoodLatitude, 25, 75)))
+    gl.uniform1f(uniforms.uHoodPole, settings.northHood ? 1 : -1)
+    gl.uniform1f(uniforms.uHoodSoftness, degreesToRadians(clamp(settings.hoodSoftness, 2, 25)))
+    gl.uniform1f(uniforms.uLimbDarkening, clamp(settings.limbDarkening, 0.55, 1.2))
+    gl.uniform1f(uniforms.uMethaneAbsorption, clamp(settings.methaneAbsorption, 0, 1.5))
+    gl.uniform1f(uniforms.uFlattening, clamp(settings.flattening, 0, 8) / 100)
+    gl.uniform1f(uniforms.uPhaseFill, clamp(settings.phaseFill, 0, 0.35))
+    gl.uniform1f(uniforms.uPolarHood, clamp(settings.polarHood, 0, 1))
+    gl.uniform1f(uniforms.uPoleAzimuth, degreesToRadians(poleAzimuth))
+    gl.uniform1f(uniforms.uPoleElevation, degreesToRadians(poleElevation))
+    gl.uniform1f(uniforms.uRingShadow, clamp(settings.ringShadow, 0, 1))
+    gl.uniform1f(uniforms.uRingVisibility, clamp(settings.ringVisibility, 0, 6))
+    gl.uniform1f(uniforms.uSpin, degreesToRadians(spin))
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform1f(uniforms.uYaw, degreesToRadians(settings.yaw + elapsed * spin))
+    gl.uniform1f(uniforms.uTime, elapsed)
+    gl.uniform1f(uniforms.uWindScale, clamp(settings.windScale, 0, 1))
+    gl.uniform3f(
+      uniforms.uSunDirectionView,
+      ...viewSunDirection(settings.sunAzimuth, settings.sunElevation),
     )
-    gl.uniform1f(activeResources.uniforms.bandContrast, clamp(current.bandContrast, 0, 0.5))
-    gl.uniform1f(activeResources.uniforms.cloudContrast, clamp(current.cloudContrast, 0, 0.5))
-    gl.uniform1f(activeResources.uniforms.discStretch, clamp(current.discStretch, 0, 0.02))
-    gl.uniform1f(activeResources.uniforms.stretchAngle, (current.stretchAngle * Math.PI) / 180)
-    gl.uniform1f(activeResources.uniforms.exposure, clamp(current.exposure, 0, 2))
-    gl.uniform1f(activeResources.uniforms.forwardScattering, clamp(current.forwardScattering, 0, 1))
-    gl.uniform1f(activeResources.uniforms.hazeOpacity, clamp(current.hazeOpacity, 0, 1))
-    gl.uniform1f(
-      activeResources.uniforms.hoodLatitude,
-      (clamp(current.hoodLatitude, 25, 75) * Math.PI) / 180,
-    )
-    gl.uniform1f(activeResources.uniforms.hoodPole, current.northHood ? 1 : -1)
-    gl.uniform1f(
-      activeResources.uniforms.hoodSoftness,
-      (clamp(current.hoodSoftness, 2, 25) * Math.PI) / 180,
-    )
-    gl.uniform1f(activeResources.uniforms.limbDarkening, clamp(current.limbDarkening, 0.55, 1.2))
-    gl.uniform1f(
-      activeResources.uniforms.methaneAbsorption,
-      clamp(current.methaneAbsorption, 0, 1.5),
-    )
-    gl.uniform1f(activeResources.uniforms.flattening, clamp(current.flattening, 0, 8) / 100)
-    gl.uniform1f(activeResources.uniforms.phaseFill, clamp(current.phaseFill, 0, 0.35))
-    gl.uniform1f(activeResources.uniforms.polarHood, clamp(current.polarHood, 0, 1))
-    gl.uniform1f(activeResources.uniforms.poleAzimuth, (current.poleAzimuth * Math.PI) / 180)
-    gl.uniform1f(activeResources.uniforms.poleElevation, (current.poleElevation * Math.PI) / 180)
-    gl.uniform1f(activeResources.uniforms.ringShadow, clamp(current.ringShadow, 0, 1))
-    gl.uniform1f(activeResources.uniforms.ringVisibility, clamp(current.ringVisibility, 0, 6))
-    gl.uniform1f(activeResources.uniforms.spin, (clamp(current.spin, -2.9, 2.9) * Math.PI) / 180)
-    gl.uniform1f(activeResources.uniforms.sourceReady, hasSource ? 1 : 0)
-    gl.uniform1f(
-      activeResources.uniforms.yaw,
-      ((current.yaw + elapsed * clamp(current.spin, -2.9, 2.9)) * Math.PI) / 180,
-    )
-    gl.uniform1f(activeResources.uniforms.time, elapsed)
-    gl.uniform1f(activeResources.uniforms.windScale, clamp(current.windScale, 0, 1))
-    gl.uniform2f(activeResources.uniforms.resolution, canvas!.width, canvas!.height)
-    gl.uniform3f(activeResources.uniforms.sunDirectionView, ...sunDirection)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-    resources = null
-    hasSource = false
-    sourceGeneration += 1
-  }
-
-  function handleContextRestored(): void {
-    if (disposed) return
-    contextLost = false
-    resources = createResources(gl)
-    startTime = performance.now()
-    refreshSource()
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  try {
-    refreshSource()
-    resize()
-  } catch (error) {
-    disposed = true
-    sourceGeneration += 1
-    resizeObserver.disconnect()
-    canvas.removeEventListener('webglcontextlost', handleContextLost)
-    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-    if (resources) deleteResources(gl, resources)
-    resources = null
-    throw error
-  }
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      sourceGeneration += 1
-      resizeObserver.disconnect()
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost && resources) deleteResources(gl, resources)
-      resources = null
-    },
-  }
+  },
 }
 
 export function UranianOrbEffect({
@@ -925,32 +734,37 @@ export function UranianOrbEffect({
   bandContrast = 0.13,
   className,
   cloudContrast = 0.08,
+  composition,
   discStretch = 0.008,
   exposure = 0.86,
   flattening = 2.3,
   forwardScattering = 0.15,
-  hazeOpacity = 0.34,
+  hazeDensity = 0.34,
   hoodLatitude = 45,
   hoodSoftness = 10,
+  lean = true,
   limbDarkening = 0.72,
   methaneAbsorption = 0.58,
   northHood = true,
+  onError,
+  paused,
   phaseFill = 0.08,
   polarHood = 0.26,
   poleAzimuth = -26,
   poleElevation = 38,
   ringShadow = 0.75,
   ringVisibility = 4.5,
+  source,
   spin = -0.5,
   stretchAngle = 0,
-  source,
   style,
   sunAzimuth = -28,
   sunElevation = 55,
-  yaw = 18,
+  viewport,
   windScale = 0.2,
+  yaw = 18,
 }: UranianOrbEffectProps) {
-  const frameSettings: UranianFrameSettings = {
+  const settings: UranianFrameSettings = {
     aerosolDepth,
     atmosphereThickness,
     bandContrast,
@@ -959,9 +773,10 @@ export function UranianOrbEffect({
     exposure,
     flattening,
     forwardScattering,
-    hazeOpacity,
+    hazeDensity,
     hoodLatitude,
     hoodSoftness,
+    lean,
     limbDarkening,
     methaneAbsorption,
     northHood,
@@ -975,17 +790,22 @@ export function UranianOrbEffect({
     stretchAngle,
     sunAzimuth,
     sunElevation,
-    yaw,
     windScale,
+    yaw,
   }
-  const canvasRef = useCanvasRenderer(frameSettings, source, createUranianRenderer)
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

@@ -7,7 +7,9 @@ import { useSourceLifecycle } from '../internal/use-source-lifecycle'
 import type { SourceLifecycleProps } from '../source-lifecycle'
 
 export type MercuryTextures = {
+  /** Equirectangular sRGB albedo. */
   albedo: string
+  /** RG: octahedral tangent normal. BA: 16-bit MLA height, high byte in B. */
   normalHeight: string
 }
 
@@ -24,6 +26,5 @@ export function Mercury({ onError, onReady, onStatusChange, textures, ...props }
     [albedo, normalHeight],
   )
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
-
-  return <MercurialOrbEffect {...props} source={source} />
+  return <MercurialOrbEffect {...props} onError={onError} source={source} />
 }

@@ -7,7 +7,9 @@ import { useSourceLifecycle } from '../internal/use-source-lifecycle'
 import type { SourceLifecycleProps } from '../source-lifecycle'
 
 export type SaturnTextures = {
+  /** Equirectangular sRGB cloud albedo; alpha carries band detail for shading normals. */
   atmosphere: string
+  /** 1D radial ring strip from inner to outer edge: RGB colour, alpha encodes optical depth. */
   rings: string
 }
 
@@ -21,5 +23,5 @@ export function Saturn({ onError, onReady, onStatusChange, textures, ...props }:
   const { atmosphere, rings } = textures
   const source = useMemo(() => createSaturnAtmosphereSource(atmosphere, rings), [atmosphere, rings])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
-  return <SaturnOrbEffect {...props} source={source} />
+  return <SaturnOrbEffect {...props} onError={onError} source={source} />
 }

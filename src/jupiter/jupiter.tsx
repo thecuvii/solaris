@@ -7,6 +7,7 @@ import { useSourceLifecycle } from '../internal/use-source-lifecycle'
 import type { SourceLifecycleProps } from '../source-lifecycle'
 
 export type JupiterTextures = {
+  /** Equirectangular sRGB cloud albedo. */
   albedo: string
 }
 
@@ -20,5 +21,5 @@ export function Jupiter({ onError, onReady, onStatusChange, textures, ...props }
   const { albedo } = textures
   const source = useMemo(() => createJovianCloudSource(albedo), [albedo])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
-  return <JovianOrbEffect {...props} source={source} />
+  return <JovianOrbEffect {...props} onError={onError} source={source} />
 }

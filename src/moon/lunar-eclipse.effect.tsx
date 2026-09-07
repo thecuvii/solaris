@@ -1,11 +1,82 @@
 'use client'
 
-// Requires: react
-
-import { useMemo, useRef, type CSSProperties, type RefObject } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import type { LunarSurface } from './lunar-orb.effect'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
 import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  uploadImage,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbPoseProps } from '../orb'
+
+export type LunarEclipseSource = OrbSource<LunarSurface>
+
+export type LunarEclipseEffectProps = OrbCanvasProps &
+  Omit<OrbPoseProps, 'spin'> & {
+    /** Optical depth of Earth's atmosphere along the refracted path; reddens the umbra. Range 0–4. @default 1.8 */
+    atmosphericOpticalDepth?: number
+    /** Linear scene gain before tone mapping. @default 1.11 */
+    exposure?: number
+    /** Blue limb glow strength where the Moon is still sunlit. Range 0–4. @default 2.1 */
+    haloIntensity?: number
+    /** Limb glow extent as a fraction of the lunar radius. Range 0–1. @default 0.4 */
+    haloWidth?: number
+    /** Tangent-space normal map strength. Range 0–3. @default 1.13 */
+    normalStrength?: number
+    /** Horizontal offset of the shadow centre in lunar radii. Positive moves it right. @default 0.67 */
+    offsetX?: number
+    /** Vertical offset of the shadow centre in lunar radii. Positive moves it up. @default -1.8 */
+    offsetY?: number
+    /** Width of the penumbral gradient in lunar radii. Range 0.1–3. @default 1.15 */
+    penumbraWidth?: number
+    /** Sunlight refracted through Earth's atmosphere into the umbra. Range 0–4. @default 1.62 */
+    refractedLightIntensity?: number
+    /** Terrain self-shadowing from the height channel. Range 0–1. @default 0.42 */
+    reliefShadowStrength?: number
+    source: LunarEclipseSource
+    /** Radius of the umbra in lunar radii. Range 0.5–4. @default 2.2 */
+    umbraRadius?: number
+  }
+
+const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
+  'uAlbedoTexture',
+  'uAtmosphericOpticalDepth',
+  'uExposure',
+  'uHaloIntensity',
+  'uHaloWidth',
+  'uHeightScale',
+  'uLongitudeOffset',
+  'uNormalHeightTexture',
+  'uNormalStrength',
+  'uPenumbraWidth',
+  'uPointer',
+  'uRefractedLightIntensity',
+  'uReliefShadowStrength',
+  'uShadowOffset',
+  'uSourceReady',
+  'uTilt',
+  'uUmbraRadius',
+  'uYaw',
+] as const
+
+type LunarEclipseResources = {
+  albedoTexture: WebGLTexture
+  /** Fraction of the lunar radius, derived from the uploaded surface. */
+  heightScale: number
+  longitudeOffset: number
+  normalHeightTexture: WebGLTexture
+  program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
+  vertexArray: WebGLVertexArrayObject
+}
 
 type LunarEclipseFrameSettings = {
   atmosphericOpticalDepth: number
@@ -20,110 +91,19 @@ type LunarEclipseFrameSettings = {
   refractedLightIntensity: number
   reliefShadowStrength: number
   tilt: number
-  yaw: number
   umbraRadius: number
-}
-
-export type LunarEclipseSource = {
-  ready?: () => Promise<void>
-  render: () => {
-    albedo: TexImageSource
-    heightScale?: number
-    longitudeOffsetDegrees?: number
-    normalHeight: TexImageSource
-  } | null
-}
-
-export type LunarEclipseComposition = {
-  bottom?: CSSProperties['bottom']
-  height: CSSProperties['height']
-  width: CSSProperties['width']
-}
-
-export type LunarEclipseEffectProps = {
-  atmosphericOpticalDepth?: number
-  className?: string
-  composition?: LunarEclipseComposition
-  exposure?: number
-  haloIntensity?: number
-  haloWidth?: number
-  lean?: boolean
-  normalStrength?: number
-  offsetX?: number
-  offsetY?: number
-  penumbraWidth?: number
-  refractedLightIntensity?: number
-  reliefShadowStrength?: number
-  source: LunarEclipseSource
-  style?: CSSProperties
-  tilt?: number
-  yaw?: number
-  umbraRadius?: number
-  viewport?: Pick<CSSProperties, 'bottom' | 'left' | 'right' | 'top'>
-}
-
-const UNIFORM_NAMES = [
-  'uAlbedoTexture',
-  'uAtmosphericOpticalDepth',
-  'uCompositionCenter',
-  'uCompositionScale',
-  'uExposure',
-  'uHaloIntensity',
-  'uHaloWidth',
-  'uHeightScale',
-  'uLongitudeOffset',
-  'uNormalHeightTexture',
-  'uNormalStrength',
-  'uPenumbraWidth',
-  'uPointer',
-  'uRefractedLightIntensity',
-  'uReliefShadowStrength',
-  'uResolution',
-  'uShadowOffset',
-  'uSourceReady',
-  'uTilt',
-  'uUmbraRadius',
-  'uYaw',
-] as const
-
-type LunarEclipseResources = {
-  albedoTexture: WebGLTexture
-  normalHeightTexture: WebGLTexture
-  program: WebGLProgram
-  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
-  vertexArray: WebGLVertexArrayObject
-}
-
-type AnisotropyExtension = {
-  MAX_TEXTURE_MAX_ANISOTROPY_EXT: number
-  TEXTURE_MAX_ANISOTROPY_EXT: number
+  yaw: number
 }
 
 const DEFAULT_HEIGHT_SCALE = 22 / 1737.4
 const MOON_RADIUS = 0.74
 
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-out vec2 vUv;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  vUv = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
-
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 precision highp sampler2D;
 
-in vec2 vUv;
-
 uniform sampler2D uAlbedoTexture;
 uniform float uAtmosphericOpticalDepth;
-uniform vec2 uCompositionCenter;
-uniform float uCompositionScale;
 uniform float uExposure;
 uniform float uHaloIntensity;
 uniform float uHaloWidth;
@@ -135,13 +115,13 @@ uniform float uPenumbraWidth;
 uniform vec2 uPointer;
 uniform float uRefractedLightIntensity;
 uniform float uReliefShadowStrength;
-uniform vec2 uResolution;
 uniform vec2 uShadowOffset;
 uniform float uSourceReady;
 uniform float uTilt;
 uniform float uYaw;
 uniform float uUmbraRadius;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float MOON_RADIUS = ${MOON_RADIUS.toFixed(2)};
@@ -303,7 +283,7 @@ void main() {
     return;
   }
 
-  vec2 position = (vUv * uResolution - uCompositionCenter) * 2.0 / uCompositionScale;
+  vec2 position = compositionPosition();
   float radialDistance = length(position);
   float edgeWidth = max(fwidth(radialDistance), 0.0005);
   float coverage = 1.0 - smoothstep(MOON_RADIUS - edgeWidth, MOON_RADIUS + edgeWidth, radialDistance);
@@ -407,321 +387,77 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create lunar eclipse shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown lunar eclipse shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Unable to create lunar eclipse shader program')
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  gl.deleteShader(vertexShader)
-  gl.deleteShader(fragmentShader)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unknown lunar eclipse shader link error'
-    gl.deleteProgram(program)
-    throw new Error(message)
-  }
-  return program
-}
-
-function createTexture(
-  gl: WebGL2RenderingContext,
-  pixel: readonly [number, number, number, number],
-): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create lunar eclipse texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array(pixel),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  return texture
-}
-
-function createResources(gl: WebGL2RenderingContext): LunarEclipseResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create lunar eclipse vertex array')
-  const program = createProgram(gl)
-  const resources = {
-    albedoTexture: createTexture(gl, [255, 255, 255, 255]),
-    normalHeightTexture: createTexture(gl, [128, 128, 255, 128]),
-    program,
-    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
-    vertexArray,
-  }
-  gl.bindVertexArray(vertexArray)
-  return resources
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: LunarEclipseResources): void {
-  gl.deleteTexture(resources.albedoTexture)
-  gl.deleteTexture(resources.normalHeightTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
-function uploadTexture(
-  gl: WebGL2RenderingContext,
-  texture: WebGLTexture,
-  image: TexImageSource,
-  internalFormat: number,
-): void {
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, gl.RGBA, gl.UNSIGNED_BYTE, image)
-  gl.generateMipmap(gl.TEXTURE_2D)
-  const anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') as AnisotropyExtension | null
-  if (anisotropy) {
-    const maximum = gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number
-    gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(maximum, 8))
-  }
-}
-
-function createLunarEclipseRenderer(
-  canvas: HTMLCanvasElement,
-  input: {
-    compositionRef: RefObject<HTMLDivElement | null>
-    hasComposition: boolean
-    source: LunarEclipseSource
+const spec: OrbRendererSpec<LunarEclipseResources, LunarEclipseFrameSettings, LunarSurface> = {
+  label: 'LunarEclipse',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'LunarEclipse')
+    return {
+      albedoTexture: createTexture(gl, 'LunarEclipse albedo', {
+        placeholder: [255, 255, 255, 255],
+      }),
+      heightScale: DEFAULT_HEIGHT_SCALE,
+      longitudeOffset: 0,
+      normalHeightTexture: createTexture(gl, 'LunarEclipse normal', {
+        placeholder: [128, 128, 255, 128],
+      }),
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'LunarEclipse'),
+    }
   },
-): CanvasRenderer<LunarEclipseFrameSettings> | null {
-  const { compositionRef, hasComposition, source } = input
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.albedoTexture)
+    gl.deleteTexture(resources.normalHeightTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
+    withUnpackState(gl, { flipY: true, premultiplyAlpha: false }, () => {
+      uploadImage(gl, resources.albedoTexture, surface.albedo, {
+        internalFormat: gl.SRGB8_ALPHA8,
+      })
+      uploadImage(gl, resources.normalHeightTexture, surface.normalHeight)
+    })
+    resources.heightScale = surface.heightScale ?? DEFAULT_HEIGHT_SCALE
+    resources.longitudeOffset = degreesToRadians(surface.longitudeOffsetDegrees ?? 0)
+  },
+  // Nothing reads the clock: the eclipse only changes with settings, size or pointer.
+  isAnimated: () => false,
+  render(gl, resources, frame) {
+    const { composition, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
 
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let heightScale = DEFAULT_HEIGHT_SCALE
-  let longitudeOffset = 0
-  let resourceGeneration = 0
-  let resources = createResources(gl)
-  let lastTime = performance.now()
-  let compositionCenterX = 0
-  let compositionCenterY = 0
-  let compositionScale = 1
-  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-  function uploadSource(): void {
-    if (disposed || contextLost) return
-    const surface = source.render()
-    if (!surface) {
-      hasSource = false
-      return
-    }
-
-    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-    try {
-      uploadTexture(gl, resources.albedoTexture, surface.albedo, gl.SRGB8_ALPHA8)
-      uploadTexture(gl, resources.normalHeightTexture, surface.normalHeight, gl.RGBA8)
-    } finally {
-      gl.bindTexture(gl.TEXTURE_2D, null)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-    }
-    hasSource = true
-    heightScale = surface.heightScale ?? DEFAULT_HEIGHT_SCALE
-    longitudeOffset = ((surface.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-  }
-
-  function refreshSource(): void {
-    const generation = resourceGeneration
-    const ready = source.ready?.()
-    if (!ready) {
-      uploadSource()
-      return
-    }
-    void ready.then(
-      () => {
-        if (generation === resourceGeneration) uploadSource()
-      },
-      () => {
-        if (generation === resourceGeneration) uploadSource()
-      },
-    )
-  }
-
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-
-    const compositionBounds = compositionRef.current?.getBoundingClientRect() ?? bounds
-    const scaleX = width / Math.max(bounds.width, 1)
-    const scaleY = height / Math.max(bounds.height, 1)
-    compositionCenterX =
-      (compositionBounds.left - bounds.left + compositionBounds.width / 2) * scaleX
-    compositionCenterY =
-      height - (compositionBounds.top - bounds.top + compositionBounds.height / 2) * scaleY
-    compositionScale = Math.max(
-      Math.min(compositionBounds.width * scaleX, compositionBounds.height * scaleY),
-      1,
-    )
-  }
-
-  function updatePointer(delta: number, enabled: boolean): void {
-    if (!enabled) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-    const stiffness = 42
-    const damping = 11
-    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-    const decay = Math.exp(-damping * delta)
-    pointer.velocityX *= decay
-    pointer.velocityY *= decay
-    pointer.currentX += pointer.velocityX * delta
-    pointer.currentY += pointer.velocityY * delta
-  }
-
-  function render(timestamp: number, settings: LunarEclipseFrameSettings): void {
-    if (contextLost) return
-    resize()
-    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-    lastTime = timestamp
-    updatePointer(delta, settings.lean)
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.useProgram(resources.program)
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
+    gl.uniform1i(uniforms.uAlbedoTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalHeightTexture)
-    gl.uniform1i(resources.uniforms.uNormalHeightTexture, 1)
-    gl.uniform1f(resources.uniforms.uAtmosphericOpticalDepth, settings.atmosphericOpticalDepth)
-    gl.uniform2f(resources.uniforms.uCompositionCenter, compositionCenterX, compositionCenterY)
-    gl.uniform1f(resources.uniforms.uCompositionScale, compositionScale)
-    gl.uniform1f(resources.uniforms.uExposure, settings.exposure)
-    gl.uniform1f(resources.uniforms.uHaloIntensity, settings.haloIntensity)
-    gl.uniform1f(resources.uniforms.uHaloWidth, settings.haloWidth)
-    gl.uniform1f(resources.uniforms.uHeightScale, heightScale)
-    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
-    gl.uniform1f(resources.uniforms.uNormalStrength, settings.normalStrength)
-    gl.uniform1f(resources.uniforms.uPenumbraWidth, settings.penumbraWidth)
-    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
-    gl.uniform1f(resources.uniforms.uRefractedLightIntensity, settings.refractedLightIntensity)
-    gl.uniform1f(resources.uniforms.uReliefShadowStrength, settings.reliefShadowStrength)
-    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
-    gl.uniform2f(resources.uniforms.uShadowOffset, settings.offsetX, settings.offsetY)
-    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
-    gl.uniform1f(resources.uniforms.uTilt, (settings.tilt * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.uYaw, (settings.yaw * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.uUmbraRadius, settings.umbraRadius)
+    gl.uniform1i(uniforms.uNormalHeightTexture, 1)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uAtmosphericOpticalDepth, settings.atmosphericOpticalDepth)
+    gl.uniform1f(uniforms.uExposure, settings.exposure)
+    gl.uniform1f(uniforms.uHaloIntensity, settings.haloIntensity)
+    gl.uniform1f(uniforms.uHaloWidth, settings.haloWidth)
+    gl.uniform1f(uniforms.uHeightScale, resources.heightScale)
+    gl.uniform1f(uniforms.uLongitudeOffset, resources.longitudeOffset)
+    gl.uniform1f(uniforms.uNormalStrength, settings.normalStrength)
+    gl.uniform1f(uniforms.uPenumbraWidth, settings.penumbraWidth)
+    gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
+    gl.uniform1f(uniforms.uRefractedLightIntensity, settings.refractedLightIntensity)
+    gl.uniform1f(uniforms.uReliefShadowStrength, settings.reliefShadowStrength)
+    gl.uniform2f(uniforms.uShadowOffset, settings.offsetX, settings.offsetY)
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform1f(uniforms.uTilt, degreesToRadians(settings.tilt))
+    gl.uniform1f(uniforms.uUmbraRadius, settings.umbraRadius)
+    gl.uniform1f(uniforms.uYaw, degreesToRadians(settings.yaw))
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handlePointerMove(event: PointerEvent): void {
-    const bounds = compositionRef.current?.getBoundingClientRect() ?? canvas.getBoundingClientRect()
-    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-  }
-
-  function handlePointerLeave(): void {
-    pointer.targetX = 0
-    pointer.targetY = 0
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-  }
-
-  function handleContextRestored(): void {
-    if (disposed) return
-    contextLost = false
-    resourceGeneration += 1
-    resources = createResources(gl)
-    hasSource = false
-    heightScale = DEFAULT_HEIGHT_SCALE
-    longitudeOffset = 0
-    refreshSource()
-    lastTime = performance.now()
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  if (hasComposition && compositionRef.current) resizeObserver.observe(compositionRef.current)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  try {
-    refreshSource()
-    resize()
-  } catch (error) {
-    disposed = true
-    resourceGeneration += 1
-    resizeObserver.disconnect()
-    canvas.removeEventListener('pointermove', handlePointerMove)
-    canvas.removeEventListener('pointerleave', handlePointerLeave)
-    canvas.removeEventListener('webglcontextlost', handleContextLost)
-    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-    if (!contextLost) deleteResources(gl, resources)
-    throw error
-  }
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      resourceGeneration += 1
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    },
-  }
+  },
 }
 
 export function LunarEclipseEffect({
@@ -735,19 +471,19 @@ export function LunarEclipseEffect({
   normalStrength = 1.13,
   offsetX = 0.67,
   offsetY = -1.8,
+  onError,
+  paused,
   penumbraWidth = 1.15,
   refractedLightIntensity = 1.62,
   reliefShadowStrength = 0.42,
   source,
   style,
   tilt = 0,
-  yaw = 0,
   umbraRadius = 2.2,
   viewport,
+  yaw = 0,
 }: LunarEclipseEffectProps) {
-  const compositionRef = useRef<HTMLDivElement>(null)
-  const hasComposition = composition !== undefined
-  const frameSettings: LunarEclipseFrameSettings = {
+  const settings: LunarEclipseFrameSettings = {
     atmosphericOpticalDepth,
     exposure,
     haloIntensity,
@@ -760,60 +496,22 @@ export function LunarEclipseEffect({
     refractedLightIntensity,
     reliefShadowStrength,
     tilt,
-    yaw,
     umbraRadius,
-  }
-
-  const rendererInput = useMemo(
-    () => ({ compositionRef, hasComposition, source }),
-    [hasComposition, source],
-  )
-
-  const canvasRef = useCanvasRenderer(frameSettings, rendererInput, createLunarEclipseRenderer)
-
-  if (composition) {
-    return (
-      <div
-        className={className}
-        style={{ height: '100%', position: 'relative', width: '100%', ...style }}
-      >
-        <div
-          aria-hidden="true"
-          ref={compositionRef}
-          style={{
-            left: '50%',
-            pointerEvents: 'none',
-            position: 'absolute',
-            transform: 'translateX(-50%)',
-            ...composition,
-          }}
-        />
-        <div
-          style={{
-            bottom: 0,
-            left: 0,
-            position: 'absolute',
-            right: 0,
-            top: 0,
-            ...viewport,
-          }}
-        >
-          <canvas
-            aria-hidden="true"
-            ref={canvasRef}
-            style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%' }}
-          />
-        </div>
-      </div>
-    )
+    yaw,
   }
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

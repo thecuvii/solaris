@@ -1,53 +1,61 @@
 'use client'
 
-// Requires: react
-
-import { type CSSProperties } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
 import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createTexture,
+  createVertexArray,
+  degreesToRadians,
+  sunDirection,
+  uploadImage,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
-export type MercurialOrbSource = {
-  ready?: () => Promise<void>
-  render: () => {
-    albedo: TexImageSource
-    /**
-     * Byte-exact linear data in a north-at-row-0, planetocentric,
-     * positive-east, -180..180 degree equirectangular image. RG is an
-     * east/north/up tangent normal encoded octahedrally. BA is unsigned
-     * normalized 16-bit height, high byte then low byte, mapped through
-     * heightRangeMeters relative to Mercury's fixed 2,439,400 m datum.
-     *
-     * Use a static lossless HTMLImageElement without color metadata, ImageData,
-     * or an ImageBitmap created with colorSpaceConversion:'none',
-     * premultiplyAlpha:'none', and imageOrientation:'flipY'.
-     * Canvas and video sources are not byte-preserving and are unsupported.
-     */
-    normalHeight: TexImageSource
-    heightRangeMeters: readonly [minimum: number, maximum: number]
-    /** Technical source-meridian alignment only. Omitted means zero. */
-    longitudeOffsetDegrees?: number
-  } | null
+export type MercurialSurface = {
+  albedo: TexImageSource
+  heightRangeMeters: readonly [minimum: number, maximum: number]
+  /** Technical source-meridian alignment only. Omitted means zero. */
+  longitudeOffsetDegrees?: number
+  /**
+   * Byte-exact linear data in a north-at-row-0, planetocentric,
+   * positive-east, -180..180 degree equirectangular image. RG is an
+   * east/north/up tangent normal encoded octahedrally. BA is unsigned
+   * normalized 16-bit height, high byte then low byte, mapped through
+   * heightRangeMeters relative to Mercury's fixed 2,439,400 m datum.
+   *
+   * Use a static lossless HTMLImageElement without color metadata, ImageData,
+   * or an ImageBitmap created with colorSpaceConversion:'none',
+   * premultiplyAlpha:'none', and imageOrientation:'flipY'.
+   * Canvas and video sources are not byte-preserving and are unsupported.
+   */
+  normalHeight: TexImageSource
 }
 
-export type MercurialOrbEffectProps = {
-  className?: string
-  exposure?: number
-  lean?: boolean
-  microDetail?: number
-  normalStrength?: number
-  photometricStrength?: number
-  reliefShadowStrength?: number
-  source: MercurialOrbSource
-  spin?: number
-  style?: CSSProperties
-  sunAzimuth?: number
-  sunElevation?: number
-  tilt?: number
-  yaw?: number
-}
+export type MercurialOrbSource = OrbSource<MercurialSurface>
+
+export type MercurialOrbEffectProps = OrbCanvasProps &
+  OrbPoseProps &
+  OrbLightingProps & {
+    /** Linear scene gain before tone mapping. @default 0.92 */
+    exposure?: number
+    /** Procedural regolith grain on the albedo. Range 0–1. @default 0.08 */
+    microDetail?: number
+    /** Tangent-space normal map strength. Range 0–3. @default 1.35 */
+    normalStrength?: number
+    /** Blend from Lambert (0) towards the empirical Mercury disk law (1). @default 1 */
+    photometricStrength?: number
+    /** Terrain self-shadowing from the height map. Range 0–1. @default 0.72 */
+    reliefShadowStrength?: number
+    source: MercurialOrbSource
+  }
 
 const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
   'uAlbedoTexture',
   'uExposure',
   'uHeightMinimumScale',
@@ -60,7 +68,6 @@ const UNIFORM_NAMES = [
   'uPhotometricStrength',
   'uPointer',
   'uReliefShadowStrength',
-  'uResolution',
   'uSourceReady',
   'uSunDirection',
   'uViewTilt',
@@ -69,6 +76,11 @@ const UNIFORM_NAMES = [
 
 type MercurialResources = {
   albedoTexture: WebGLTexture
+  /** Datum-relative minimum radius offset, derived from the uploaded surface. */
+  heightMinimumScale: number
+  /** Datum-relative height span, derived from the uploaded surface. */
+  heightRangeScale: number
+  longitudeOffset: number
   normalTexture: WebGLTexture
   program: WebGLProgram
   uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
@@ -89,31 +101,14 @@ type MercurialFrameSettings = {
   yaw: number
 }
 
-type AnisotropyExtension = {
-  MAX_TEXTURE_MAX_ANISOTROPY_EXT: number
-  TEXTURE_MAX_ANISOTROPY_EXT: number
-}
-
 const MERCURY_DATUM_RADIUS_METERS = 2_439_400
+/** MLA elevation range used until a surface reports its own. */
+const DEFAULT_HEIGHT_RANGE_METERS = [-10_764, 8_994] as const
 const MERCURY_RADIUS = 0.82
-
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-out vec2 vUv;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  vUv = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
 
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-
-in vec2 vUv;
 
 uniform sampler2D uAlbedoTexture;
 uniform float uExposure;
@@ -127,12 +122,12 @@ uniform float uNormalStrength;
 uniform float uPhotometricStrength;
 uniform vec2 uPointer;
 uniform float uReliefShadowStrength;
-uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
 uniform float uYaw;
 uniform float uViewTilt;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float MERCURY_RADIUS = ${MERCURY_RADIUS.toFixed(2)};
@@ -351,8 +346,7 @@ void main() {
     return;
   }
 
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
+  vec2 position = compositionPosition();
   float radialDistance = length(position);
   float edgeWidth = max(fwidth(radialDistance), 0.0005);
   float coverage = 1.0 - smoothstep(
@@ -408,87 +402,6 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Mercurial shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Mercurial shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Unable to create Mercurial shader program')
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  gl.deleteShader(vertexShader)
-  gl.deleteShader(fragmentShader)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unknown Mercurial shader link error'
-    gl.deleteProgram(program)
-    throw new Error(message)
-  }
-  return program
-}
-
-function createTexture(
-  gl: WebGL2RenderingContext,
-  pixel: readonly [number, number, number, number],
-  minFilter: number,
-  magFilter: number,
-): WebGLTexture {
-  const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Mercurial texture')
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(
-    gl.TEXTURE_2D,
-    0,
-    gl.RGBA8,
-    1,
-    1,
-    0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    new Uint8Array(pixel),
-  )
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, magFilter)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-  if (minFilter === gl.LINEAR_MIPMAP_LINEAR) gl.generateMipmap(gl.TEXTURE_2D)
-  return texture
-}
-
-function createResources(gl: WebGL2RenderingContext): MercurialResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Mercurial vertex array')
-  const program = createProgram(gl)
-  const resources = {
-    albedoTexture: createTexture(gl, [255, 255, 255, 255], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
-    normalTexture: createTexture(gl, [128, 128, 128, 128], gl.LINEAR_MIPMAP_LINEAR, gl.LINEAR),
-    program,
-    uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
-    vertexArray,
-  }
-  gl.bindVertexArray(vertexArray)
-  return resources
-}
-
-function deleteResources(gl: WebGL2RenderingContext, resources: MercurialResources): void {
-  gl.deleteTexture(resources.albedoTexture)
-  gl.deleteTexture(resources.normalTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
 function textureSourceDimensions(source: TexImageSource): readonly [number, number] {
   if (source instanceof HTMLImageElement) return [source.naturalWidth, source.naturalHeight]
   if (source instanceof HTMLVideoElement) return [source.videoWidth, source.videoHeight]
@@ -507,7 +420,7 @@ function isSupportedPackedSource(source: TexImageSource): boolean {
   )
 }
 
-function validateSurface(surface: NonNullable<ReturnType<MercurialOrbSource['render']>>): void {
+function validateSurface(surface: MercurialSurface): void {
   if (!isSupportedPackedSource(surface.normalHeight)) {
     throw new Error('Mercurial normalHeight must be a static byte-preserving image source')
   }
@@ -528,238 +441,105 @@ function validateSurface(surface: NonNullable<ReturnType<MercurialOrbSource['ren
   }
 }
 
-function uploadTexture(
-  gl: WebGL2RenderingContext,
-  texture: WebGLTexture,
-  image: TexImageSource,
-  internalFormat: number,
-  generateMipmaps: boolean,
-): void {
-  gl.bindTexture(gl.TEXTURE_2D, texture)
-  gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, gl.RGBA, gl.UNSIGNED_BYTE, image)
-  if (generateMipmaps) gl.generateMipmap(gl.TEXTURE_2D)
-  const anisotropy = gl.getExtension('EXT_texture_filter_anisotropic') as AnisotropyExtension | null
-  if (generateMipmaps && anisotropy) {
-    const maximum = gl.getParameter(anisotropy.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number
-    gl.texParameterf(gl.TEXTURE_2D, anisotropy.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(maximum, 8))
-  }
+function heightMinimumScaleFor(range: readonly [number, number]): number {
+  return range[0] / MERCURY_DATUM_RADIUS_METERS
 }
 
-function createMercurialRenderer(
-  canvas: HTMLCanvasElement,
-  source: MercurialOrbSource,
-): CanvasRenderer<MercurialFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
+function heightRangeScaleFor(range: readonly [number, number]): number {
+  return (range[1] - range[0]) / MERCURY_DATUM_RADIUS_METERS
+}
 
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let heightMinimumScale = -10_764 / MERCURY_DATUM_RADIUS_METERS
-  let heightRangeScale = (8_994 - -10_764) / MERCURY_DATUM_RADIUS_METERS
-  let longitudeOffset = 0
-  let resourceGeneration = 0
-  let resources = createResources(gl)
-  let startTime = performance.now()
-  let lastTime = startTime
-  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-  function uploadSource(): void {
-    if (disposed || contextLost) return
-    const surface = source.render()
-    if (!surface) {
-      hasSource = false
-      return
+const spec: OrbRendererSpec<MercurialResources, MercurialFrameSettings, MercurialSurface> = {
+  label: 'Mercury',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Mercury')
+    return {
+      albedoTexture: createTexture(gl, 'Mercury albedo', { placeholder: [255, 255, 255, 255] }),
+      heightMinimumScale: heightMinimumScaleFor(DEFAULT_HEIGHT_RANGE_METERS),
+      heightRangeScale: heightRangeScaleFor(DEFAULT_HEIGHT_RANGE_METERS),
+      longitudeOffset: 0,
+      normalTexture: createTexture(gl, 'Mercury normal', { placeholder: [128, 128, 128, 128] }),
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Mercury'),
     }
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.albedoTexture)
+    gl.deleteTexture(resources.normalTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
     validateSurface(surface)
-
-    const previousColorSpace = gl.getParameter(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL) as number
-    const previousFlip = Boolean(gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL))
-    const previousPremultiply = Boolean(gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL))
-    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 1)
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
-    try {
-      uploadTexture(gl, resources.albedoTexture, surface.albedo, gl.SRGB8_ALPHA8, true)
-      uploadTexture(gl, resources.normalTexture, surface.normalHeight, gl.RGBA8, true)
-    } finally {
-      gl.bindTexture(gl.TEXTURE_2D, null)
-      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, previousColorSpace)
-      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, previousFlip ? 1 : 0)
-      gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, previousPremultiply ? 1 : 0)
-    }
-    hasSource = true
-    heightMinimumScale = surface.heightRangeMeters[0] / MERCURY_DATUM_RADIUS_METERS
-    heightRangeScale =
-      (surface.heightRangeMeters[1] - surface.heightRangeMeters[0]) / MERCURY_DATUM_RADIUS_METERS
-    longitudeOffset = ((surface.longitudeOffsetDegrees ?? 0) * Math.PI) / 180
-  }
-
-  function refreshSource(): void {
-    const generation = resourceGeneration
-    const ready = source.ready?.()
-    if (!ready) {
-      uploadSource()
-      return
-    }
-    void ready.then(
+    // Packed normal/height bytes must reach the GPU unmodified.
+    withUnpackState(
+      gl,
+      { colorSpaceConversion: false, flipY: true, premultiplyAlpha: false },
       () => {
-        if (generation === resourceGeneration) uploadSource()
-      },
-      () => {
-        if (generation === resourceGeneration) uploadSource()
+        uploadImage(gl, resources.albedoTexture, surface.albedo, {
+          internalFormat: gl.SRGB8_ALPHA8,
+        })
+        uploadImage(gl, resources.normalTexture, surface.normalHeight)
       },
     )
-  }
+    resources.heightMinimumScale = heightMinimumScaleFor(surface.heightRangeMeters)
+    resources.heightRangeScale = heightRangeScaleFor(surface.heightRangeMeters)
+    resources.longitudeOffset = degreesToRadians(surface.longitudeOffsetDegrees ?? 0)
+  },
+  isAnimated(settings) {
+    return settings.spin !== 0
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
 
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-  }
-
-  function updatePointer(delta: number, enabled: boolean): void {
-    if (!enabled) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-    const stiffness = 42
-    const damping = 11
-    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-    const decay = Math.exp(-damping * delta)
-    pointer.velocityX *= decay
-    pointer.velocityY *= decay
-    pointer.currentX += pointer.velocityX * delta
-    pointer.currentY += pointer.velocityY * delta
-  }
-
-  function render(timestamp: number, settings: MercurialFrameSettings): void {
-    if (disposed || contextLost) return
-    resize()
-    const elapsed = (timestamp - startTime) / 1000
-    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-    lastTime = timestamp
-    updatePointer(delta, settings.lean)
-    const azimuth = (settings.sunAzimuth * Math.PI) / 180
-    const elevation = (settings.sunElevation * Math.PI) / 180
-    const elevationCosine = Math.cos(elevation)
-    const sunDirection = [
-      Math.sin(azimuth) * elevationCosine,
-      Math.sin(elevation),
-      Math.cos(azimuth) * elevationCosine,
-    ] as const
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.useProgram(resources.program)
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.albedoTexture)
-    gl.uniform1i(resources.uniforms.uAlbedoTexture, 0)
+    gl.uniform1i(uniforms.uAlbedoTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(resources.uniforms.uNormalTexture, 1)
+    gl.uniform1i(uniforms.uNormalTexture, 1)
+    // The height channels live in the normal texture; bind it again for texelFetch.
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.normalTexture)
-    gl.uniform1i(resources.uniforms.uHeightTexture, 2)
-    gl.uniform1f(resources.uniforms.uExposure, settings.exposure)
-    gl.uniform1f(resources.uniforms.uHeightMinimumScale, heightMinimumScale)
-    gl.uniform1f(resources.uniforms.uHeightRangeScale, heightRangeScale)
-    gl.uniform1f(resources.uniforms.uLongitudeOffset, longitudeOffset)
-    gl.uniform1f(resources.uniforms.uMicroDetail, settings.microDetail)
-    gl.uniform1f(resources.uniforms.uNormalStrength, settings.normalStrength)
-    gl.uniform1f(resources.uniforms.uPhotometricStrength, settings.photometricStrength)
-    gl.uniform2f(resources.uniforms.uPointer, pointer.currentX, pointer.currentY)
-    gl.uniform1f(resources.uniforms.uReliefShadowStrength, settings.reliefShadowStrength)
-    gl.uniform2f(resources.uniforms.uResolution, canvas.width, canvas.height)
-    gl.uniform1f(resources.uniforms.uSourceReady, hasSource ? 1 : 0)
-    gl.uniform3f(resources.uniforms.uSunDirection, ...sunDirection)
-    gl.uniform1f(
-      resources.uniforms.uYaw,
-      ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180,
+    gl.uniform1i(uniforms.uHeightTexture, 2)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uExposure, settings.exposure)
+    gl.uniform1f(uniforms.uHeightMinimumScale, resources.heightMinimumScale)
+    gl.uniform1f(uniforms.uHeightRangeScale, resources.heightRangeScale)
+    gl.uniform1f(uniforms.uLongitudeOffset, resources.longitudeOffset)
+    gl.uniform1f(uniforms.uMicroDetail, settings.microDetail)
+    gl.uniform1f(uniforms.uNormalStrength, settings.normalStrength)
+    gl.uniform1f(uniforms.uPhotometricStrength, settings.photometricStrength)
+    gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
+    gl.uniform1f(uniforms.uReliefShadowStrength, settings.reliefShadowStrength)
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(
+      uniforms.uSunDirection,
+      ...sunDirection(settings.sunAzimuth, settings.sunElevation),
     )
-    gl.uniform1f(resources.uniforms.uViewTilt, (settings.tilt * Math.PI) / 180)
+    gl.uniform1f(uniforms.uYaw, degreesToRadians(settings.yaw + elapsed * settings.spin))
+    gl.uniform1f(uniforms.uViewTilt, degreesToRadians(settings.tilt))
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas.getBoundingClientRect()
-    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-  }
-
-  function handlePointerLeave(): void {
-    pointer.targetX = 0
-    pointer.targetY = 0
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-  }
-
-  function handleContextRestored(): void {
-    if (disposed) return
-    contextLost = false
-    resourceGeneration += 1
-    resources = createResources(gl)
-    hasSource = false
-    heightMinimumScale = -10_764 / MERCURY_DATUM_RADIUS_METERS
-    heightRangeScale = (8_994 - -10_764) / MERCURY_DATUM_RADIUS_METERS
-    longitudeOffset = 0
-    refreshSource()
-    startTime = performance.now()
-    lastTime = startTime
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  refreshSource()
-  resize()
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      resourceGeneration += 1
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    },
-  }
+  },
 }
 
 export function MercurialOrbEffect({
   className,
+  composition,
   exposure = 0.92,
   lean = true,
   microDetail = 0.08,
   normalStrength = 1.35,
+  onError,
+  paused,
   photometricStrength = 1,
   reliefShadowStrength = 0.72,
   source,
@@ -768,9 +548,10 @@ export function MercurialOrbEffect({
   sunAzimuth = -12,
   sunElevation = 14,
   tilt = 0,
+  viewport,
   yaw = 0,
 }: MercurialOrbEffectProps) {
-  const frameSettings: MercurialFrameSettings = {
+  const settings: MercurialFrameSettings = {
     exposure,
     lean,
     microDetail,
@@ -784,14 +565,18 @@ export function MercurialOrbEffect({
     yaw,
   }
 
-  const canvasRef = useCanvasRenderer(frameSettings, source, createMercurialRenderer)
-
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }

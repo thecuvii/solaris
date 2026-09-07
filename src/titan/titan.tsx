@@ -11,5 +11,5 @@ export type TitanProps = Omit<TitanianOrbEffectProps, 'source'> & SourceLifecycl
 export function Titan({ onError, onReady, onStatusChange, ...props }: TitanProps) {
   const source = useMemo(() => createTitanianAtmosphereSource(), [])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
-  return <TitanianOrbEffect {...props} source={source} />
+  return <TitanianOrbEffect {...props} onError={onError} source={source} />
 }

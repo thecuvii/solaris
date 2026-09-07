@@ -7,6 +7,7 @@ import { useSourceLifecycle } from '../internal/use-source-lifecycle'
 import type { SourceLifecycleProps } from '../source-lifecycle'
 
 export type VenusTextures = {
+  /** Equirectangular cloud-top structure map; only the red channel is read. */
   cloudStructure: string
 }
 
@@ -20,5 +21,5 @@ export function Venus({ onError, onReady, onStatusChange, textures, ...props }: 
   const { cloudStructure } = textures
   const source = useMemo(() => createVenusianCloudSource(cloudStructure), [cloudStructure])
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
-  return <VenusianOrbEffect {...props} source={source} />
+  return <VenusianOrbEffect {...props} onError={onError} source={source} />
 }

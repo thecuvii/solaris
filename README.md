@@ -24,7 +24,8 @@ pnpm build:website
 ```
 
 Build before testing: `src/dist.test.ts` inspects the emitted bundles and is
-skipped when `dist/` is missing.
+skipped when `dist/` is missing. The `browser` test project mounts every planet
+in headless Chromium and needs a one-time `npx playwright install chromium`.
 
 ## Usage
 
@@ -50,20 +51,45 @@ Textures are supplied by the consumer rather than bundled with the package.
 Texture URLs are compared by value, so inline `textures` objects are fine.
 Warm the shared cache ahead of mount with `preloadTextureImages(urls)`.
 
-### Loading state
+Every prop is documented inline with its unit, sensible range, and default, so
+your editor shows them on hover. `Earth` ships with `defaultEarthModel`; pass
+your own `model` only when you want different scattering coefficients.
+
+### Shared props
+
+All planets accept the same layout, motion, and lighting props:
+
+- `composition` / `viewport` place the planet inside a larger canvas so glow
+  and atmosphere are not clipped: `composition={{ width: 480, height: 480,
+bottom: 40 }}` sets the layout box (horizontally centred), and
+  `viewport={{ top: -120, left: -120, right: -120, bottom: -120 }}` grows the
+  canvas around it. Without `composition` the planet fills the shorter side.
+- `yaw`, `tilt`, `spin` (degrees, degrees, degrees per second) set the pose;
+  `sunAzimuth` and `sunElevation` (degrees) set the light.
+- `lean` follows the pointer with a subtle parallax. `paused` stops the loop.
+- `className` and `style` apply to the outermost element.
+
+### Loading state and errors
 
 Textured planets accept `onStatusChange`, `onReady`, and `onError`. `ready`
 means the images are decoded; the GPU upload follows on the next frame.
+`onError` also receives renderer failures (shader compilation, framebuffer
+setup, unusable source data); the canvas stays blank and nothing is thrown
+into React.
 
 ```tsx
 ;<Moon textures={textures} onStatusChange={setStatus} onError={console.error} />
 ```
 
-### Browser support
+### Browser support and power
 
 WebGL2 is required. When the context is unavailable the canvas stays blank and
 no error is thrown. If the browser loses the context (for example after a GPU
 reset) rendering pauses and resumes automatically once it is restored.
+
+Rendering pauses while the canvas is scrolled out of view. Under
+`prefers-reduced-motion` the clock is frozen, `lean` is disabled, and the
+planet only redraws when its props or size change.
 
 Texture provenance for the documentation examples is recorded in
 `website/public/textures/v1/CREDITS.md`.

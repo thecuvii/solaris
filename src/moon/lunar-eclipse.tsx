@@ -9,7 +9,9 @@ import type { SourceLifecycleProps } from '../source-lifecycle'
 
 export type LunarEclipseProps = Omit<LunarEclipseEffectProps, 'source'> &
   SourceLifecycleProps & {
+    /** Height-channel range as a fraction of the lunar radius. @default 22 / 1737.4 */
     heightScale?: number
+    /** Rotates the texture so a chosen longitude faces the viewer at `yaw = 0`. @default 0 */
     longitudeOffsetDegrees?: number
     textures: MoonTextures
   }
@@ -31,5 +33,5 @@ export function LunarEclipse({
   )
   useSourceLifecycle(source, { onError, onReady, onStatusChange })
 
-  return <LunarEclipseEffect {...props} source={source} />
+  return <LunarEclipseEffect {...props} onError={onError} source={source} />
 }

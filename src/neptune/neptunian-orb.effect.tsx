@@ -1,10 +1,18 @@
 'use client'
 
-// Requires: react
-
-import { type CSSProperties } from 'react'
-
-import { type CanvasRenderer, useCanvasRenderer } from '../internal/use-canvas-renderer'
+import { OrbCanvas } from '../internal/orb-canvas'
+import type { OrbRendererSpec, OrbSource } from '../internal/orb-renderer'
+import { getUniformLocations, type UniformLocations } from '../internal/uniforms'
+import {
+  COMPOSITION_GLSL,
+  COMPOSITION_UNIFORM_NAMES,
+  createProgram,
+  createVertexArray,
+  degreesToRadians,
+  sunDirection,
+  withUnpackState,
+} from '../internal/webgl'
+import type { OrbCanvasProps, OrbLightingProps, OrbPoseProps } from '../orb'
 
 export type NeptunianDataPlane = {
   data: Uint8Array
@@ -16,6 +24,101 @@ export type NeptunianVortex = {
   angularRadiiDegrees: readonly [longitude: number, latitude: number]
   latitudeDegrees: number
   longitudeDegrees: number
+}
+
+export type NeptunianSurface = {
+  /** Single-channel equirectangular coverage of bright high-altitude clouds. */
+  highClouds: NeptunianDataPlane
+  /** Single-channel equirectangular optical depth of the main cloud deck. */
+  opticalDepth: NeptunianDataPlane
+  /** Great Dark Spot placement; omit for a vortex-free disc. */
+  vortex?: NeptunianVortex
+  /** Single-row zonal wind profile by latitude, 0.5 = calm. */
+  zonalWind: NeptunianDataPlane
+}
+
+export type NeptunianOrbSource = OrbSource<NeptunianSurface>
+
+export type NeptunianOrbEffectProps = OrbCanvasProps &
+  Omit<OrbPoseProps, 'tilt'> &
+  OrbLightingProps & {
+    /** Directional shading and shadowing of the high cloud streaks. Range 0–2. @default 1 */
+    cloudRelief?: number
+    /** Bright companion cloud trailing the dark vortex. Range 0–1. @default 0.68 */
+    companionCloud?: number
+    /** Optical depth of the deep cloud deck that methane absorption acts on. Range 0–1.5. @default 0.72 */
+    deepOpticalDepth?: number
+    /** Linear scene gain before tone mapping. @default 0.72 */
+    exposure?: number
+    /** Polar flattening in percent. Range 0–12. @default 1.7 */
+    flattening?: number
+    /** Fine turbulent cloud detail advected with the winds. Range 0–1. @default 0.34 */
+    flowDetail?: number
+    /** Forward-scatter brightening of the upper haze near the limb. Range 0–1. @default 0.28 */
+    forwardScattering?: number
+    /** Optical depth of the upper haze shell. Range 0–1. @default 0.48 */
+    hazeOpticalDepth?: number
+    /** Methane absorption strength; deepens the blue. Range 0–1.5. @default 0.78 */
+    methaneAbsorption?: number
+    source: NeptunianOrbSource
+    /**
+     * View-space rotation of the weather map in degrees; it does not change the
+     * lighting geometry.
+     * @default 18
+     */
+    tilt?: number
+    /** Coverage of bright high-altitude methane clouds. Range 0–1. @default 0.68 */
+    upperClouds?: number
+    /** Scattering strength of the upper haze shell. Range 0–1. @default 0.3 */
+    upperHaze?: number
+    /** Rotational flow speed inside and around the dark vortex. Range 0–1. @default 0.48 */
+    vortexCirculation?: number
+    /** How much the dark vortex darkens the cloud deck. Range 0–1. @default 0.5 */
+    vortexDarkness?: number
+    /** Zonal wind speed multiplier driving cloud advection. Range 0–1. @default 0.62 */
+    windScale?: number
+  }
+
+const UNIFORM_NAMES = [
+  ...COMPOSITION_UNIFORM_NAMES,
+  'uCloudRelief',
+  'uCompanionCloud',
+  'uDeepOpticalDepth',
+  'uExposure',
+  'uFlattening',
+  'uFlowDetail',
+  'uForwardScattering',
+  'uHazeOpticalDepth',
+  'uHighCloudTexture',
+  'uMethaneAbsorption',
+  'uOpticalDepthTexture',
+  'uPointer',
+  'uSourceReady',
+  'uSunDirection',
+  'uTime',
+  'uUpperClouds',
+  'uUpperHaze',
+  'uVortexCenter',
+  'uVortexCirculation',
+  'uVortexDarkness',
+  'uVortexRadii',
+  'uWeatherTilt',
+  'uWindScale',
+  'uYaw',
+  'uZonalWindTexture',
+] as const
+
+type NeptunianResources = {
+  highCloudTexture: WebGLTexture
+  opticalDepthTexture: WebGLTexture
+  program: WebGLProgram
+  uniforms: UniformLocations<(typeof UNIFORM_NAMES)[number]>
+  vertexArray: WebGLVertexArrayObject
+  /** Radians (longitude, latitude), derived from the uploaded surface. */
+  vortexCenter: [number, number]
+  /** Radians (longitude, latitude); zero disables the vortex. */
+  vortexRadii: [number, number]
+  zonalWindTexture: WebGLTexture
 }
 
 type NeptunianFrameSettings = {
@@ -32,110 +135,21 @@ type NeptunianFrameSettings = {
   spin: number
   sunAzimuth: number
   sunElevation: number
-  yaw: number
+  tilt: number
   upperClouds: number
   upperHaze: number
   vortexCirculation: number
   vortexDarkness: number
-  tilt: number
   windScale: number
-}
-
-export type NeptunianOrbSource = {
-  ready?: () => Promise<void>
-  render: () => {
-    highClouds: NeptunianDataPlane
-    opticalDepth: NeptunianDataPlane
-    vortex?: NeptunianVortex
-    zonalWind: NeptunianDataPlane
-  } | null
-}
-
-export type NeptunianOrbEffectProps = {
-  className?: string
-  cloudRelief?: number
-  companionCloud?: number
-  deepOpticalDepth?: number
-  exposure?: number
-  flattening?: number
-  flowDetail?: number
-  forwardScattering?: number
-  hazeOpticalDepth?: number
-  lean?: boolean
-  methaneAbsorption?: number
-  spin?: number
-  source: NeptunianOrbSource
-  style?: CSSProperties
-  sunAzimuth?: number
-  sunElevation?: number
-  yaw?: number
-  upperClouds?: number
-  upperHaze?: number
-  vortexCirculation?: number
-  vortexDarkness?: number
-  /** View-space rotation of the weather map in degrees; it does not change the lighting geometry. */
-  tilt?: number
-  windScale?: number
-}
-
-type NeptunianUniforms = {
-  cloudRelief: WebGLUniformLocation | null
-  companionCloud: WebGLUniformLocation | null
-  deepOpticalDepth: WebGLUniformLocation | null
-  exposure: WebGLUniformLocation | null
-  flowDetail: WebGLUniformLocation | null
-  forwardScattering: WebGLUniformLocation | null
-  hazeOpticalDepth: WebGLUniformLocation | null
-  highCloudTexture: WebGLUniformLocation | null
-  methaneAbsorption: WebGLUniformLocation | null
-  flattening: WebGLUniformLocation | null
-  opticalDepthTexture: WebGLUniformLocation | null
-  pointer: WebGLUniformLocation | null
-  resolution: WebGLUniformLocation | null
-  sourceReady: WebGLUniformLocation | null
-  sunDirection: WebGLUniformLocation | null
-  yaw: WebGLUniformLocation | null
-  time: WebGLUniformLocation | null
-  upperClouds: WebGLUniformLocation | null
-  upperHaze: WebGLUniformLocation | null
-  vortexCenter: WebGLUniformLocation | null
-  vortexCirculation: WebGLUniformLocation | null
-  vortexDarkness: WebGLUniformLocation | null
-  vortexRadii: WebGLUniformLocation | null
-  weatherTilt: WebGLUniformLocation | null
-  windScale: WebGLUniformLocation | null
-  zonalWindTexture: WebGLUniformLocation | null
-}
-
-type NeptunianResources = {
-  highCloudTexture: WebGLTexture
-  opticalDepthTexture: WebGLTexture
-  program: WebGLProgram
-  uniforms: NeptunianUniforms
-  vertexArray: WebGLVertexArrayObject
-  zonalWindTexture: WebGLTexture
+  yaw: number
 }
 
 const BODY_RADIUS = 0.78
 const HAZE_RADIUS = 0.81
 
-const VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-out vec2 vUv;
-
-void main() {
-  vec2 position = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0);
-  vUv = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`
-
 const FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 precision highp sampler2D;
-
-in vec2 vUv;
 
 uniform float uCloudRelief;
 uniform float uCompanionCloud;
@@ -149,7 +163,6 @@ uniform float uMethaneAbsorption;
 uniform float uFlattening;
 uniform sampler2D uOpticalDepthTexture;
 uniform vec2 uPointer;
-uniform vec2 uResolution;
 uniform float uSourceReady;
 uniform vec3 uSunDirection;
 uniform float uYaw;
@@ -164,6 +177,7 @@ uniform float uWeatherTilt;
 uniform float uWindScale;
 uniform sampler2D uZonalWindTexture;
 
+${COMPOSITION_GLSL}
 out vec4 fragColor;
 
 const float BODY_RADIUS = ${BODY_RADIUS.toFixed(3)};
@@ -433,8 +447,7 @@ void main() {
     return;
   }
 
-  float aspect = uResolution.x / max(uResolution.y, 1.0);
-  vec2 position = (vUv * 2.0 - 1.0) * vec2(max(aspect, 1.0), max(1.0 / aspect, 1.0));
+  vec2 position = compositionPosition();
   float flattening = 1.0 - clamp(uFlattening, 0.0, 0.12);
   vec3 rayOrigin = vec3(position.x, position.y / flattening, CAMERA_DISTANCE);
   vec3 rayDirection = vec3(0.0, 0.0, -1.0);
@@ -570,71 +583,17 @@ void main() {
 }
 `
 
-function compileShader(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
-  const shader = gl.createShader(type)
-  if (!shader) throw new Error('Unable to create Neptunian shader')
-  gl.shaderSource(shader, source)
-  gl.compileShader(shader)
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const message = gl.getShaderInfoLog(shader) ?? 'Unknown Neptunian shader compile error'
-    gl.deleteShader(shader)
-    throw new Error(message)
-  }
-  return shader
-}
-
-function createProgram(gl: WebGL2RenderingContext): WebGLProgram {
-  const vertexShader = compileShader(gl, gl.VERTEX_SHADER, VERTEX_SHADER)
-  const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, FRAGMENT_SHADER)
-  const program = gl.createProgram()
-  if (!program) throw new Error('Unable to create Neptunian shader program')
-  gl.attachShader(program, vertexShader)
-  gl.attachShader(program, fragmentShader)
-  gl.linkProgram(program)
-  gl.deleteShader(vertexShader)
-  gl.deleteShader(fragmentShader)
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    const message = gl.getProgramInfoLog(program) ?? 'Unknown Neptunian shader link error'
-    gl.deleteProgram(program)
-    throw new Error(message)
-  }
-  return program
-}
-
-function getUniforms(gl: WebGL2RenderingContext, program: WebGLProgram): NeptunianUniforms {
-  return {
-    cloudRelief: gl.getUniformLocation(program, 'uCloudRelief'),
-    companionCloud: gl.getUniformLocation(program, 'uCompanionCloud'),
-    deepOpticalDepth: gl.getUniformLocation(program, 'uDeepOpticalDepth'),
-    exposure: gl.getUniformLocation(program, 'uExposure'),
-    flowDetail: gl.getUniformLocation(program, 'uFlowDetail'),
-    forwardScattering: gl.getUniformLocation(program, 'uForwardScattering'),
-    hazeOpticalDepth: gl.getUniformLocation(program, 'uHazeOpticalDepth'),
-    highCloudTexture: gl.getUniformLocation(program, 'uHighCloudTexture'),
-    methaneAbsorption: gl.getUniformLocation(program, 'uMethaneAbsorption'),
-    flattening: gl.getUniformLocation(program, 'uFlattening'),
-    opticalDepthTexture: gl.getUniformLocation(program, 'uOpticalDepthTexture'),
-    pointer: gl.getUniformLocation(program, 'uPointer'),
-    resolution: gl.getUniformLocation(program, 'uResolution'),
-    sourceReady: gl.getUniformLocation(program, 'uSourceReady'),
-    sunDirection: gl.getUniformLocation(program, 'uSunDirection'),
-    yaw: gl.getUniformLocation(program, 'uYaw'),
-    time: gl.getUniformLocation(program, 'uTime'),
-    upperClouds: gl.getUniformLocation(program, 'uUpperClouds'),
-    upperHaze: gl.getUniformLocation(program, 'uUpperHaze'),
-    vortexCenter: gl.getUniformLocation(program, 'uVortexCenter'),
-    vortexCirculation: gl.getUniformLocation(program, 'uVortexCirculation'),
-    vortexDarkness: gl.getUniformLocation(program, 'uVortexDarkness'),
-    vortexRadii: gl.getUniformLocation(program, 'uVortexRadii'),
-    weatherTilt: gl.getUniformLocation(program, 'uWeatherTilt'),
-    windScale: gl.getUniformLocation(program, 'uWindScale'),
-    zonalWindTexture: gl.getUniformLocation(program, 'uZonalWindTexture'),
-  }
-}
-
-function createDataTexture(gl: WebGL2RenderingContext, wrapLongitude: boolean): WebGLTexture {
+/**
+ * Single-channel R8 texture with a 1×1 placeholder. The shared `createTexture`
+ * always uploads RGBA, which WebGL2 rejects for an R8 internal format.
+ */
+function createDataTexture(
+  gl: WebGL2RenderingContext,
+  label: string,
+  wrapLongitude: boolean,
+): WebGLTexture {
   const texture = gl.createTexture()
-  if (!texture) throw new Error('Unable to create Neptunian data texture')
+  if (!texture) throw new Error(`Unable to create ${label} texture`)
   gl.bindTexture(gl.TEXTURE_2D, texture)
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, 1, 1, 0, gl.RED, gl.UNSIGNED_BYTE, new Uint8Array([128]))
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR)
@@ -642,41 +601,22 @@ function createDataTexture(gl: WebGL2RenderingContext, wrapLongitude: boolean): 
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapLongitude ? gl.REPEAT : gl.CLAMP_TO_EDGE)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
   gl.generateMipmap(gl.TEXTURE_2D)
+  gl.bindTexture(gl.TEXTURE_2D, null)
   return texture
 }
 
-function createResources(gl: WebGL2RenderingContext): NeptunianResources {
-  const vertexArray = gl.createVertexArray()
-  if (!vertexArray) throw new Error('Unable to create Neptunian vertex array')
-  const program = createProgram(gl)
-  const resources = {
-    highCloudTexture: createDataTexture(gl, true),
-    opticalDepthTexture: createDataTexture(gl, true),
-    program,
-    uniforms: getUniforms(gl, program),
-    vertexArray,
-    zonalWindTexture: createDataTexture(gl, false),
+function validateDataPlane(plane: NeptunianDataPlane): void {
+  if (plane.width < 1 || plane.height < 1 || plane.data.length !== plane.width * plane.height) {
+    throw new Error('Invalid Neptunian data plane')
   }
-  gl.bindVertexArray(vertexArray)
-  return resources
 }
 
-function deleteResources(gl: WebGL2RenderingContext, resources: NeptunianResources): void {
-  gl.deleteTexture(resources.highCloudTexture)
-  gl.deleteTexture(resources.opticalDepthTexture)
-  gl.deleteTexture(resources.zonalWindTexture)
-  gl.deleteProgram(resources.program)
-  gl.deleteVertexArray(resources.vertexArray)
-}
-
+/** Upload a single-channel plane. Caller owns unpack state. */
 function uploadDataPlane(
   gl: WebGL2RenderingContext,
   texture: WebGLTexture,
   plane: NeptunianDataPlane,
 ): void {
-  if (plane.width < 1 || plane.height < 1 || plane.data.length !== plane.width * plane.height) {
-    throw new Error('Invalid Neptunian data plane')
-  }
   gl.bindTexture(gl.TEXTURE_2D, texture)
   gl.texImage2D(
     gl.TEXTURE_2D,
@@ -692,228 +632,106 @@ function uploadDataPlane(
   gl.generateMipmap(gl.TEXTURE_2D)
 }
 
-function createNeptunianRenderer(
-  canvas: HTMLCanvasElement,
-  source: NeptunianOrbSource,
-): CanvasRenderer<NeptunianFrameSettings> | null {
-  const context = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    powerPreference: 'high-performance',
-    premultipliedAlpha: true,
-  })
-  if (!context) return null
-  const gl: WebGL2RenderingContext = context
-
-  let contextLost = false
-  let disposed = false
-  let hasSource = false
-  let vortexCenter = [0, 0] as [number, number]
-  let vortexRadii = [0, 0] as [number, number]
-  let sourceGeneration = 0
-  let resources = createResources(gl)
-  let startTime = performance.now()
-  let lastTime = startTime
-  const pointer = { currentX: 0, currentY: 0, targetX: 0, targetY: 0, velocityX: 0, velocityY: 0 }
-
-  function uploadSource(): void {
-    if (disposed || contextLost) return
-    const atmosphere = source.render()
-    if (!atmosphere) {
-      hasSource = false
-      return
+const spec: OrbRendererSpec<NeptunianResources, NeptunianFrameSettings, NeptunianSurface> = {
+  label: 'Neptune',
+  createResources(gl) {
+    const program = createProgram(gl, FRAGMENT_SHADER, 'Neptune')
+    return {
+      highCloudTexture: createDataTexture(gl, 'Neptune high cloud', true),
+      opticalDepthTexture: createDataTexture(gl, 'Neptune optical depth', true),
+      program,
+      uniforms: getUniformLocations(gl, program, UNIFORM_NAMES),
+      vertexArray: createVertexArray(gl, 'Neptune'),
+      vortexCenter: [0, 0],
+      vortexRadii: [0, 0],
+      zonalWindTexture: createDataTexture(gl, 'Neptune zonal wind', false),
     }
-
-    const previousAlignment = gl.getParameter(gl.UNPACK_ALIGNMENT) as number
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
-    uploadDataPlane(gl, resources.opticalDepthTexture, atmosphere.opticalDepth)
-    uploadDataPlane(gl, resources.highCloudTexture, atmosphere.highClouds)
-    uploadDataPlane(gl, resources.zonalWindTexture, atmosphere.zonalWind)
-    gl.bindTexture(gl.TEXTURE_2D, null)
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, previousAlignment)
-    vortexCenter = atmosphere.vortex
+  },
+  deleteResources(gl, resources) {
+    gl.deleteTexture(resources.highCloudTexture)
+    gl.deleteTexture(resources.opticalDepthTexture)
+    gl.deleteTexture(resources.zonalWindTexture)
+    gl.deleteProgram(resources.program)
+    gl.deleteVertexArray(resources.vertexArray)
+  },
+  upload(gl, resources, surface) {
+    validateDataPlane(surface.opticalDepth)
+    validateDataPlane(surface.highClouds)
+    validateDataPlane(surface.zonalWind)
+    // Single-channel rows are not 4-byte aligned for arbitrary widths.
+    withUnpackState(gl, { alignment: 1, flipY: false, premultiplyAlpha: false }, () => {
+      uploadDataPlane(gl, resources.opticalDepthTexture, surface.opticalDepth)
+      uploadDataPlane(gl, resources.highCloudTexture, surface.highClouds)
+      uploadDataPlane(gl, resources.zonalWindTexture, surface.zonalWind)
+    })
+    const { vortex } = surface
+    resources.vortexCenter = vortex
+      ? [degreesToRadians(vortex.longitudeDegrees), degreesToRadians(vortex.latitudeDegrees)]
+      : [0, 0]
+    resources.vortexRadii = vortex
       ? [
-          (atmosphere.vortex.longitudeDegrees * Math.PI) / 180,
-          (atmosphere.vortex.latitudeDegrees * Math.PI) / 180,
+          degreesToRadians(vortex.angularRadiiDegrees[0]),
+          degreesToRadians(vortex.angularRadiiDegrees[1]),
         ]
       : [0, 0]
-    vortexRadii = atmosphere.vortex
-      ? [
-          (atmosphere.vortex.angularRadiiDegrees[0] * Math.PI) / 180,
-          (atmosphere.vortex.angularRadiiDegrees[1] * Math.PI) / 180,
-        ]
-      : [0, 0]
-    hasSource = true
-  }
+  },
+  isAnimated(settings) {
+    return settings.spin !== 0 || settings.windScale > 0 || settings.vortexCirculation > 0
+  },
+  render(gl, resources, frame) {
+    const { composition, elapsed, hasSource, pointerX, pointerY, settings } = frame
+    const { uniforms } = resources
 
-  function refreshSource(): void {
-    const generation = sourceGeneration
-    uploadSource()
-    void source.ready?.().then(
-      () => {
-        if (generation === sourceGeneration) uploadSource()
-      },
-      () => undefined,
-    )
-  }
-
-  function resize(): void {
-    const bounds = canvas.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio, 2)
-    const width = Math.max(Math.round(bounds.width * dpr), 1)
-    const height = Math.max(Math.round(bounds.height * dpr), 1)
-    if (canvas.width !== width || canvas.height !== height) {
-      canvas.width = width
-      canvas.height = height
-    }
-  }
-
-  function updatePointer(delta: number, enabled: boolean): void {
-    if (!enabled) {
-      pointer.targetX = 0
-      pointer.targetY = 0
-    }
-    const stiffness = 42
-    const damping = 11
-    pointer.velocityX += (pointer.targetX - pointer.currentX) * stiffness * delta
-    pointer.velocityY += (pointer.targetY - pointer.currentY) * stiffness * delta
-    const decay = Math.exp(-damping * delta)
-    pointer.velocityX *= decay
-    pointer.velocityY *= decay
-    pointer.currentX += pointer.velocityX * delta
-    pointer.currentY += pointer.velocityY * delta
-  }
-
-  function render(timestamp: number, settings: NeptunianFrameSettings): void {
-    if (contextLost) return
-    resize()
-    const elapsed = (timestamp - startTime) / 1000
-    const delta = Math.min((timestamp - lastTime) / 1000, 0.05)
-    lastTime = timestamp
-    updatePointer(delta, settings.lean)
-    const azimuth = (settings.sunAzimuth * Math.PI) / 180
-    const elevation = (settings.sunElevation * Math.PI) / 180
-    const elevationCosine = Math.cos(elevation)
-    const sunDirection = [
-      Math.sin(azimuth) * elevationCosine,
-      Math.sin(elevation),
-      Math.cos(azimuth) * elevationCosine,
-    ] as const
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    gl.viewport(0, 0, canvas.width, canvas.height)
-    gl.disable(gl.BLEND)
-    gl.disable(gl.DEPTH_TEST)
     gl.clearColor(0, 0, 0, 0)
     gl.clear(gl.COLOR_BUFFER_BIT)
     gl.useProgram(resources.program)
     gl.bindVertexArray(resources.vertexArray)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, resources.opticalDepthTexture)
-    gl.uniform1i(resources.uniforms.opticalDepthTexture, 0)
+    gl.uniform1i(uniforms.uOpticalDepthTexture, 0)
     gl.activeTexture(gl.TEXTURE1)
     gl.bindTexture(gl.TEXTURE_2D, resources.highCloudTexture)
-    gl.uniform1i(resources.uniforms.highCloudTexture, 1)
+    gl.uniform1i(uniforms.uHighCloudTexture, 1)
     gl.activeTexture(gl.TEXTURE2)
     gl.bindTexture(gl.TEXTURE_2D, resources.zonalWindTexture)
-    gl.uniform1i(resources.uniforms.zonalWindTexture, 2)
-    gl.uniform1f(resources.uniforms.weatherTilt, (settings.tilt * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.cloudRelief, settings.cloudRelief)
-    gl.uniform1f(resources.uniforms.companionCloud, settings.companionCloud)
-    gl.uniform1f(resources.uniforms.deepOpticalDepth, settings.deepOpticalDepth)
-    gl.uniform1f(resources.uniforms.exposure, settings.exposure)
-    gl.uniform1f(resources.uniforms.flowDetail, settings.flowDetail)
-    gl.uniform1f(resources.uniforms.forwardScattering, settings.forwardScattering)
-    gl.uniform1f(resources.uniforms.hazeOpticalDepth, settings.hazeOpticalDepth)
-    gl.uniform1f(resources.uniforms.methaneAbsorption, settings.methaneAbsorption)
-    gl.uniform1f(resources.uniforms.flattening, settings.flattening / 100)
-    gl.uniform2f(resources.uniforms.pointer, pointer.currentX, pointer.currentY)
-    gl.uniform2f(resources.uniforms.resolution, canvas.width, canvas.height)
-    gl.uniform1f(resources.uniforms.sourceReady, hasSource ? 1 : 0)
-    gl.uniform3f(resources.uniforms.sunDirection, ...sunDirection)
-    gl.uniform1f(resources.uniforms.yaw, ((settings.yaw + elapsed * settings.spin) * Math.PI) / 180)
-    gl.uniform1f(resources.uniforms.time, elapsed)
-    gl.uniform1f(resources.uniforms.upperClouds, settings.upperClouds)
-    gl.uniform1f(resources.uniforms.upperHaze, settings.upperHaze)
-    gl.uniform2f(resources.uniforms.vortexCenter, ...vortexCenter)
-    gl.uniform1f(resources.uniforms.vortexCirculation, settings.vortexCirculation)
-    gl.uniform1f(resources.uniforms.vortexDarkness, settings.vortexDarkness)
-    gl.uniform2f(resources.uniforms.vortexRadii, ...vortexRadii)
-    gl.uniform1f(resources.uniforms.windScale, settings.windScale)
+    gl.uniform1i(uniforms.uZonalWindTexture, 2)
+    gl.uniform2f(uniforms.uCompositionCenter, composition.centerX, composition.centerY)
+    gl.uniform1f(uniforms.uCompositionScale, composition.scale)
+    gl.uniform1f(uniforms.uWeatherTilt, degreesToRadians(settings.tilt))
+    gl.uniform1f(uniforms.uCloudRelief, settings.cloudRelief)
+    gl.uniform1f(uniforms.uCompanionCloud, settings.companionCloud)
+    gl.uniform1f(uniforms.uDeepOpticalDepth, settings.deepOpticalDepth)
+    gl.uniform1f(uniforms.uExposure, settings.exposure)
+    gl.uniform1f(uniforms.uFlowDetail, settings.flowDetail)
+    gl.uniform1f(uniforms.uForwardScattering, settings.forwardScattering)
+    gl.uniform1f(uniforms.uHazeOpticalDepth, settings.hazeOpticalDepth)
+    gl.uniform1f(uniforms.uMethaneAbsorption, settings.methaneAbsorption)
+    gl.uniform1f(uniforms.uFlattening, settings.flattening / 100)
+    gl.uniform2f(uniforms.uPointer, pointerX, pointerY)
+    gl.uniform1f(uniforms.uSourceReady, hasSource ? 1 : 0)
+    gl.uniform3f(
+      uniforms.uSunDirection,
+      ...sunDirection(settings.sunAzimuth, settings.sunElevation),
+    )
+    gl.uniform1f(uniforms.uYaw, degreesToRadians(settings.yaw + elapsed * settings.spin))
+    gl.uniform1f(uniforms.uTime, elapsed)
+    gl.uniform1f(uniforms.uUpperClouds, settings.upperClouds)
+    gl.uniform1f(uniforms.uUpperHaze, settings.upperHaze)
+    gl.uniform2f(uniforms.uVortexCenter, ...resources.vortexCenter)
+    gl.uniform1f(uniforms.uVortexCirculation, settings.vortexCirculation)
+    gl.uniform1f(uniforms.uVortexDarkness, settings.vortexDarkness)
+    gl.uniform2f(uniforms.uVortexRadii, ...resources.vortexRadii)
+    gl.uniform1f(uniforms.uWindScale, settings.windScale)
     gl.drawArrays(gl.TRIANGLES, 0, 3)
     gl.bindVertexArray(null)
-  }
-
-  function handlePointerMove(event: PointerEvent): void {
-    const bounds = canvas.getBoundingClientRect()
-    pointer.targetX = ((event.clientX - bounds.left) / bounds.width) * 2 - 1
-    pointer.targetY = 1 - ((event.clientY - bounds.top) / bounds.height) * 2
-  }
-
-  function handlePointerLeave(): void {
-    pointer.targetX = 0
-    pointer.targetY = 0
-  }
-
-  function handleContextLost(event: Event): void {
-    event.preventDefault()
-    contextLost = true
-  }
-
-  function handleContextRestored(): void {
-    if (disposed) return
-    contextLost = false
-    sourceGeneration += 1
-    resources = createResources(gl)
-    hasSource = false
-    vortexCenter = [0, 0]
-    vortexRadii = [0, 0]
-    refreshSource()
-    startTime = performance.now()
-    lastTime = startTime
-    resize()
-  }
-
-  const resizeObserver = new ResizeObserver(resize)
-  resizeObserver.observe(canvas)
-  canvas.addEventListener('pointermove', handlePointerMove)
-  canvas.addEventListener('pointerleave', handlePointerLeave)
-  canvas.addEventListener('webglcontextlost', handleContextLost)
-  canvas.addEventListener('webglcontextrestored', handleContextRestored)
-  try {
-    refreshSource()
-    resize()
-  } catch (error) {
-    disposed = true
-    sourceGeneration += 1
-    resizeObserver.disconnect()
-    canvas.removeEventListener('pointermove', handlePointerMove)
-    canvas.removeEventListener('pointerleave', handlePointerLeave)
-    canvas.removeEventListener('webglcontextlost', handleContextLost)
-    canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-    if (!contextLost) deleteResources(gl, resources)
-    throw error
-  }
-
-  return {
-    render,
-    dispose(): void {
-      disposed = true
-      sourceGeneration += 1
-      resizeObserver.disconnect()
-      canvas.removeEventListener('pointermove', handlePointerMove)
-      canvas.removeEventListener('pointerleave', handlePointerLeave)
-      canvas.removeEventListener('webglcontextlost', handleContextLost)
-      canvas.removeEventListener('webglcontextrestored', handleContextRestored)
-      if (!contextLost) deleteResources(gl, resources)
-    },
-  }
+  },
 }
 
 export function NeptunianOrbEffect({
   className,
   cloudRelief = 1,
   companionCloud = 0.68,
+  composition,
   deepOpticalDepth = 0.72,
   exposure = 0.72,
   flattening = 1.7,
@@ -922,20 +740,23 @@ export function NeptunianOrbEffect({
   hazeOpticalDepth = 0.48,
   lean = true,
   methaneAbsorption = 0.78,
-  spin = 1.3,
+  onError,
+  paused,
   source,
+  spin = 1.3,
   style,
   sunAzimuth = -10,
   sunElevation = 5,
-  yaw = 0,
+  tilt = 18,
   upperClouds = 0.68,
   upperHaze = 0.3,
+  viewport,
   vortexCirculation = 0.48,
   vortexDarkness = 0.5,
-  tilt = 18,
   windScale = 0.62,
+  yaw = 0,
 }: NeptunianOrbEffectProps) {
-  const frameSettings: NeptunianFrameSettings = {
+  const settings: NeptunianFrameSettings = {
     cloudRelief,
     companionCloud,
     deepOpticalDepth,
@@ -949,22 +770,27 @@ export function NeptunianOrbEffect({
     spin,
     sunAzimuth,
     sunElevation,
-    yaw,
+    tilt,
     upperClouds,
     upperHaze,
     vortexCirculation,
     vortexDarkness,
-    tilt,
     windScale,
+    yaw,
   }
-  const canvasRef = useCanvasRenderer(frameSettings, source, createNeptunianRenderer)
 
   return (
-    <canvas
-      aria-hidden="true"
+    <OrbCanvas
       className={className}
-      ref={canvasRef}
-      style={{ display: 'block', height: '100%', touchAction: 'pan-y', width: '100%', ...style }}
+      composition={composition}
+      lean={lean}
+      onError={onError}
+      paused={paused}
+      settings={settings}
+      source={source}
+      spec={spec}
+      style={style}
+      viewport={viewport}
     />
   )
 }
