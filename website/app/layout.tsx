@@ -1,12 +1,31 @@
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
 
+import { socialImage } from '../modules/planet-page/planet-metadata'
 import { inter } from './fonts'
 import './globals.css'
 
+const description = 'React shader effects for the solar system.'
+const title = 'Solaris — React shader planets'
+
 export const metadata: Metadata = {
-  description: 'React shader effects for the solar system.',
-  title: 'Solaris — React shader planets',
+  description,
+  metadataBase: new URL('https://solaris.cuvii.dev'),
+  openGraph: {
+    description,
+    images: [socialImage],
+    siteName: 'Solaris',
+    title,
+    type: 'website',
+    url: '/',
+  },
+  title,
+  twitter: {
+    card: 'summary_large_image',
+    description,
+    images: [socialImage],
+    title,
+  },
 }
 
 export const viewport: Viewport = {
