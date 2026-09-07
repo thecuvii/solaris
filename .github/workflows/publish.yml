@@ -22,6 +22,7 @@ jobs:
           node-version: 26
           run-install: false
       - run: vp install --frozen-lockfile
+      - run: npm install --global npm@12.0.2
 
       - name: Verify the tag matches package.json
         run: |
@@ -38,7 +39,9 @@ jobs:
       - run: node scripts/check-bundle-size.mjs
 
       - name: Pack tarball
-        run: npm pack --pack-destination "$RUNNER_TEMP/solaris-pack"
+        run: |
+          mkdir -p "$RUNNER_TEMP/solaris-pack"
+          npm pack --pack-destination "$RUNNER_TEMP/solaris-pack"
 
       # Uses npm trusted publishing (OIDC); no NPM_TOKEN secret is required once
       # the package is linked to this repository and workflow on npmjs.com.
