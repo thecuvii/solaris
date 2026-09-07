@@ -5,7 +5,7 @@ import { Slider } from '@base-ui/react/slider'
 import { Switch } from '@base-ui/react/switch'
 import * as stylex from '@stylexjs/stylex'
 import NumberFlow, { continuous } from '@number-flow/react'
-import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { useAtom, useSetAtom } from 'jotai'
 import { animate, motion, useMotionValue, useReducedMotion, useTransform } from 'motion/react'
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -20,7 +20,6 @@ import { parameterGroupsByPlanet, planetPresets } from '../planet-params/planet-
 import type { ParameterDefinition, ParameterGroupId } from '../planet-params/planet-params'
 import {
   applyPlanetSettingsAtom,
-  isDefaultPlanetAtom,
   resetPlanetSettingsAtom,
   setSliderGestureAtom,
   settingAtom,
@@ -107,15 +106,10 @@ function PresetGrid({ planetId }: { planetId: PlanetId }) {
 }
 
 function ResetSettingsButton({ planetId }: { planetId: PlanetId }) {
-  const isDefault = useAtomValue(isDefaultPlanetAtom(planetId))
   const resetPlanetSettings = useSetAtom(resetPlanetSettingsAtom)
 
   return (
-    <Button
-      disabled={isDefault}
-      onClick={() => resetPlanetSettings(planetId)}
-      {...stylex.props(styles.resetButton, isDefault && styles.resetButtonDisabled)}
-    >
+    <Button onClick={() => resetPlanetSettings(planetId)} {...stylex.props(styles.resetButton)}>
       <ResetIcon />
       Reset
     </Button>
@@ -1122,10 +1116,6 @@ const styles = stylex.create({
     ':focus-visible': {
       outline: 'none',
     },
-  },
-  resetButtonDisabled: {
-    cursor: 'default',
-    opacity: 0.45,
   },
   resetIcon: {
     fill: 'none',

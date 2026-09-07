@@ -25,14 +25,6 @@ export const planetSettingsAtom = atomFamily((planetId: PlanetId) =>
   }),
 )
 
-export const isDefaultPlanetAtom = atomFamily((planetId: PlanetId) =>
-  atom((get) =>
-    parameterDefinitions[planetId].every(
-      ({ initial, name }) => get(settingAtom({ name, planetId })) === initial,
-    ),
-  ),
-)
-
 export const eclipseHaloAtom = atom((get) => ({
   haloIntensity: Number(get(settingAtom({ name: 'haloIntensity', planetId: 'lunar-eclipse' }))),
   haloWidth: Number(get(settingAtom({ name: 'haloWidth', planetId: 'lunar-eclipse' }))),
