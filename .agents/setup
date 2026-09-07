@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+SECONDS=0
+
+echo '==> Preparing Node 26 (matching CI) and the pinned package manager'
+if ! command -v node >/dev/null || [[ "$(node -p 'process.versions.node.split(".")[0]')" != 26 ]]; then
+  npm install --global n
+  n 26
+  hash -r
+fi
+package_manager="$(node -p 'JSON.parse(require("node:fs").readFileSync("package.json", "utf8")).packageManager')"
+if ! command -v pnpm >/dev/null || [[ "$(pnpm --version)" != "${package_manager#pnpm@}" ]]; then
+  npm install --global "$package_manager"
+fi
+echo "==> Toolchain ready (${SECONDS}s): $(node --version), pnpm $(pnpm --version)"
+
+echo '==> Installing locked workspace dependencies'
+time pnpm install --frozen-lockfile
+
+echo '==> Installing Chromium for the browser tests'
+time pnpm exec playwright install chromium
+
+echo '==> Building the package (required by bundle tests and website imports)'
+time pnpm build
+echo "==> Orb setup complete (${SECONDS}s)"

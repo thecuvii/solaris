@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Dependencies and Chromium are preserved by the orb snapshot. This repository
+# needs no per-thread authentication, database reconnects, or wake-time installs.
+echo 'Solaris ready; run pnpm dev, pnpm check, or pnpm test from the repository root.'
