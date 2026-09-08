@@ -48,14 +48,13 @@ const SHEET_BLUR = 'blur(22px) saturate(0.72)'
 const DOCK_RADIUS = DOCK_HEIGHT / 2
 const SHEET_RADIUS = 16
 const SHEET_HEIGHT = '50dvh'
-const PRESET_SNAP = 0.25
-// Offset at the first snap (max 50dvh − first snap 25dvh); the pill → sheet morph
-// completes over the travel from the dock to here.
-const PRESET_TRAVEL = '25dvh'
+// Complete the pill → sheet morph over the first 25dvh of travel even though
+// the drawer now snaps directly between the dock and its expanded position.
+const MORPH_TRAVEL = '25dvh'
 const EXPANDED_NUDGE_PX = 48
 const DRAG_SLOP = 6
 
-type DockMode = 'dock' | 'preset' | 'expanded'
+type DockMode = 'dock' | 'expanded'
 
 function clampIndex(index: number) {
   return Math.min(Math.max(index, 0), planets.length - 1)
@@ -417,10 +416,9 @@ export function PlanetDock({
   const safeBottom = useSafeAreaBottom(probe)
   const dockSnap: Drawer.Root.SnapPoint = `${DOCK_HEIGHT + FLOAT_GAP + safeBottom}px`
   const expandedSnap = useExpandedSnapPoint(EXPANDED_NUDGE_PX)
-  const snapPoint = mode === 'dock' ? dockSnap : mode === 'preset' ? PRESET_SNAP : expandedSnap
+  const snapPoint = mode === 'dock' ? dockSnap : expandedSnap
 
   function modeFromSnapPoint(next: Drawer.Root.SnapPoint): DockMode {
-    if (next === PRESET_SNAP) return 'preset'
     if (next === expandedSnap) return 'expanded'
     return 'dock'
   }
@@ -445,8 +443,7 @@ export function PlanetDock({
       }}
       open
       snapPoint={snapPoint}
-      snapPoints={[dockSnap, PRESET_SNAP, expandedSnap]}
-      snapToSequentialPoints
+      snapPoints={[dockSnap, expandedSnap]}
       swipeDirection="down"
     >
       <Drawer.Portal>
@@ -515,7 +512,7 @@ export function PlanetDock({
                     <button
                       aria-expanded={mode !== 'dock'}
                       aria-label={mode === 'dock' ? 'Open settings' : 'Close settings'}
-                      onClick={() => changeMode(mode === 'dock' ? 'preset' : 'dock')}
+                      onClick={() => changeMode(mode === 'dock' ? 'expanded' : 'dock')}
                       type="button"
                       {...stylex.props(styles.gear)}
                     >
@@ -660,7 +657,7 @@ const styles = stylex.create({
     // here and the pill never leaves its resting spot.
     '--sheet-travel': `min(calc(var(--drawer-snap-point-offset) + var(--drawer-swipe-movement-y)), calc(${SHEET_HEIGHT} - var(--dock-snap)))`,
     '--dock-lift': `calc(${SHEET_HEIGHT} - var(--dock-snap) - var(--sheet-travel))`,
-    '--dock-progress': `clamp(0, var(--dock-lift) / (${PRESET_TRAVEL} - var(--dock-snap)), 1)`,
+    '--dock-progress': `clamp(0, var(--dock-lift) / (${MORPH_TRAVEL} - var(--dock-snap)), 1)`,
     '--float-bottom': `calc(${FLOAT_GAP}px + env(safe-area-inset-bottom, 0px))`,
     backgroundColor: 'transparent',
     boxSizing: 'border-box',
