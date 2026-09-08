@@ -676,7 +676,11 @@ const ParameterSlider = memo(function ParameterSlider({
       >
         <motion.div
           ref={trackRef}
-          onLostPointerCapture={cancelGesture}
+          onLostPointerCapture={(event) => {
+            // Touch capture moves from the hit child to this track when a
+            // horizontal drag is claimed. Ignore the child's bubbling loss.
+            if (event.target === event.currentTarget) cancelGesture()
+          }}
           onPointerCancel={cancelGesture}
           onPointerDown={handlePointerDown}
           onPointerEnter={() => setHovered(true)}
