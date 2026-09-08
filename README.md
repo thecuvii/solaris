@@ -191,6 +191,7 @@ and its hosted demo textures.
 
 ```sh
 pnpm install
+pnpm exec playwright install chromium # once, for browser tests
 pnpm dev
 ```
 
@@ -199,7 +200,6 @@ Run the project checks with:
 ```sh
 pnpm check
 pnpm build
-pnpm exec playwright install chromium # once
 pnpm test
 pnpm build:website
 ```
@@ -207,21 +207,12 @@ pnpm build:website
 Build before testing: `src/dist.test.ts` inspects the emitted bundles and is
 skipped when `dist/` is missing.
 
-## Releasing
-
-Releases are cut from tags and published with npm trusted publishing.
-
-1. Add an entry to `CHANGELOG.md` under `## [x.y.z](...) (YYYY-MM-DD)`.
-2. Bump `version` in `package.json` to match and commit.
-3. Tag and push: `git tag vx.y.z && git push origin main vx.y.z`.
-
-The `Publish` workflow verifies the version, runs checks, tests, and the bundle
-size budget, publishes to npm, and creates the matching GitHub release.
-
-## Credits and prior art
+## Credits
 
 Texture provenance for the showcase is recorded in
 [`website/public/textures/v1/CREDITS.md`](website/public/textures/v1/CREDITS.md).
+
+## See also
 
 - [Cobe](https://cobe.vercel.app/) — Shu Ding
 - [Spherium](https://www.tryspherium.com/) — Javier Crocco
