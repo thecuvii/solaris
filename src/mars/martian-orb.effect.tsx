@@ -1,3 +1,10 @@
+// Hosted textures:
+// https://solaris.cuvii.dev/textures/v1/mars/mars-albedo-2048.webp
+// https://solaris.cuvii.dev/textures/v1/mars/mars-normal-height-2048.png
+// Original textures:
+// https://planetarymaps.usgs.gov/mosaic/Mars_Viking_ClrMosaic_global_925m.tif
+// https://pds-geosciences.wustl.edu/mgs/urn-nasa-pds-mgs_mola_topography_derived/meg016/megt90n000eb.img
+
 'use client'
 
 import { OrbCanvas } from '../internal/orb-canvas'

@@ -1,3 +1,10 @@
+// Hosted textures:
+// https://solaris.cuvii.dev/textures/v1/mercury/mercury-albedo-1024.webp
+// https://solaris.cuvii.dev/textures/v1/mercury/mercury-normal-height-1024.png
+// Original textures:
+// https://planetarymaps.usgs.gov/mosaic/Mercury_MESSENGER_ClrMosaic_global_665m_v3.tif
+// https://planetarymaps.usgs.gov/mosaic/Mercury_Messenger_USGS_DEM_Global_665m_v2.tif
+
 'use client'
 
 import { OrbCanvas } from '../internal/orb-canvas'

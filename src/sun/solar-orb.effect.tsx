@@ -1,3 +1,8 @@
+// Hosted texture:
+// https://solaris.cuvii.dev/textures/v1/sun/sun-aia-304.webp
+// Original texture:
+// https://svs.gsfc.nasa.gov/vis/a000000/a003900/a003983/frames/4096x4096_1x1_30p/304A-Frames/SDOAIA304A_Jewelbox.00000.tif
+
 'use client'
 
 import { OrbCanvas } from '../internal/orb-canvas'

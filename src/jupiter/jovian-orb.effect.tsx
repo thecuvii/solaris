@@ -1,3 +1,8 @@
+// Hosted texture:
+// https://solaris.cuvii.dev/textures/v1/jupiter/jupiter-albedo-2048.webp
+// Original texture:
+// https://assets.science.nasa.gov/content/dam/science/missions/hubble/releases/2019/08/STScI-01EVSV9A3VN7VYXN5H6Z1GDG93.tif/jcr:content/renditions/Full%20Res.png
+
 'use client'
 
 import { OrbCanvas } from '../internal/orb-canvas'

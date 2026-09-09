@@ -1,3 +1,10 @@
+// Hosted textures:
+// https://solaris.cuvii.dev/textures/v1/saturn/saturn-atmosphere.webp
+// https://solaris.cuvii.dev/textures/v1/saturn/saturn-rings.png
+// Original texture and ring data:
+// https://assets.science.nasa.gov/content/dam/science/cds/3d/resources/image/saturn/Saturn.tif
+// https://pds-rings.seti.org/saturn/saturn_rings_table.html
+
 'use client'
 
 import { OrbCanvas } from '../internal/orb-canvas'

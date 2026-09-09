@@ -1,3 +1,10 @@
+// Hosted textures:
+// https://solaris.cuvii.dev/textures/v1/moon/moon-albedo-2048.webp
+// https://solaris.cuvii.dev/textures/v1/moon/moon-normal-height-2048.webp
+// Original textures:
+// https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_16bit_srgb_4k.tif
+// https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/ldem_16.tif
+
 'use client'
 
 import type { LunarSurface } from './lunar-orb.effect'

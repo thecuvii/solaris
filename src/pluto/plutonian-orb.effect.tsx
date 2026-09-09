@@ -1,3 +1,10 @@
+// Hosted textures:
+// https://solaris.cuvii.dev/textures/v1/pluto/pluto-albedo-1024.png
+// https://solaris.cuvii.dev/textures/v1/pluto/pluto-normal-height-1024.png
+// Original textures:
+// https://d2pn8kiwq2w21t.cloudfront.net/original_images/jpegPIA11707.jpg
+// https://planetarymaps.usgs.gov/mosaic/Pluto_NewHorizons_Global_DEM_300m_Jul2017_16bit.tif
+
 'use client'
 
 import { OrbCanvas } from '../internal/orb-canvas'

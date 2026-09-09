@@ -1,3 +1,8 @@
+// Hosted texture:
+// https://solaris.cuvii.dev/textures/v1/venus/venus-cloud-structure.webp
+// Original texture:
+// https://solarviews.com/raw/venus/venuscyl4.tif
+
 'use client'
 
 import { OrbCanvas } from '../internal/orb-canvas'

@@ -1,3 +1,13 @@
+// Hosted textures:
+// https://solaris.cuvii.dev/textures/v1/earth/earth-cloud.webp
+// https://solaris.cuvii.dev/textures/v1/earth/earth-day.webp
+// https://solaris.cuvii.dev/textures/v1/earth/earth-material.webp
+// https://solaris.cuvii.dev/textures/v1/earth/earth-night.webp
+// https://solaris.cuvii.dev/textures/v1/earth/earth-normal.webp
+// https://solaris.cuvii.dev/textures/v1/earth/earth-roughness.webp
+// Original textures:
+// https://www.solarsystemscope.com/textures/
+
 'use client'
 
 import { OrbCanvas } from '../internal/orb-canvas'
