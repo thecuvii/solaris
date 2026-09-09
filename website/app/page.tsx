@@ -7,14 +7,7 @@ const homeHref = `${planetPath(defaultPlanetId)}/`
 export const metadata = planetMetadata(requirePlanet(defaultPlanetId))
 
 export default function HomePage() {
-  return (
-    <>
-      <meta httpEquiv="refresh" content={`0;url=${homeHref}`} />
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `location.replace(${JSON.stringify(homeHref)})`,
-        }}
-      />
-    </>
-  )
+  // Cloudflare handles the HTTP redirect via public/_redirects.
+  // Keep an HTML fallback for next dev and other static hosts.
+  return <meta httpEquiv="refresh" content={`0;url=${homeHref}`} />
 }
