@@ -197,8 +197,24 @@ float decodeHeight(vec4 packedHeight) {
   return (highByte * 256.0 + lowByte) / 65535.0;
 }
 
+float heightAtTexel(ivec2 coordinate) {
+  ivec2 size = textureSize(uHeightTexture, 0);
+  coordinate.x = ((coordinate.x % size.x) + size.x) % size.x;
+  coordinate.y = clamp(coordinate.y, 0, size.y - 1);
+  return decodeHeight(texelFetch(uHeightTexture, coordinate, 0));
+}
+
 float sampleHeight(vec3 radialDirection) {
-  return decodeHeight(texture(uHeightTexture, sphereUv(textureDirection(radialDirection))));
+  // Interpolate decoded heights, not the two packed bytes.
+  vec2 pixel = sphereUv(textureDirection(radialDirection))
+    * vec2(textureSize(uHeightTexture, 0)) - 0.5;
+  ivec2 base = ivec2(floor(pixel));
+  vec2 blend = fract(pixel);
+  return mix(
+    mix(heightAtTexel(base), heightAtTexel(base + ivec2(1, 0)), blend.x),
+    mix(heightAtTexel(base + ivec2(0, 1)), heightAtTexel(base + ivec2(1, 1)), blend.x),
+    blend.y
+  );
 }
 
 vec3 decodeOctahedralNormal(vec2 encoded) {

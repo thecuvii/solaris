@@ -216,9 +216,15 @@ float decodeHeight(ivec2 coordinate) {
 }
 
 float sampleHeight(vec3 direction) {
-  ivec2 size = textureSize(uHeightTexture, 0);
-  ivec2 coordinate = ivec2(floor(sphereUv(direction) * vec2(size)));
-  return decodeHeight(coordinate);
+  // Decode before filtering: packed bytes cannot be interpolated as colors.
+  vec2 pixel = sphereUv(direction) * vec2(textureSize(uHeightTexture, 0)) - 0.5;
+  ivec2 base = ivec2(floor(pixel));
+  vec2 blend = fract(pixel);
+  return mix(
+    mix(decodeHeight(base), decodeHeight(base + ivec2(1, 0)), blend.x),
+    mix(decodeHeight(base + ivec2(0, 1)), decodeHeight(base + ivec2(1, 1)), blend.x),
+    blend.y
+  );
 }
 
 vec3 decodeOctahedralNormal(vec2 encoded) {
