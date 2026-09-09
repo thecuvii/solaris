@@ -124,7 +124,7 @@ export const PlanetPicker = memo(function PlanetPicker({
             <div>
               Made by{' '}
               <a
-                href={withSiteSource('https://github.com/thecuvii')}
+                href="https://x.com/thecuvii"
                 onClick={() => track('clicked_cuvii')}
                 {...stylex.props(styles.pickerMetaLink)}
               >
