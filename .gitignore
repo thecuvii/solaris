@@ -7,3 +7,6 @@ website/.next/
 website/out/
 website/node_modules/
 *.tgz
+
+*.tsbuildinfo
+website/public/launch-assets/

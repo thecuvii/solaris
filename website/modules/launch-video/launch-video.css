@@ -1,0 +1,260 @@
+/* The server-rendered route marker gates the first paint, before hydration. */
+html:has([data-launch-preview]):not(.launch-ready) {
+  background: #000;
+}
+html:has([data-launch-preview]):not(.launch-ready) body {
+  opacity: 0 !important;
+  pointer-events: none;
+}
+
+.launch-filming {
+  overflow: hidden;
+}
+
+.launch-quick-cuts {
+  position: fixed;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+.launch-quick-cuts > div {
+  position: absolute;
+  inset: 0;
+  background: #07080d;
+  opacity: 0;
+}
+.launch-filming body {
+  overflow: hidden;
+  cursor: none;
+}
+.launch-filming nextjs-portal {
+  display: none;
+}
+.launch-filming button[aria-label='Toggle layout grid'] {
+  display: none;
+}
+.launch-filming aside::-webkit-scrollbar {
+  display: none;
+}
+.launch-filming [data-chrome-probe='title'] {
+  transition: none;
+}
+.launch-wordmark {
+  position: fixed;
+  top: 48px;
+  left: 64px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #f2e8d0;
+  font-size: 17px;
+  letter-spacing: -0.5px;
+  z-index: 7;
+}
+
+.launch-code {
+  position: fixed;
+  top: 160px;
+  left: 50%;
+  width: 440px;
+  transform: translateX(-50%);
+  z-index: 7;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  font:
+    30px / 1.65 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  font-variant-numeric: tabular-nums;
+  color: #9ba1b0;
+  pointer-events: none;
+}
+.launch-code-tag {
+  color: #e8cba8;
+}
+.launch-code-prop {
+  color: #adc8de;
+}
+.launch-code-punctuation {
+  color: #78818e;
+}
+.launch-code-value {
+  color: #d1d6db;
+}
+.launch-code-value[data-active='true'] {
+  color: #ffcf8e;
+  text-shadow: 0 0 18px #f4b97840;
+}
+.launch-cursor {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 22;
+  transform-origin: 3px 2px;
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px #0009);
+}
+.launch-cursor-press {
+  position: absolute;
+  width: 36px;
+  height: 36px;
+  left: -15px;
+  top: -16px;
+  border: 1px solid #ffffff90;
+  border-radius: 50%;
+  background: #ffffff15;
+  opacity: 0;
+}
+.launch-cursor[data-pressed='true'] .launch-cursor-press {
+  opacity: 1;
+}
+.launch-wordmark span {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: linear-gradient(130deg, #fff8dd 45%, #a39e88);
+  box-shadow: 0 0 14px #f2e8d01c;
+}
+.launch-replay {
+  position: fixed;
+  right: 28px;
+  bottom: 24px;
+  z-index: 20;
+  padding: 10px 16px;
+  color: #eee;
+  background: #202128;
+  border: 1px solid #ffffff18;
+  border-radius: 10px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.launch-blackout {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.launch-navigation {
+  position: fixed;
+  left: 150px;
+  top: calc(55vh - 258px);
+  width: 440px;
+  height: 516px;
+  z-index: 8;
+  pointer-events: none;
+  font-family: var(--font-sans);
+  font-size: 40px;
+  line-height: 1.2;
+  mask-image: linear-gradient(transparent, black 25%, black 75%, transparent);
+}
+.launch-navigation-row {
+  color: var(--showcase-nav-ink, rgba(242, 232, 208, 0.42));
+  position: absolute;
+  top: 215px;
+  right: 0;
+  height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+.launch-navigation-row[data-selected='true'] {
+  color: var(--showcase-nav-ink-strong, #f2e8d0);
+}
+.launch-navigation-anchor {
+  position: absolute;
+  top: 234px;
+  right: 0;
+  color: transparent;
+}
+.launch-navigation-indicator {
+  position: absolute;
+  top: calc(50% - 6px);
+  right: calc(100% + 22px);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--showcase-nav-ink-strong, #f2e8d0);
+}
+
+.launch-sky {
+  position: fixed;
+  inset: 0;
+  z-index: 21;
+  pointer-events: none;
+}
+@font-face {
+  font-family: 'Launch Montreal';
+  src: url('/launch-assets/PPNeueMontreal-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+}
+.launch-end-card {
+  position: fixed;
+  inset: 0;
+  z-index: 31;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f2e8d0;
+  font-family: 'Launch Montreal', Arial, sans-serif;
+  pointer-events: none;
+}
+.launch-brand-grid {
+  display: grid;
+  grid-template-columns: 144px max-content;
+  column-gap: 40px;
+  align-items: center;
+}
+.launch-brand-logo {
+  display: block;
+  width: 144px;
+  height: 144px;
+}
+.launch-brand-title-window {
+  overflow: hidden;
+  padding-right: 8px;
+}
+.launch-brand-title {
+  font-weight: 700;
+  font-size: 156px;
+  line-height: 1;
+  letter-spacing: -5px;
+}
+.launch-brand-url {
+  position: absolute;
+  bottom: 64px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  margin: 0;
+  color: #9c998f;
+  font-size: 27px;
+  font-weight: 500;
+  letter-spacing: -0.3px;
+}
+
+/* Keep the existing heading stable while its whole UI surface moves offscreen. */
+.launch-filming .showcase-title-morph > * {
+  display: none !important;
+}
+.launch-filming .showcase-title-morph::after {
+  content: var(--launch-title, 'Earth');
+  display: block;
+  color: var(--showcase-title-top);
+}
+
+.launch-sky iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
